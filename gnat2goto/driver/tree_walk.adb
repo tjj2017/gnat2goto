@@ -1866,10 +1866,10 @@ package body Tree_Walk is
       Put_Line ("Entity is a type");
 
       --  If this is the full_type_declaration of a previous
-      --  incomplete_type_declaration then the Incomplete_View of the
-      --  declaration will be present and the
+      --  private_type_declaration or incomplete_type_declaration then the
+      --  Incomplete_View of the declaration will be present and the
       --  full_type_declaration will have been registered when its
-      --  incomplete_type_declaration was processed.
+      --  private or incomplete_type_declaration was processed.
       --  If the Incomplete_View is not present then the full_type_declaration
       --  has to be registered
       if not Present (Incomplete_View (N))
@@ -2295,24 +2295,35 @@ package body Tree_Walk is
    begin
       if Is_Incomplete_Or_Private_Type (Entity) then
          Put_Line ("Should be processing an incomplete_type_declaration "
-           & Type_Name);
+                   & Type_Name);
          Print_Node_Briefly (N);
          if Is_Type (Entity) then
-            Put_Line ("Full declaration is at ");
-            Print_Node_Briefly (Etype (Full_View (Entity)));
-            Put_Line ("This should be the full type dec:");
-            Print_Node_Briefly (Declaration_Node (Full_View (Entity)));
-            if Nkind (Declaration_Node (Full_View_Entity)) =
-              N_Full_Type_Declaration
-            then
-               --  The full_type_declaration corresponding to the
-               --  incomplete_type_declaration
-               --  register its full view.
-               Register_Type_Declaration
-                 (Declaration_Node (Full_View_Entity), Full_View_Entity);
-            else
-               Put_Line ("Not a full type declaration_node");
-            end if;
+            declare
+               --   If an incomplete_type_declaration is completed by a
+               --   private_type_declaration, then its Full_View
+               --   is given by the Full_View of the private_type_declaration.
+               --   It is just the Full_View_Entity
+               The_Full_View : constant Entity_Id :=
+                 (if not Is_Private_Type (Full_View_Entity)
+                  then Full_View_Entity
+                  else Full_View (Full_View_Entity));
+            begin
+               Put_Line ("Full declaration is at ");
+               Print_Node_Briefly (Etype (The_Full_View));
+               Put_Line ("This should be the full type dec:");
+               Print_Node_Briefly (Declaration_Node (The_Full_View));
+               if Nkind (Declaration_Node (The_Full_View)) =
+                 N_Full_Type_Declaration
+               then
+                  --  The full_type_declaration corresponding to the
+                  --  private or incomplete_type_declaration
+                  --  register its full view.
+                  Register_Type_Declaration
+                    (Declaration_Node (The_Full_View), The_Full_View);
+               else
+                  Put_Line ("Not a full type declaration_node");
+               end if;
+            end;
 
          else
             Put_Line ("Can't find its full declaration");
@@ -5147,6 +5158,9 @@ package body Tree_Walk is
          when N_Incomplete_Type_Declaration =>
             Do_Incomplete_Type_Declaration (N);
 
+      --   when N_Private_Type_Declaration =>
+      --      Do_Private_Type_Declaration (N);
+      --
          when N_Subtype_Declaration =>
             Do_Subtype_Declaration (N);
 
