@@ -235,7 +235,10 @@ package body Tree_Walk is
    with Pre => Nkind (N) = N_Package_Declaration;
 
    procedure Do_Package_Specification (N : Node_Id)
-   with Pre => Nkind (N) = N_Package_Specification;
+     with Pre => Nkind (N) = N_Package_Specification;
+
+   procedure Do_Private_Type_Declaration (N : Node_Id)
+   with Pre => Nkind (N) = N_Private_Type_Declaration;
 
    function Do_Procedure_Call_Statement (N : Node_Id) return Irep
    with Pre  => Nkind (N) = N_Procedure_Call_Statement,
@@ -418,7 +421,8 @@ package body Tree_Walk is
    procedure Register_Type_Declaration (N : Node_Id; E : Entity_Id)
    with Pre => Nkind (N) = N_Full_Type_Declaration;
    --  Common procedure for registering non-anonymous type declarations.
-   --  Called by Do_Full_Type_Declaration and Do_Incomplete_Type_Declaraion
+   --  Called by Do_Full_Type_Declaration, Do_Private_Type_Declaration
+   --  and Do_Incomplete_Type_Declaraion
 
    procedure Remove_Entity_Substitution (E : Entity_Id);
 
@@ -1867,18 +1871,21 @@ package body Tree_Walk is
 
       --  If this is the full_type_declaration of a previous
       --  private_type_declaration or incomplete_type_declaration then the
+      --  either it will have a previous private declaration or an
       --  Incomplete_View of the declaration will be present and the
       --  full_type_declaration will have been registered when its
       --  private or incomplete_type_declaration was processed.
-      --  If the Incomplete_View is not present then the full_type_declaration
-      --  has to be registered
-      if not Present (Incomplete_View (N))
+      --  If it has no private declaration or the Incomplete_View is not
+      --  present then the full_type_declaration has to be registered
+      if not (Has_Private_Declaration (E)
+              or else Present (Incomplete_View (N)))
       then
          Put_Line ("We are going to do the dec");
          Put_Line ("full_type_declaration with no incomplete_view");
          Register_Type_Declaration (N, E);
       else
-         Put_Line ("Already registered from incomplete type");
+         Put_Line
+           ("Already registered from private or incomplete declaration");
       end if;
 
    end Do_Full_Type_Declaration;
@@ -2293,43 +2300,45 @@ package body Tree_Walk is
       Type_Name : constant String := To_String
         (To_Unbounded_String (Unique_Name (Entity)));
    begin
-      if Is_Incomplete_Or_Private_Type (Entity) then
+      if Is_Incomplete_Type (Entity) then
          Put_Line ("Should be processing an incomplete_type_declaration "
                    & Type_Name);
          Print_Node_Briefly (N);
-         if Is_Type (Entity) then
-            declare
-               --   If an incomplete_type_declaration is completed by a
-               --   private_type_declaration, then its Full_View
-               --   is given by the Full_View of the private_type_declaration.
-               --   It is just the Full_View_Entity
-               The_Full_View : constant Entity_Id :=
-                 (if not Is_Private_Type (Full_View_Entity)
-                  then Full_View_Entity
-                  else Full_View (Full_View_Entity));
-            begin
-               Put_Line ("Full declaration is at ");
-               Print_Node_Briefly (Etype (The_Full_View));
-               Put_Line ("This should be the full type dec:");
-               Print_Node_Briefly (Declaration_Node (The_Full_View));
-               if Nkind (Declaration_Node (The_Full_View)) =
-                 N_Full_Type_Declaration
-               then
-                  --  The full_type_declaration corresponding to the
-                  --  private or incomplete_type_declaration
-                  --  register its full view.
-                  Register_Type_Declaration
-                    (Declaration_Node (The_Full_View), The_Full_View);
-               else
-                  Put_Line ("Not a full type declaration_node");
-               end if;
-            end;
-
+         --   If an incomplete_type_declaration is completed by a
+         --   private_type_declaration, then its Full_View
+         --   is given by the Full_View of the private_type_declaration.
+         --   Process it as a private_type_declaration
+         if not Is_Private_Type (Full_View_Entity) then
+            Put_Line ("Full declaration is at ");
+            Print_Node_Briefly (Etype (Full_View_Entity));
+            Put_Line ("This should be the full type dec:");
+            Print_Node_Briefly (Declaration_Node (Full_View_Entity));
+            if Nkind (Declaration_Node (Full_View_Entity)) =
+              N_Full_Type_Declaration
+            then
+               --  The full_type_declaration corresponding to the
+               --  incomplete_type_declaration is Full_View_Entity
+               --  register the full view in the symbol_table.
+               Register_Type_Declaration
+                 (Declaration_Node (Full_View_Entity), Full_View_Entity);
+            else
+               Do_Private_Type_Declaration
+                 (Declaration_Node (Full_View_Entity));
+            end if;
          else
-            Put_Line ("Can't find its full declaration");
+
+            Report_Unhandled_Node_Empty
+              (Declaration_Node (Full_View_Entity),
+               "Do_Incomplete_Type_Declaration",
+               "Full view of incomplete_type_declaration " &
+                 "Does not yield a full_type_declaration node");
          end if;
+
       else
-         Put_Line ("Entity is not an incomplete_type_declaration");
+         Report_Unhandled_Node_Empty
+           (N,
+            "Do_Private_Type_Declaration",
+            "The node is not a incomplete type");
       end if;
 
    end Do_Incomplete_Type_Declaration;
@@ -3839,6 +3848,68 @@ package body Tree_Walk is
    end Do_Package_Specification;
 
    ---------------------------------
+   -- Do_Private_Type_Declaration --
+   ---------------------------------
+
+   procedure Do_Private_Type_Declaration (N : Node_Id) is
+      Entity : constant Entity_Id := Defining_Identifier (N);
+      --  The full view of a private_type_declaration is obtained
+      --  by calling the Full_View function.  As rthe compiler has completed
+      --  semantic analysis before invoking the gnat to goto translation
+      --  all private_type_declarations should have a full view.
+      Full_View_Entity : constant Entity_Id := Full_View (Entity);
+      Type_Name : constant String := To_String
+        (To_Unbounded_String (Unique_Name (Entity)));
+   begin
+      if Is_Private_Type (Entity) then
+         Put_Line ("Should be processing a private_type_declaration "
+                   & Type_Name);
+         Print_Node_Briefly (N);
+         --  At the moment tagged types and abstract types are not supported.
+         --  Limited types should be ok as limiting a type only applies
+         --  constraints on its use within an Ada program.  The gnat
+         --  front-end checks that these constraints are maintained by
+         --  the code being analysed.
+         if Is_Abstract_Type (Entity) then
+            Warn_Unhandled_Construct (Declaration, "abstract_type");
+            return;
+         elsif Is_Tagged_Type (Entity) then
+            Warn_Unhandled_Construct (Declaration, "tagged_type");
+            return;
+         end if;
+         --  The private_type_declaration is neither tagged or abstract.
+         --  The Full_View of the declaratin will have been processed by the
+         --  gnat front-end and will be Full_View_Entity.
+         Put_Line ("Full declaration is at ");
+         Print_Node_Briefly (Etype (Full_View_Entity));
+         Put_Line ("This should be the full view of the private dec:");
+         Print_Node_Briefly (Declaration_Node (Full_View_Entity));
+         if Nkind (Declaration_Node (Full_View_Entity)) =
+           N_Full_Type_Declaration
+         then
+            --  The full_type_declaration corresponding to the
+            --  private_type_declaration is Full_View_Entity
+            --  register the full view in the symbol table.
+            Register_Type_Declaration
+              (Declaration_Node (Full_View_Entity), Full_View_Entity);
+         else
+            Report_Unhandled_Node_Empty
+              (Declaration_Node (Full_View_Entity),
+               "Do_Private_Type_Declaration",
+               "Full view of private_type_declaration " &
+               "Does not yield a full_type_declaration node");
+         end if;
+
+      else
+         Report_Unhandled_Node_Empty
+              (N,
+               "Do_Private_Type_Declaration",
+               "The node is not a private entity");
+      end if;
+
+   end Do_Private_Type_Declaration;
+
+   ---------------------------------
    -- Do_Procedure_Call_Statement --
    ---------------------------------
 
@@ -5158,9 +5229,9 @@ package body Tree_Walk is
          when N_Incomplete_Type_Declaration =>
             Do_Incomplete_Type_Declaration (N);
 
-      --   when N_Private_Type_Declaration =>
-      --      Do_Private_Type_Declaration (N);
-      --
+         when N_Private_Type_Declaration =>
+            Do_Private_Type_Declaration (N);
+
          when N_Subtype_Declaration =>
             Do_Subtype_Declaration (N);
 
