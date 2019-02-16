@@ -2293,7 +2293,7 @@ package body Tree_Walk is
    procedure Do_Incomplete_Type_Declaration (N : Node_Id) is
       Entity : constant Entity_Id := Defining_Identifier (N);
       --  The full view of an incomplete_type_declaration is obtained
-      --  by calling the Full_View function.  As rthe compiler has completed
+      --  by calling the Full_View function.  As the compiler has completed
       --  semantic analysis before invoking the gnat to goto translation
       --  all incomplete_type_declarations should have a full view.
       Full_View_Entity : constant Entity_Id := Full_View (Entity);
