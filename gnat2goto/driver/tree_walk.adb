@@ -2292,6 +2292,10 @@ package body Tree_Walk is
 
    procedure Do_Incomplete_Type_Declaration (N : Node_Id) is
       Entity : constant Entity_Id := Defining_Identifier (N);
+      --  Only complete types should be inserted in the symbol table.
+      --  If an incomplete type declaration is inserted it will prevent
+      --  the full declaration being entered into the symbol talble.
+      --
       --  The full view of an incomplete_type_declaration is obtained
       --  by calling the Full_View function.  As the compiler has completed
       --  semantic analysis before invoking the gnat to goto translation
@@ -2304,10 +2308,9 @@ package body Tree_Walk is
          Put_Line ("Should be processing an incomplete_type_declaration "
                    & Type_Name);
          Print_Node_Briefly (N);
-         --   If an incomplete_type_declaration is completed by a
-         --   private_type_declaration, then its Full_View
-         --   is given by the Full_View of the private_type_declaration.
-         --   Process it as a private_type_declaration
+         --   If the incomplete_typ_declaration is completed by a
+         --   private_type_declaration, the private_type_declaration
+         --   has to be processed to obtain the full view of the type.
          if not Is_Private_Type (Full_View_Entity) then
             Put_Line ("Full declaration is at ");
             Print_Node_Briefly (Etype (Full_View_Entity));
@@ -2322,22 +2325,21 @@ package body Tree_Walk is
                Register_Type_Declaration
                  (Declaration_Node (Full_View_Entity), Full_View_Entity);
             else
-               Do_Private_Type_Declaration
-                 (Declaration_Node (Full_View_Entity));
+               Report_Unhandled_Node_Empty
+                 (Declaration_Node (Full_View_Entity),
+                  "Do_Incomplete_Type_Declaration",
+                  "Full view of incomplete_type_declaration " &
+                    "Does not yield a full_type_declaration node");
             end if;
          else
-
-            Report_Unhandled_Node_Empty
-              (Declaration_Node (Full_View_Entity),
-               "Do_Incomplete_Type_Declaration",
-               "Full view of incomplete_type_declaration " &
-                 "Does not yield a full_type_declaration node");
+            Do_Private_Type_Declaration
+              (Declaration_Node (Full_View_Entity));
          end if;
 
       else
          Report_Unhandled_Node_Empty
            (N,
-            "Do_Private_Type_Declaration",
+            "Do_Incomplete_Type_Declaration",
             "The node is not a incomplete type");
       end if;
 
@@ -3853,8 +3855,11 @@ package body Tree_Walk is
 
    procedure Do_Private_Type_Declaration (N : Node_Id) is
       Entity : constant Entity_Id := Defining_Identifier (N);
+      --  A partial view of a type declaration must not be inserted into
+      --  the symbol table.
+      --
       --  The full view of a private_type_declaration is obtained
-      --  by calling the Full_View function.  As rthe compiler has completed
+      --  by calling the Full_View function.  As the compiler has completed
       --  semantic analysis before invoking the gnat to goto translation
       --  all private_type_declarations should have a full view.
       Full_View_Entity : constant Entity_Id := Full_View (Entity);
@@ -3880,6 +3885,16 @@ package body Tree_Walk is
          --  The private_type_declaration is neither tagged or abstract.
          --  The Full_View of the declaratin will have been processed by the
          --  gnat front-end and will be Full_View_Entity.
+
+         --  A private_type_declaration may be the completion of an
+         --  incomplete_type_declaration.  The processing of the
+         --  incomplete_type_declaration will have inserted (registered) the
+         --  full view of the private_type_declartion into the table already.
+         --  It is not obvious how to check that the private_type_declaration
+         --  is a completion of an incomplete_type_declaration from the tree
+         --  but it does not matter because its prior existence in the symbol
+         --  will prevent it being re-inserted through a second registration.
+
          Put_Line ("Full declaration is at ");
          Print_Node_Briefly (Etype (Full_View_Entity));
          Put_Line ("This should be the full view of the private dec:");
@@ -4554,6 +4569,7 @@ package body Tree_Walk is
       if not Symbol_Maps.Contains (Global_Symbol_Table, New_Type_Name) then
          Symbol_Maps.Insert (Global_Symbol_Table, New_Type_Name,
                              New_Type_Symbol);
+         Put_Line ("Type declaration inserted into symbol table");
       end if;
    end Do_Type_Declaration;
 
