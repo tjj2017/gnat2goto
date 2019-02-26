@@ -3556,6 +3556,22 @@ package body Tree_Walk is
 
       if Has_Init_Expression (N) then
          Init_Expr := Do_Expression (Expression (N));
+      elsif Constant_Present (N) then
+         --  A constant declaration without an initialisation must be a
+         --  deferred_constant.  Unless the pragma Import is applied to the
+         --  constant declaration it must have a completion which is a
+         --  full constant declaration and will have an
+         --  initialisation expression.
+         if not Has_Convention_Pragma (Defined) then
+            Put_Line ("A deferred constant with a completion");
+            --  A pragma Import is not associated.
+            --  Obtain the initialisation expression from the declaration of
+            --  the full view (the completion).
+            Init_Expr := Do_Expression
+              (Expression (Declaration_Node (Full_View (Defined))));
+         else
+            Put_Line ("A deferred constant with a pragma Import");
+         end if;
       elsif Needs_Default_Initialisation (Etype (Defined)) then
          declare
             Defn : constant Node_Id := Object_Definition (N);
