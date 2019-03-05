@@ -213,6 +213,10 @@ package body Tree_Walk is
    with Pre => Nkind (N) = N_Object_Declaration
                  and then Kind (Block) = I_Code_Block;
 
+   procedure Do_Object_Declaration_Non_Constant (N : Node_Id; Block : Irep)
+   with Pre => Nkind (N) = N_Object_Declaration
+                 and then Kind (Block) = I_Code_Block;
+
    procedure Do_Pragma (N : Node_Id; Block : Irep)
    with Pre => Nkind (N) = N_Pragma
      and then Kind (Block) = I_Code_Block; -- FIXME: what about decls?
@@ -3257,6 +3261,101 @@ package body Tree_Walk is
    ---------------------------
 
    procedure Do_Object_Declaration (N : Node_Id; Block : Irep) is
+   begin
+      --  First check for object declarations which are not constants
+      if not Constant_Present (N) then
+         --  Not any sort of constant.
+         --  Process non-constant object_declaration.
+         Put_Line ("Not a constant declaration");
+         Do_Object_Declaration_Non_Constant (N, Block);
+         return;
+      end if;
+
+      --  Check whether this is a completion of a deferred constant.
+      --  TODO put in check
+
+      --  The declaration is of constant which may be deferred.
+      declare
+         Entity : constant Entity_Id := Defining_Identifier (N);
+         --  The full view of a deferred constant is obtained
+         --  by calling the Full_View function.  As the gnat front-end
+         --  compiler has completed semantic analysis before invoking the
+         --  gnat to goto translation all object_declarations that are
+         --  deferred constants should have a full view unless the
+         --  declaration has the pragma Import applied.
+         Full_View_Entity : constant Entity_Id := Full_View (Entity);
+
+         procedure Convert_To_Parameterless_Function
+           (N : Node_Id; Block : Irep);
+         --  Constants which have a static initialisation expression
+         --  may be represented by parameterless functions.
+
+         procedure Convert_To_Parameterless_Function
+           (N : Node_Id; Block : Irep) is
+         begin
+            --  For the moment just treat it as a variable
+            Do_Object_Declaration_Non_Constant (N, Block);
+         end Convert_To_Parameterless_Function;
+
+         procedure Do_Constant_Declaration (N : Node_Id; Block : Irep);
+         --  Process an object_declaration that is a constant.
+
+         procedure Do_Constant_Declaration (N : Node_Id; Block : Irep) is
+         begin
+            if Is_Static_Expression (Expression (N)) then
+               --  The constant is intialised by a static expression.
+               --  It can be represented by a parameterless function
+               --  which can be entered into the symbol table.
+               Put_Line ("Constant declaration set by static expression");
+               Convert_To_Parameterless_Function (N, Block);
+            else
+               --  The initalisation expression is not static and so the value
+               --  of the expression depends on evaluation during execution.
+               --  It has to be treated as a read-only variable and
+               --  processed as a non-constant object_declaration.
+               Put_Line ("It is a read-only variable");
+               Do_Object_Declaration_Non_Constant (N, Block);
+            end if;
+         end Do_Constant_Declaration;
+
+      begin
+         if not Has_Init_Expression (N) then
+            --  The constant declaration has no initialisation expression so
+            --  it is a deferred constant declaration.
+            Put_Line ("Deferred constant declaration");
+            if not Present (Full_View_Entity) then
+               --  The delaration is a deferred constant associated
+               --  a pragma Import.
+               --  The value is not known - treat it as a read-only variable.
+               Put_Line ("pargma Import applied");
+               Do_Object_Declaration_Non_Constant (N, Block);
+            else
+               --  The declaration is a deferred constant with a completion.
+               --  The completion must be a full constant declaration given
+               --  by the full view of the entity.
+               --  Process the declaration node of the full view.
+               Put_Line ("Deferred constant with completion");
+               Do_Constant_Declaration (Declaration_Node (Full_View_Entity),
+                                        Block);
+
+               --  TODO Put a dummy entry in the symbol
+            end if;
+
+         else
+            --  The declaration is not a deferred constant.
+            --  The full constant declaration is at node N.
+            Put_Line ("Not a deferred constant");
+            Do_Constant_Declaration (N, Block);
+         end if;
+      end;
+
+   end Do_Object_Declaration;
+
+   ----------------------------------------
+   -- Do_Object_Declaration_Non_Constant --
+   ----------------------------------------
+
+   procedure Do_Object_Declaration_Non_Constant (N : Node_Id; Block : Irep) is
       Defined : constant Entity_Id := Defining_Identifier (N);
       Id   : constant Irep := Do_Defining_Identifier (Defined);
       Decl : constant Irep := New_Irep (I_Code_Decl);
@@ -3286,7 +3385,7 @@ package body Tree_Walk is
          if Nkind (Record_Def) /= N_Record_Definition and then
            Nkind (Record_Def) /= N_Variant
          then
-            Report_Unhandled_Node_Empty (Do_Object_Declaration.N,
+            Report_Unhandled_Node_Empty (N,
                                          "Do_Object_Declaration",
                                          "Record definition of wrong nkind");
             return False;
@@ -3556,22 +3655,6 @@ package body Tree_Walk is
 
       if Has_Init_Expression (N) then
          Init_Expr := Do_Expression (Expression (N));
-      elsif Constant_Present (N) then
-         --  A constant declaration without an initialisation must be a
-         --  deferred_constant.  Unless the pragma Import is applied to the
-         --  constant declaration it must have a completion which is a
-         --  full constant declaration and will have an
-         --  initialisation expression.
-         if not Has_Convention_Pragma (Defined) then
-            Put_Line ("A deferred constant with a completion");
-            --  A pragma Import is not associated.
-            --  Obtain the initialisation expression from the declaration of
-            --  the full view (the completion).
-            Init_Expr := Do_Expression
-              (Expression (Declaration_Node (Full_View (Defined))));
-         else
-            Put_Line ("A deferred constant with a pragma Import");
-         end if;
       elsif Needs_Default_Initialisation (Etype (Defined)) then
          declare
             Defn : constant Node_Id := Object_Definition (N);
@@ -3590,7 +3673,7 @@ package body Tree_Walk is
                                              Rhs => Init_Expr,
                                              Source_Location => Sloc (N)));
       end if;
-   end Do_Object_Declaration;
+   end Do_Object_Declaration_Non_Constant;
 
    -------------------------
    --     Do_Op_Not       --
