@@ -3261,6 +3261,8 @@ package body Tree_Walk is
    ---------------------------
 
    procedure Do_Object_Declaration (N : Node_Id; Block : Irep) is
+      Obj_Id : constant Symbol_Id :=
+        Intern (Unique_Name (Defining_Identifier (N)));
    begin
       --  First check for object declarations which are not constants
       if not Constant_Present (N) then
@@ -3272,14 +3274,17 @@ package body Tree_Walk is
       end if;
 
       --  Check whether this is a completion of a deferred constant.
-      --  TODO put in check
+      if Global_Symbol_Table.Contains (Obj_Id) then
+         Put_Line ("Deferred constant already processed");
+         return;
+      end if;
 
       --  The declaration is of constant which may be deferred.
       declare
          Entity : constant Entity_Id := Defining_Identifier (N);
          --  The full view of a deferred constant is obtained
          --  by calling the Full_View function.  As the gnat front-end
-         --  compiler has completed semantic analysis before invoking the
+         --  has completed semantic analysis before invoking the
          --  gnat to goto translation all object_declarations that are
          --  deferred constants should have a full view unless the
          --  declaration has the pragma Import applied.
@@ -3290,6 +3295,9 @@ package body Tree_Walk is
          --  Constants which have a static initialisation expression
          --  may be represented by parameterless functions.
 
+         procedure Do_Constant_Declaration (N : Node_Id; Block : Irep);
+         --  Process an object_declaration that is a constant.
+
          procedure Convert_To_Parameterless_Function
            (N : Node_Id; Block : Irep) is
          begin
@@ -3297,8 +3305,9 @@ package body Tree_Walk is
             Do_Object_Declaration_Non_Constant (N, Block);
          end Convert_To_Parameterless_Function;
 
-         procedure Do_Constant_Declaration (N : Node_Id; Block : Irep);
-         --  Process an object_declaration that is a constant.
+         procedure Register_Constant_In_Symbol_Table (N : Node_Id);
+         --  Adds a dummy entry to the symbol table to register that a
+         --  constant has already been processed.
 
          procedure Do_Constant_Declaration (N : Node_Id; Block : Irep) is
          begin
@@ -3315,9 +3324,27 @@ package body Tree_Walk is
                --  processed as a non-constant object_declaration.
                Put_Line ("It is a read-only variable");
                Do_Object_Declaration_Non_Constant (N, Block);
+
+               Register_Constant_In_Symbol_Table (N);
             end if;
          end Do_Constant_Declaration;
 
+         procedure Register_Constant_In_Symbol_Table (N : Node_Id) is
+            Constant_Name : constant Symbol_Id :=
+              Intern (Unique_Name (Defining_Identifier (N)));
+            Constant_Symbol : Symbol;
+         begin
+            Constant_Symbol.Name := Constant_Name;
+            Constant_Symbol.BaseName   := Constant_Name;
+            Constant_Symbol.PrettyName := Constant_Name;
+            Constant_Symbol.SymType    := Make_Nil (Sloc (N));
+            Constant_Symbol.Mode       := Intern ("C");
+            Constant_Symbol.Value      := Make_Nil (Sloc (N));
+
+            Put_Line ("Inserting deferred constant dec into symbol table");
+            Global_Symbol_Table.Insert (Constant_Name, Constant_Symbol);
+
+         end Register_Constant_In_Symbol_Table;
       begin
          if not Has_Init_Expression (N) then
             --  The constant declaration has no initialisation expression so
@@ -3337,8 +3364,6 @@ package body Tree_Walk is
                Put_Line ("Deferred constant with completion");
                Do_Constant_Declaration (Declaration_Node (Full_View_Entity),
                                         Block);
-
-               --  TODO Put a dummy entry in the symbol
             end if;
 
          else
