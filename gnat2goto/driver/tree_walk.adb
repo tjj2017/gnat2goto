@@ -3290,19 +3290,53 @@ package body Tree_Walk is
          --  declaration has the pragma Import applied.
          Full_View_Entity : constant Entity_Id := Full_View (Entity);
 
-         procedure Convert_To_Parameterless_Function
-           (N : Node_Id; Block : Irep);
+         procedure Convert_To_Parameterless_Function (N : Node_Id);
          --  Constants which have a static initialisation expression
          --  may be represented by parameterless functions.
 
          procedure Do_Constant_Declaration (N : Node_Id; Block : Irep);
          --  Process an object_declaration that is a constant.
 
-         procedure Convert_To_Parameterless_Function
-           (N : Node_Id; Block : Irep) is
+         procedure Convert_To_Parameterless_Function (N : Node_Id) is
+            Result : constant Irep := New_Irep (I_Code_Block);
+            Return_Value : constant Irep := New_Irep (I_Code_Return);
+            Return_Type : constant Irep := New_Irep (I_Code_Block);
+            Function_Name : constant Symbol_Id :=
+              Intern (Unique_Name (Defining_Identifier (N)));
+            --  The parameter list will be empty but set it in case CBMC
+            --  expects to find a possibly empty list
+--            Empty_Param_List : constant Irep := New_Irep (I_Parameter_List);
+
+            Function_Symbol : Symbol;
          begin
-            --  For the moment just treat it as a variable
-            Do_Object_Declaration_Non_Constant (N, Block);
+            Put_Line ("Converting static constant to parameterless function");
+            --  Set the return value of the function to the
+            --  static expression of the constant initialisation
+            Set_Source_Location (Return_Value, Sloc (N));
+            Set_Return_Value (Return_Value, Do_Expression (Expression (N)));
+
+            --  The result of the function is a I_Code_Block with a single
+            --  return expression
+            Append_Op (Result, Return_Value);
+
+            Print_Node_Briefly (N);
+            --  Set the type of the function to that of the constant
+            --  Set_Return_Type (Return_Type,
+            --                 Do_Type_Reference
+            --                 (Defining_Identifier (Object_Definition (N))));
+            Print_Node_Briefly (Etype (Expression ((N))));
+            Print_Node_Briefly (Object_Definition (N));
+            --  Set_Parameters (Return_Type, Empty_Param_List);
+
+            --  Register the constant as a parameterless function
+            Function_Symbol.Name       := Function_Name;
+            Function_Symbol.BaseName   := Function_Name;
+            Function_Symbol.PrettyName := Function_Name;
+            Function_Symbol.SymType    := Return_Type;
+            Function_Symbol.Mode       := Intern ("C");
+            Function_Symbol.Value      := Result;
+
+            Global_Symbol_Table.Insert (Function_Name, Function_Symbol);
          end Convert_To_Parameterless_Function;
 
          procedure Register_Constant_In_Symbol_Table (N : Node_Id);
@@ -3316,7 +3350,7 @@ package body Tree_Walk is
                --  It can be represented by a parameterless function
                --  which can be entered into the symbol table.
                Put_Line ("Constant declaration set by static expression");
-               Convert_To_Parameterless_Function (N, Block);
+               Convert_To_Parameterless_Function (N);
             else
                --  The initalisation expression is not static and so the value
                --  of the expression depends on evaluation during execution.
