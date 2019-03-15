@@ -3300,12 +3300,12 @@ package body Tree_Walk is
          procedure Convert_To_Parameterless_Function (N : Node_Id) is
             Result : constant Irep := New_Irep (I_Code_Block);
             Return_Value : constant Irep := New_Irep (I_Code_Return);
-            Return_Type : constant Irep := New_Irep (I_Code_Block);
+            Return_Type : constant Irep := New_Irep (I_Code_Type);
             Function_Name : constant Symbol_Id :=
               Intern (Unique_Name (Defining_Identifier (N)));
             --  The parameter list will be empty but set it in case CBMC
             --  expects to find a possibly empty list
---            Empty_Param_List : constant Irep := New_Irep (I_Parameter_List);
+            Empty_Param_List : constant Irep := New_Irep (I_Parameter_List);
 
             Function_Symbol : Symbol;
          begin
@@ -3320,13 +3320,15 @@ package body Tree_Walk is
             Append_Op (Result, Return_Value);
 
             Print_Node_Briefly (N);
+
             --  Set the type of the function to that of the constant
-            --  Set_Return_Type (Return_Type,
-            --                 Do_Type_Reference
-            --                 (Defining_Identifier (Object_Definition (N))));
+            Set_Return_Type (Return_Type,
+                             Do_Type_Reference
+                             (Etype (Object_Definition (N))));
             Print_Node_Briefly (Etype (Expression ((N))));
             Print_Node_Briefly (Object_Definition (N));
-            --  Set_Parameters (Return_Type, Empty_Param_List);
+            Print_Node_Briefly (Etype (Object_Definition (N)));
+            Set_Parameters (Return_Type, Empty_Param_List);
 
             --  Register the constant as a parameterless function
             Function_Symbol.Name       := Function_Name;
@@ -4521,7 +4523,10 @@ package body Tree_Walk is
       Param_List : constant Irep := New_Irep (I_Parameter_List);
       Param_Iter : Node_Id := First (Parameter_Specifications (N));
    begin
+      Put_Line ("In Do_Subprogram_Specification");
+      Put_Line ("No Parameters so far ...");
       while Present (Param_Iter) loop
+         Put_Line ("Add a parameter");
          declare
             Is_Out : constant Boolean := Out_Present (Param_Iter);
 
@@ -4563,6 +4568,17 @@ package body Tree_Walk is
             Next (Param_Iter);
          end;
       end loop;
+
+      if Nkind (N) = N_Function_Specification then
+         Put_Line ("Function specification");
+         Put_Line ("Result_Definition");
+         Print_Node_Briefly (Result_Definition (N));
+         Put_Line ("Etype");
+         Print_Node_Briefly (Etype (Result_Definition (N)));
+      else
+         Put_Line ("Procedure specification");
+      end if;
+
       Set_Return_Type
         (Ret,
          (if Nkind (N) = N_Function_Specification
