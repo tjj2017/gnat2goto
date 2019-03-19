@@ -535,7 +535,10 @@ package body Tree_Walk is
 
    procedure Declare_Itype (Ty : Entity_Id) is
    begin
+      Put_Line ("In Declare_Itype");
       if Present (Ty) and then Is_Itype (Ty) then
+         Put_Line ("Has a Type");
+         Print_Node_Briefly (Ty);
          declare
             Ty_Name : constant Symbol_Id := Intern (Unique_Name (Ty));
             Ty_Symbol : Symbol;
@@ -544,6 +547,7 @@ package body Tree_Walk is
          begin
             Global_Symbol_Table.Insert (Ty_Name, Ty_Symbol, Ty_Cursor, Ty_New);
             if Ty_New then
+               Put_Line ("Added to Table");
                declare
                   New_Type : constant Irep := Do_Itype_Definition (Ty);
                   New_Symbol : constant Symbol :=
@@ -1937,6 +1941,8 @@ package body Tree_Walk is
 
    function Do_Expression (N : Node_Id) return Irep is
    begin
+      Put_Line ("In Do_Expression");
+      Print_Node_Briefly (N);
       Declare_Itype (Etype (N));
       case Nkind (N) is
          when N_Identifier           => return Do_Identifier (N);
@@ -2311,7 +2317,41 @@ package body Tree_Walk is
       E : constant Entity_Id := Entity (N);
       Subst_Cursor : constant Identifier_Maps.Cursor :=
         Identifier_Substitution_Map.Find (E);
+      Dec_Node : constant Node_Id := Declaration_Node (E);
    begin
+      Put_Line ("In Do Identifier");
+      Print_Node_Briefly (Dec_Node);
+      if Constant_Present (Dec_Node) then
+         Put_Line ("It's a constant");
+         if Has_Init_Expression (Dec_Node) then
+            Put_Line ("Has an init expression");
+            if Is_Static_Expression (Expression (Dec_Node)) then
+               Put_Line ("It's a static expression");
+            end if;
+         else
+            if Present (Full_View (Defining_Identifier (Dec_Node))) then
+               Put_Line ("It is a deferred constant - full view");
+               declare
+                  FV_Dec_Node : constant Node_Id :=
+                    Declaration_Node (Full_View
+                                      (Defining_Identifier (Dec_Node)));
+               begin
+
+                  Print_Node_Briefly (FV_Dec_Node);
+                  if Has_Init_Expression (FV_Dec_Node) then
+                     Put_Line ("Has an init expression");
+                     if Is_Static_Expression (Expression (FV_Dec_Node)) then
+                        Put_Line ("It's a static expression");
+                     end if;
+                  end if;
+
+               end;
+
+            end if;
+
+         end if;
+      end if;
+
       if Identifier_Maps.Has_Element (Subst_Cursor) then
          --  Indicates instead of literally referring to the given
          --  name, we should return some replacement irep. Currently
@@ -2319,6 +2359,8 @@ package body Tree_Walk is
          return Identifier_Maps.Element (Subst_Cursor);
       else
          if Nkind (E) in N_Has_Etype and then (Is_Type (Etype (E))) then
+            Put_Line ("Has type");
+            Print_Node_Briefly (N);
             return Do_Defining_Identifier (E);
          end if;
          Report_Unhandled_Node_Empty (N, "Do_Identifier",
@@ -3298,6 +3340,8 @@ package body Tree_Walk is
          --  Process an object_declaration that is a constant.
 
          procedure Convert_To_Parameterless_Function (N : Node_Id) is
+--            Const_Dec : constant Irep := New_Irep (I_Code_Block);
+            Const_Body : constant Irep := New_Irep (I_Code_Block);
             Result : constant Irep := New_Irep (I_Code_Block);
             Return_Value : constant Irep := New_Irep (I_Code_Return);
             Return_Type : constant Irep := New_Irep (I_Code_Type);
@@ -3310,14 +3354,22 @@ package body Tree_Walk is
             Function_Symbol : Symbol;
          begin
             Put_Line ("Converting static constant to parameterless function");
-            --  Set the return value of the function to the
-            --  static expression of the constant initialisation
-            Set_Source_Location (Return_Value, Sloc (N));
+            --  Set the source location of the constant declaration
+--            Set_Source_Location (Const_Dec, Sloc (N));
+
+            --  Set the source location and return value of the function
+            --  to the static expression of the constant initialisation
+            Set_Source_Location (Return_Value, Sloc (Expression (N)));
             Set_Return_Value (Return_Value, Do_Expression (Expression (N)));
 
-            --  The result of the function is a I_Code_Block with a single
-            --  return expression
-            Append_Op (Result, Return_Value);
+            --  The return expression has to be enclosed within a block
+            Append_Op (Const_Body, Return_Value);
+
+            --  The result of the function is a I_Code_Block with a block
+            --  containing a single return expression
+            --            Append_Op (Const_Dec, Const_Body);
+            Set_Source_Location (Result, Sloc (N));
+            Append_Op (Result, Const_Body);
 
             Print_Node_Briefly (N);
 
