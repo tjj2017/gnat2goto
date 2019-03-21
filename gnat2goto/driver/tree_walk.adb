@@ -2321,15 +2321,26 @@ package body Tree_Walk is
    begin
       Put_Line ("In Do Identifier");
       Print_Node_Briefly (Dec_Node);
+      --  An identifier which is a constant declared with a static expression
+      --  can be replaced by the expression.  This provides CBMC with the value
+      --  of the expression and allows better checking.
+      --  This important for constants that are declared at package level as
+      --  CBMC would otherwise not have their value.
+      --  Note:  This can only be done with static constants otherwise the
+      --  value of the expression could be different each time a subprogram
+      --  is called.
       if  Nkind (Dec_Node) = N_Object_Declaration
         and then Constant_Present (Dec_Node)
       then
          if Has_Init_Expression (Dec_Node)
            and then Is_Static_Expression (Expression (Dec_Node))
          then
+            --  It is a constant with a static expression
             Put_Line ("It's a constant with a static expression");
             return Do_Expression (Expression (Dec_Node));
          elsif Present (Full_View (Defining_Identifier (Dec_Node))) then
+            --  It is a deferred constant - the completion is given by
+            --  the Full_View.
             Put_Line ("It is a deferred constant - full view");
             declare
                FV_Dec_Node : constant Node_Id :=
@@ -2339,6 +2350,8 @@ package body Tree_Walk is
                if Has_Init_Expression (FV_Dec_Node)
                  and then Is_Static_Expression (Expression (FV_Dec_Node))
                then
+                  --  It is a deferred constant with a completion initialised
+                  --  by a static expression.
                   Put_Line ("With a static expression");
                   return Do_Expression (Expression (FV_Dec_Node));
                end if;
