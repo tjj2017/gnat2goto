@@ -213,7 +213,7 @@ package body Tree_Walk is
    with Pre => Nkind (N) = N_Object_Declaration
                  and then Kind (Block) = I_Code_Block;
 
-   procedure Do_Object_Declaration_Non_Constant (N : Node_Id; Block : Irep)
+   procedure Do_Object_Declaration_Full_Declaration (N : Node_Id; Block : Irep)
    with Pre => Nkind (N) = N_Object_Declaration
                  and then Kind (Block) = I_Code_Block;
 
@@ -2317,41 +2317,7 @@ package body Tree_Walk is
       E : constant Entity_Id := Entity (N);
       Subst_Cursor : constant Identifier_Maps.Cursor :=
         Identifier_Substitution_Map.Find (E);
-      Dec_Node : constant Node_Id := Declaration_Node (E);
    begin
-      Put_Line ("In Do Identifier");
-      Print_Node_Briefly (Dec_Node);
-      if Constant_Present (Dec_Node) then
-         Put_Line ("It's a constant");
-         if Has_Init_Expression (Dec_Node) then
-            Put_Line ("Has an init expression");
-            if Is_Static_Expression (Expression (Dec_Node)) then
-               Put_Line ("It's a static expression");
-            end if;
-         else
-            if Present (Full_View (Defining_Identifier (Dec_Node))) then
-               Put_Line ("It is a deferred constant - full view");
-               declare
-                  FV_Dec_Node : constant Node_Id :=
-                    Declaration_Node (Full_View
-                                      (Defining_Identifier (Dec_Node)));
-               begin
-
-                  Print_Node_Briefly (FV_Dec_Node);
-                  if Has_Init_Expression (FV_Dec_Node) then
-                     Put_Line ("Has an init expression");
-                     if Is_Static_Expression (Expression (FV_Dec_Node)) then
-                        Put_Line ("It's a static expression");
-                     end if;
-                  end if;
-
-               end;
-
-            end if;
-
-         end if;
-      end if;
-
       if Identifier_Maps.Has_Element (Subst_Cursor) then
          --  Indicates instead of literally referring to the given
          --  name, we should return some replacement irep. Currently
@@ -3311,164 +3277,77 @@ package body Tree_Walk is
          --  Not any sort of constant.
          --  Process non-constant object_declaration.
          Put_Line ("Not a constant declaration");
-         Do_Object_Declaration_Non_Constant (N, Block);
-         return;
-      end if;
+         Do_Object_Declaration_Full_Declaration (N, Block);
+      elsif --  Check that this isn't a completion of a deferred constant.
+         not Global_Symbol_Table.Contains (Obj_Id)
+      then
+         --  The declaration is of constant which may be deferred.
+         declare
+            Entity : constant Entity_Id := Defining_Identifier (N);
+            --  The full view of a deferred constant is obtained
+            --  by calling the Full_View function.  As the gnat front-end
+            --  has completed semantic analysis before invoking the
+            --  gnat to goto translation all object_declarations that are
+            --  deferred constants should have a full view unless the
+            --  declaration has the pragma Import applied.
+            Full_View_Entity : constant Entity_Id := Full_View (Entity);
 
-      --  Check whether this is a completion of a deferred constant.
-      if Global_Symbol_Table.Contains (Obj_Id) then
-         Put_Line ("Deferred constant already processed");
-         return;
-      end if;
+            procedure Register_Constant_In_Symbol_Table (N : Node_Id);
+            --  Adds a dummy entry to the symbol table to register that a
+            --  constant has already been processed.
 
-      --  The declaration is of constant which may be deferred.
-      declare
-         Entity : constant Entity_Id := Defining_Identifier (N);
-         --  The full view of a deferred constant is obtained
-         --  by calling the Full_View function.  As the gnat front-end
-         --  has completed semantic analysis before invoking the
-         --  gnat to goto translation all object_declarations that are
-         --  deferred constants should have a full view unless the
-         --  declaration has the pragma Import applied.
-         Full_View_Entity : constant Entity_Id := Full_View (Entity);
+            procedure Register_Constant_In_Symbol_Table (N : Node_Id) is
+               Constant_Name : constant Symbol_Id :=
+                 Intern (Unique_Name (Defining_Identifier (N)));
+               Constant_Symbol : Symbol;
+            begin
+               Constant_Symbol.Name := Constant_Name;
+               Constant_Symbol.BaseName   := Constant_Name;
+               Constant_Symbol.PrettyName := Constant_Name;
+               Constant_Symbol.SymType    := Make_Nil (Sloc (N));
+               Constant_Symbol.Mode       := Intern ("C");
+               Constant_Symbol.Value      := Make_Nil (Sloc (N));
 
-         procedure Convert_To_Parameterless_Function (N : Node_Id);
-         --  Constants which have a static initialisation expression
-         --  may be represented by parameterless functions.
+               Put_Line ("Inserting deferred constant dec into symbol table");
+               Global_Symbol_Table.Insert (Constant_Name, Constant_Symbol);
 
-         procedure Do_Constant_Declaration (N : Node_Id; Block : Irep);
-         --  Process an object_declaration that is a constant.
+            end Register_Constant_In_Symbol_Table;
 
-         procedure Convert_To_Parameterless_Function (N : Node_Id) is
---            Const_Dec : constant Irep := New_Irep (I_Code_Block);
-            Const_Body : constant Irep := New_Irep (I_Code_Block);
-            Result : constant Irep := New_Irep (I_Code_Block);
-            Return_Value : constant Irep := New_Irep (I_Code_Return);
-            Return_Type : constant Irep := New_Irep (I_Code_Type);
-            Function_Name : constant Symbol_Id :=
-              Intern (Unique_Name (Defining_Identifier (N)));
-            --  The parameter list will be empty but set it in case CBMC
-            --  expects to find a possibly empty list
-            Empty_Param_List : constant Irep := New_Irep (I_Parameter_List);
-
-            Function_Symbol : Symbol;
          begin
-            Put_Line ("Converting static constant to parameterless function");
-            --  Set the source location of the constant declaration
---            Set_Source_Location (Const_Dec, Sloc (N));
-
-            --  Set the source location and return value of the function
-            --  to the static expression of the constant initialisation
-            Set_Source_Location (Return_Value, Sloc (Expression (N)));
-            Set_Return_Value (Return_Value, Do_Expression (Expression (N)));
-
-            --  The return expression has to be enclosed within a block
-            Append_Op (Const_Body, Return_Value);
-
-            --  The result of the function is a I_Code_Block with a block
-            --  containing a single return expression
-            --            Append_Op (Const_Dec, Const_Body);
-            Set_Source_Location (Result, Sloc (N));
-            Append_Op (Result, Const_Body);
-
-            Print_Node_Briefly (N);
-
-            --  Set the type of the function to that of the constant
-            Set_Return_Type (Return_Type,
-                             Do_Type_Reference
-                             (Etype (Object_Definition (N))));
-            Print_Node_Briefly (Etype (Expression ((N))));
-            Print_Node_Briefly (Object_Definition (N));
-            Print_Node_Briefly (Etype (Object_Definition (N)));
-            Set_Parameters (Return_Type, Empty_Param_List);
-
-            --  Register the constant as a parameterless function
-            Function_Symbol.Name       := Function_Name;
-            Function_Symbol.BaseName   := Function_Name;
-            Function_Symbol.PrettyName := Function_Name;
-            Function_Symbol.SymType    := Return_Type;
-            Function_Symbol.Mode       := Intern ("C");
-            Function_Symbol.Value      := Result;
-
-            Global_Symbol_Table.Insert (Function_Name, Function_Symbol);
-         end Convert_To_Parameterless_Function;
-
-         procedure Register_Constant_In_Symbol_Table (N : Node_Id);
-         --  Adds a dummy entry to the symbol table to register that a
-         --  constant has already been processed.
-
-         procedure Do_Constant_Declaration (N : Node_Id; Block : Irep) is
-         begin
-            if Is_Static_Expression (Expression (N)) then
-               --  The constant is intialised by a static expression.
-               --  It can be represented by a parameterless function
-               --  which can be entered into the symbol table.
-               Put_Line ("Constant declaration set by static expression");
-               Convert_To_Parameterless_Function (N);
-            else
-               --  The initalisation expression is not static and so the value
-               --  of the expression depends on evaluation during execution.
-               --  It has to be treated as a read-only variable and
-               --  processed as a non-constant object_declaration.
-               Put_Line ("It is a read-only variable");
-               Do_Object_Declaration_Non_Constant (N, Block);
-
-               Register_Constant_In_Symbol_Table (N);
-            end if;
-         end Do_Constant_Declaration;
-
-         procedure Register_Constant_In_Symbol_Table (N : Node_Id) is
-            Constant_Name : constant Symbol_Id :=
-              Intern (Unique_Name (Defining_Identifier (N)));
-            Constant_Symbol : Symbol;
-         begin
-            Constant_Symbol.Name := Constant_Name;
-            Constant_Symbol.BaseName   := Constant_Name;
-            Constant_Symbol.PrettyName := Constant_Name;
-            Constant_Symbol.SymType    := Make_Nil (Sloc (N));
-            Constant_Symbol.Mode       := Intern ("C");
-            Constant_Symbol.Value      := Make_Nil (Sloc (N));
-
-            Put_Line ("Inserting deferred constant dec into symbol table");
-            Global_Symbol_Table.Insert (Constant_Name, Constant_Symbol);
-
-         end Register_Constant_In_Symbol_Table;
-      begin
-         if not Has_Init_Expression (N) then
-            --  The constant declaration has no initialisation expression so
-            --  it is a deferred constant declaration.
-            Put_Line ("Deferred constant declaration");
-            if not Present (Full_View_Entity) then
-               --  The delaration is a deferred constant associated
-               --  a pragma Import.
-               --  The value is not known - treat it as a read-only variable.
-               Put_Line ("pargma Import applied");
-               Do_Object_Declaration_Non_Constant (N, Block);
-            else
-               --  The declaration is a deferred constant with a completion.
+            if not Has_Init_Expression (N) and then
+              Present (Full_View_Entity)
+            then
+               --  The constant declaration has no initialisation expression
+               --  so it is a deferred constant declaration with a completion.
                --  The completion must be a full constant declaration given
                --  by the full view of the entity.
-               --  Process the declaration node of the full view.
-               Put_Line ("Deferred constant with completion");
-               Do_Constant_Declaration (Declaration_Node (Full_View_Entity),
-                                        Block);
+               --  Process the declaration node of the full view and
+               --  register it in the symbol table so that it is not
+               --  processed again when the completion is encountered in
+               --  the tree.
+               Put_Line ("Deferred constant declaration with completion");
+               Register_Constant_In_Symbol_Table (N);
+               Do_Object_Declaration_Full_Declaration
+                 (Declaration_Node (Full_View_Entity), Block);
+            else
+               --  The constant declaration is not deferred or has the
+               --  pragma Import applied and its value is defined externally.
+               Put_Line ("Full constant declaration or has Import");
+               Do_Object_Declaration_Full_Declaration (N, Block);
             end if;
-
-         else
-            --  The declaration is not a deferred constant.
-            --  The full constant declaration is at node N.
-            Put_Line ("Not a deferred constant");
-            Do_Constant_Declaration (N, Block);
-         end if;
-      end;
+         end;
+      else
+         Put_Line ("Deferred constant already processed");
+      end if;
 
    end Do_Object_Declaration;
 
-   ----------------------------------------
-   -- Do_Object_Declaration_Non_Constant --
-   ----------------------------------------
+   --------------------------------------------
+   -- Do_Object_Declaration_Full_Declaration --
+   --------------------------------------------
 
-   procedure Do_Object_Declaration_Non_Constant (N : Node_Id; Block : Irep) is
+   procedure Do_Object_Declaration_Full_Declaration
+     (N : Node_Id; Block : Irep) is
       Defined : constant Entity_Id := Defining_Identifier (N);
       Id   : constant Irep := Do_Defining_Identifier (Defined);
       Decl : constant Irep := New_Irep (I_Code_Decl);
@@ -3759,7 +3638,7 @@ package body Tree_Walk is
          end if;
       end Make_Default_Initialiser;
 
-      --  Begin processing for Do_Object_Declaration
+      --  Begin processing for Do_Object_Declaration_Full_Declaration
 
    begin
       Set_Source_Location (Decl, (Sloc (N)));
@@ -3786,7 +3665,7 @@ package body Tree_Walk is
                                              Rhs => Init_Expr,
                                              Source_Location => Sloc (N)));
       end if;
-   end Do_Object_Declaration_Non_Constant;
+   end Do_Object_Declaration_Full_Declaration;
 
    -------------------------
    --     Do_Op_Not       --
