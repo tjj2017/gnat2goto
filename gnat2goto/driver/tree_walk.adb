@@ -2317,7 +2317,35 @@ package body Tree_Walk is
       E : constant Entity_Id := Entity (N);
       Subst_Cursor : constant Identifier_Maps.Cursor :=
         Identifier_Substitution_Map.Find (E);
+      Dec_Node : constant Node_Id := Declaration_Node (E);
    begin
+      Put_Line ("In Do Identifier");
+      Print_Node_Briefly (Dec_Node);
+      if  Nkind (Dec_Node) = N_Object_Declaration
+        and then Constant_Present (Dec_Node)
+      then
+         if Has_Init_Expression (Dec_Node)
+           and then Is_Static_Expression (Expression (Dec_Node))
+         then
+            Put_Line ("It's a constant with a static expression");
+            return Do_Expression (Expression (Dec_Node));
+         elsif Present (Full_View (Defining_Identifier (Dec_Node))) then
+            Put_Line ("It is a deferred constant - full view");
+            declare
+               FV_Dec_Node : constant Node_Id :=
+                 Declaration_Node (Full_View (Defining_Identifier (Dec_Node)));
+            begin
+               Print_Node_Briefly (FV_Dec_Node);
+               if Has_Init_Expression (FV_Dec_Node)
+                 and then Is_Static_Expression (Expression (FV_Dec_Node))
+               then
+                  Put_Line ("With a static expression");
+                  return Do_Expression (Expression (FV_Dec_Node));
+               end if;
+            end;
+         end if;
+      end if;
+
       if Identifier_Maps.Has_Element (Subst_Cursor) then
          --  Indicates instead of literally referring to the given
          --  name, we should return some replacement irep. Currently
@@ -5223,9 +5251,6 @@ package body Tree_Walk is
             --  Ignore, nothing to generate
             null;
 
-         when N_Private_Type_Declaration =>
-            Report_Unhandled_Node_Empty (N, "Process_Declaration",
-                                       "Private type declaration unsupported");
          when others =>
             Report_Unhandled_Node_Empty (N, "Process_Declaration",
                                          "Unknown declaration kind");
