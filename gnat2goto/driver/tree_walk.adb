@@ -170,6 +170,9 @@ package body Tree_Walk is
    with Pre  => Nkind (N) = N_If_Statement,
         Post => Kind (Do_If_Statement'Result) = I_Code_Ifthenelse;
 
+   procedure Do_Incomplete_Type_Declaration (N : Node_Id)
+   with Pre => Nkind (N) = N_Incomplete_Type_Declaration;
+
    function Do_Exit_Statement (N : Node_Id) return Irep
    with Pre  => Nkind (N) = N_Exit_Statement,
         Post => Kind (Do_Exit_Statement'Result) in Class_Code;
@@ -210,6 +213,10 @@ package body Tree_Walk is
    with Pre => Nkind (N) = N_Object_Declaration
                  and then Kind (Block) = I_Code_Block;
 
+   procedure Do_Object_Declaration_Full_Declaration (N : Node_Id; Block : Irep)
+   with Pre => Nkind (N) = N_Object_Declaration
+                 and then Kind (Block) = I_Code_Block;
+
    procedure Do_Pragma (N : Node_Id; Block : Irep)
    with Pre => Nkind (N) = N_Pragma
      and then Kind (Block) = I_Code_Block; -- FIXME: what about decls?
@@ -231,7 +238,10 @@ package body Tree_Walk is
    with Pre => Nkind (N) = N_Package_Declaration;
 
    procedure Do_Package_Specification (N : Node_Id)
-   with Pre => Nkind (N) = N_Package_Specification;
+     with Pre => Nkind (N) = N_Package_Specification;
+
+   procedure Do_Private_Type_Declaration (N : Node_Id)
+   with Pre => Nkind (N) = N_Private_Type_Declaration;
 
    function Do_Procedure_Call_Statement (N : Node_Id) return Irep
    with Pre  => Nkind (N) = N_Procedure_Call_Statement,
@@ -402,6 +412,12 @@ package body Tree_Walk is
    with Pre => Nkind (N) in N_Subprogram_Specification;
    --  Insert the subprogram specification into the symbol table
 
+   procedure Register_Type_Declaration (N : Node_Id; E : Entity_Id)
+   with Pre => Nkind (N) = N_Full_Type_Declaration;
+   --  Common procedure for registering non-anonymous type declarations.
+   --  Called by Do_Full_Type_Declaration, Do_Private_Type_Declaration
+   --  and Do_Incomplete_Type_Declaraion
+
    procedure Remove_Entity_Substitution (E : Entity_Id);
 
    function Create_Dummy_Irep return Irep;
@@ -519,7 +535,10 @@ package body Tree_Walk is
 
    procedure Declare_Itype (Ty : Entity_Id) is
    begin
+      Put_Line ("In Declare_Itype");
       if Present (Ty) and then Is_Itype (Ty) then
+         Put_Line ("Has a Type");
+         Print_Node_Briefly (Ty);
          declare
             Ty_Name : constant Symbol_Id := Intern (Unique_Name (Ty));
             Ty_Symbol : Symbol;
@@ -528,6 +547,7 @@ package body Tree_Walk is
          begin
             Global_Symbol_Table.Insert (Ty_Name, Ty_Symbol, Ty_Cursor, Ty_New);
             if Ty_New then
+               Put_Line ("Added to Table");
                declare
                   New_Type : constant Irep := Do_Itype_Definition (Ty);
                   New_Symbol : constant Symbol :=
@@ -1921,6 +1941,8 @@ package body Tree_Walk is
 
    function Do_Expression (N : Node_Id) return Irep is
    begin
+      Put_Line ("In Do_Expression");
+      Print_Node_Briefly (N);
       Declare_Itype (Etype (N));
       case Nkind (N) is
          when N_Identifier           => return Do_Identifier (N);
@@ -1990,24 +2012,37 @@ package body Tree_Walk is
    ------------------------------
 
    procedure Do_Full_Type_Declaration (N : Node_Id) is
-      New_Type : constant Irep :=
-        Do_Type_Definition (Type_Definition (N),
-                            Discriminant_Specifications (N));
       E        : constant Entity_Id := Defining_Identifier (N);
    begin
-      if not Is_Type (E) or else
-        not (Kind (New_Type) in Class_Type)
-      then
+      Put_Line ("In Do_Full_Type_Declaration");
+      Print_Node_Briefly (N);
+      if not Is_Type (E) then
          Report_Unhandled_Node_Empty (N, "Do_Full_Type_Declaration",
-                                 "identifier not a type or not in class type");
+                                      "identifier not a type");
          return;
       end if;
-      Do_Type_Declaration (New_Type, E);
 
-      --  Declare the implicit initial subtype too
-      if Etype (E) /= E then
-         Do_Type_Declaration (New_Type, Etype (E));
+      Put_Line ("Entity is a type");
+
+      --  If this is the full_type_declaration of a previous
+      --  private_type_declaration or incomplete_type_declaration then the
+      --  either it will have a previous private declaration or an
+      --  Incomplete_View of the declaration will be present and the
+      --  full_type_declaration will have been registered when its
+      --  private or incomplete_type_declaration was processed.
+      --  If it has no private declaration or the Incomplete_View is not
+      --  present then the full_type_declaration has to be registered
+      if not (Has_Private_Declaration (E)
+              or else Present (Incomplete_View (N)))
+      then
+         Put_Line ("We are going to do the dec");
+         Put_Line ("full_type_declaration with no incomplete_view");
+         Register_Type_Declaration (N, E);
+      else
+         Put_Line
+           ("Already registered from private or incomplete declaration");
       end if;
+
    end Do_Full_Type_Declaration;
 
    -------------------------------
@@ -2290,6 +2325,8 @@ package body Tree_Walk is
          return Identifier_Maps.Element (Subst_Cursor);
       else
          if Nkind (E) in N_Has_Etype and then (Is_Type (Etype (E))) then
+            Put_Line ("Has type");
+            Print_Node_Briefly (N);
             return Do_Defining_Identifier (E);
          end if;
          Report_Unhandled_Node_Empty (N, "Do_Identifier",
@@ -2405,6 +2442,65 @@ package body Tree_Walk is
       Do_Elsifs (First (Elsif_Parts (N)), Else_Statements (N), Ret);
       return Ret;
    end Do_If_Statement;
+
+   ------------------------------------
+   -- Do_Incomplete_Type_Declaration --
+   ------------------------------------
+
+   procedure Do_Incomplete_Type_Declaration (N : Node_Id) is
+      Entity : constant Entity_Id := Defining_Identifier (N);
+      --  Only complete types should be inserted in the symbol table.
+      --  If an incomplete type declaration is inserted it will prevent
+      --  the full declaration being entered into the symbol talble.
+      --
+      --  The full view of an incomplete_type_declaration is obtained
+      --  by calling the Full_View function.  As the compiler has completed
+      --  semantic analysis before invoking the gnat to goto translation
+      --  all incomplete_type_declarations should have a full view.
+      Full_View_Entity : constant Entity_Id := Full_View (Entity);
+      Type_Name : constant String := To_String
+        (To_Unbounded_String (Unique_Name (Entity)));
+   begin
+      if Is_Incomplete_Type (Entity) then
+         Put_Line ("Should be processing an incomplete_type_declaration "
+                   & Type_Name);
+         Print_Node_Briefly (N);
+         --   If the incomplete_typ_declaration is completed by a
+         --   private_type_declaration, the private_type_declaration
+         --   has to be processed to obtain the full view of the type.
+         if not Is_Private_Type (Full_View_Entity) then
+            Put_Line ("Full declaration is at ");
+            Print_Node_Briefly (Etype (Full_View_Entity));
+            Put_Line ("This should be the full type dec:");
+            Print_Node_Briefly (Declaration_Node (Full_View_Entity));
+            if Nkind (Declaration_Node (Full_View_Entity)) =
+              N_Full_Type_Declaration
+            then
+               --  The full_type_declaration corresponding to the
+               --  incomplete_type_declaration is Full_View_Entity
+               --  register the full view in the symbol_table.
+               Register_Type_Declaration
+                 (Declaration_Node (Full_View_Entity), Full_View_Entity);
+            else
+               Report_Unhandled_Node_Empty
+                 (Declaration_Node (Full_View_Entity),
+                  "Do_Incomplete_Type_Declaration",
+                  "Full view of incomplete_type_declaration " &
+                    "Does not yield a full_type_declaration node");
+            end if;
+         else
+            Do_Private_Type_Declaration
+              (Declaration_Node (Full_View_Entity));
+         end if;
+
+      else
+         Report_Unhandled_Node_Empty
+           (N,
+            "Do_Incomplete_Type_Declaration",
+            "The node is not a incomplete type");
+      end if;
+
+   end Do_Incomplete_Type_Declaration;
 
    -----------------------------------------
    -- Do_Index_Or_Discriminant_Constraint --
@@ -3173,6 +3269,85 @@ package body Tree_Walk is
    ---------------------------
 
    procedure Do_Object_Declaration (N : Node_Id; Block : Irep) is
+      Obj_Id : constant Symbol_Id :=
+        Intern (Unique_Name (Defining_Identifier (N)));
+   begin
+      --  First check for object declarations which are not constants
+      if not Constant_Present (N) then
+         --  Not any sort of constant.
+         --  Process non-constant object_declaration.
+         Put_Line ("Not a constant declaration");
+         Do_Object_Declaration_Full_Declaration (N, Block);
+      elsif --  Check that this isn't a completion of a deferred constant.
+         not Global_Symbol_Table.Contains (Obj_Id)
+      then
+         --  The declaration is of constant which may be deferred.
+         declare
+            Entity : constant Entity_Id := Defining_Identifier (N);
+            --  The full view of a deferred constant is obtained
+            --  by calling the Full_View function.  As the gnat front-end
+            --  has completed semantic analysis before invoking the
+            --  gnat to goto translation all object_declarations that are
+            --  deferred constants should have a full view unless the
+            --  declaration has the pragma Import applied.
+            Full_View_Entity : constant Entity_Id := Full_View (Entity);
+
+            procedure Register_Constant_In_Symbol_Table (N : Node_Id);
+            --  Adds a dummy entry to the symbol table to register that a
+            --  constant has already been processed.
+
+            procedure Register_Constant_In_Symbol_Table (N : Node_Id) is
+               Constant_Name : constant Symbol_Id :=
+                 Intern (Unique_Name (Defining_Identifier (N)));
+               Constant_Symbol : Symbol;
+            begin
+               Constant_Symbol.Name := Constant_Name;
+               Constant_Symbol.BaseName   := Constant_Name;
+               Constant_Symbol.PrettyName := Constant_Name;
+               Constant_Symbol.SymType    := Make_Nil (Sloc (N));
+               Constant_Symbol.Mode       := Intern ("C");
+               Constant_Symbol.Value      := Make_Nil (Sloc (N));
+
+               Put_Line ("Inserting deferred constant dec into symbol table");
+               Global_Symbol_Table.Insert (Constant_Name, Constant_Symbol);
+
+            end Register_Constant_In_Symbol_Table;
+
+         begin
+            if not Has_Init_Expression (N) and then
+              Present (Full_View_Entity)
+            then
+               --  The constant declaration has no initialisation expression
+               --  so it is a deferred constant declaration with a completion.
+               --  The completion must be a full constant declaration given
+               --  by the full view of the entity.
+               --  Process the declaration node of the full view and
+               --  register it in the symbol table so that it is not
+               --  processed again when the completion is encountered in
+               --  the tree.
+               Put_Line ("Deferred constant declaration with completion");
+               Register_Constant_In_Symbol_Table (N);
+               Do_Object_Declaration_Full_Declaration
+                 (Declaration_Node (Full_View_Entity), Block);
+            else
+               --  The constant declaration is not deferred or has the
+               --  pragma Import applied and its value is defined externally.
+               Put_Line ("Full constant declaration or has Import");
+               Do_Object_Declaration_Full_Declaration (N, Block);
+            end if;
+         end;
+      else
+         Put_Line ("Deferred constant already processed");
+      end if;
+
+   end Do_Object_Declaration;
+
+   --------------------------------------------
+   -- Do_Object_Declaration_Full_Declaration --
+   --------------------------------------------
+
+   procedure Do_Object_Declaration_Full_Declaration
+     (N : Node_Id; Block : Irep) is
       Defined : constant Entity_Id := Defining_Identifier (N);
       Id   : constant Irep := Do_Defining_Identifier (Defined);
       Decl : constant Irep := New_Irep (I_Code_Decl);
@@ -3202,7 +3377,7 @@ package body Tree_Walk is
          if Nkind (Record_Def) /= N_Record_Definition and then
            Nkind (Record_Def) /= N_Variant
          then
-            Report_Unhandled_Node_Empty (Do_Object_Declaration.N,
+            Report_Unhandled_Node_Empty (N,
                                          "Do_Object_Declaration",
                                          "Record definition of wrong nkind");
             return False;
@@ -3463,7 +3638,7 @@ package body Tree_Walk is
          end if;
       end Make_Default_Initialiser;
 
-      --  Begin processing for Do_Object_Declaration
+      --  Begin processing for Do_Object_Declaration_Full_Declaration
 
    begin
       Set_Source_Location (Decl, (Sloc (N)));
@@ -3490,7 +3665,7 @@ package body Tree_Walk is
                                              Rhs => Init_Expr,
                                              Source_Location => Sloc (N)));
       end if;
-   end Do_Object_Declaration;
+   end Do_Object_Declaration_Full_Declaration;
 
    -------------------------
    --     Do_Op_Not       --
@@ -3628,12 +3803,93 @@ package body Tree_Walk is
    begin
       Set_Source_Location (Package_Decs, Sloc (N));
       if Present (Visible_Declarations (N)) then
+         Put_Line ("Visible declarations");
          Process_Declarations (Visible_Declarations (N), Package_Decs);
+      else
+         Put_Line ("No visible declarations");
       end if;
       if Present (Private_Declarations (N)) then
+         Put_Line ("Private declarations");
          Process_Declarations (Private_Declarations (N), Package_Decs);
+      else
+         Put_Line ("No private declarations");
       end if;
    end Do_Package_Specification;
+
+   ---------------------------------
+   -- Do_Private_Type_Declaration --
+   ---------------------------------
+
+   procedure Do_Private_Type_Declaration (N : Node_Id) is
+      Entity : constant Entity_Id := Defining_Identifier (N);
+      --  A partial view of a type declaration must not be inserted into
+      --  the symbol table.
+      --
+      --  The full view of a private_type_declaration is obtained
+      --  by calling the Full_View function.  As the compiler has completed
+      --  semantic analysis before invoking the gnat to goto translation
+      --  all private_type_declarations should have a full view.
+      Full_View_Entity : constant Entity_Id := Full_View (Entity);
+      Type_Name : constant String := To_String
+        (To_Unbounded_String (Unique_Name (Entity)));
+   begin
+      if Is_Private_Type (Entity) then
+         Put_Line ("Should be processing a private_type_declaration "
+                   & Type_Name);
+         Print_Node_Briefly (N);
+         --  At the moment tagged types and abstract types are not supported.
+         --  Limited types should be ok as limiting a type only applies
+         --  constraints on its use within an Ada program.  The gnat
+         --  front-end checks that these constraints are maintained by
+         --  the code being analysed.
+         if Is_Abstract_Type (Entity) then
+            Warn_Unhandled_Construct (Declaration, "abstract_type");
+            return;
+         elsif Is_Tagged_Type (Entity) then
+            Warn_Unhandled_Construct (Declaration, "tagged_type");
+            return;
+         end if;
+         --  The private_type_declaration is neither tagged or abstract.
+         --  The Full_View of the declaratin will have been processed by the
+         --  gnat front-end and will be Full_View_Entity.
+
+         --  A private_type_declaration may be the completion of an
+         --  incomplete_type_declaration.  The processing of the
+         --  incomplete_type_declaration will have inserted (registered) the
+         --  full view of the private_type_declartion into the table already.
+         --  It is not obvious how to check that the private_type_declaration
+         --  is a completion of an incomplete_type_declaration from the tree
+         --  but it does not matter because its prior existence in the symbol
+         --  will prevent it being re-inserted through a second registration.
+
+         Put_Line ("Full declaration is at ");
+         Print_Node_Briefly (Etype (Full_View_Entity));
+         Put_Line ("This should be the full view of the private dec:");
+         Print_Node_Briefly (Declaration_Node (Full_View_Entity));
+         if Nkind (Declaration_Node (Full_View_Entity)) =
+           N_Full_Type_Declaration
+         then
+            --  The full_type_declaration corresponding to the
+            --  private_type_declaration is Full_View_Entity
+            --  register the full view in the symbol table.
+            Register_Type_Declaration
+              (Declaration_Node (Full_View_Entity), Full_View_Entity);
+         else
+            Report_Unhandled_Node_Empty
+              (Declaration_Node (Full_View_Entity),
+               "Do_Private_Type_Declaration",
+               "Full view of private_type_declaration " &
+               "Does not yield a full_type_declaration node");
+         end if;
+
+      else
+         Report_Unhandled_Node_Empty
+              (N,
+               "Do_Private_Type_Declaration",
+               "The node is not a private entity");
+      end if;
+
+   end Do_Private_Type_Declaration;
 
    ---------------------------------
    -- Do_Procedure_Call_Statement --
@@ -4198,7 +4454,10 @@ package body Tree_Walk is
       Param_List : constant Irep := New_Irep (I_Parameter_List);
       Param_Iter : Node_Id := First (Parameter_Specifications (N));
    begin
+      Put_Line ("In Do_Subprogram_Specification");
+      Put_Line ("No Parameters so far ...");
       while Present (Param_Iter) loop
+         Put_Line ("Add a parameter");
          declare
             Is_Out : constant Boolean := Out_Present (Param_Iter);
 
@@ -4240,6 +4499,17 @@ package body Tree_Walk is
             Next (Param_Iter);
          end;
       end loop;
+
+      if Nkind (N) = N_Function_Specification then
+         Put_Line ("Function specification");
+         Put_Line ("Result_Definition");
+         Print_Node_Briefly (Result_Definition (N));
+         Put_Line ("Etype");
+         Print_Node_Briefly (Etype (Result_Definition (N)));
+      else
+         Put_Line ("Procedure specification");
+      end if;
+
       Set_Return_Type
         (Ret,
          (if Nkind (N) = N_Function_Specification
@@ -4336,6 +4606,7 @@ package body Tree_Walk is
       if not Symbol_Maps.Contains (Global_Symbol_Table, New_Type_Name) then
          Symbol_Maps.Insert (Global_Symbol_Table, New_Type_Name,
                              New_Type_Symbol);
+         Put_Line ("Type declaration inserted into symbol table");
       end if;
    end Do_Type_Declaration;
 
@@ -4454,6 +4725,7 @@ package body Tree_Walk is
    procedure Do_Withed_Unit_Spec (N : Node_Id) is
       Unit_Name : constant String := Get_Name_String (Get_Unit_Name (N));
    begin
+      Put_Line (Unit_Name);
       if Defining_Entity (N) = Stand.Standard_Standard or else
         Unit_Name = "system%s"
       then
@@ -4463,7 +4735,9 @@ package body Tree_Walk is
          --  Handle all other withed library unit declarations
          case Nkind (N) is
             when N_Subprogram_Body =>
+               Put_Line ("Subprog body");
                if Acts_As_Spec (N) then
+                  Put_Line ("Acts as spec");
                   --  The unit is a withed library unit which subprogram body
                   --  that has no separate declaration, or,
                   --  it is the subprogram body of the compilation unit being
@@ -4473,8 +4747,10 @@ package body Tree_Walk is
                   Register_Subprogram_Specification (Specification (N));
                else
                   null;
+                  Put_Line ("Not a spec");
                end if;
             when N_Subprogram_Declaration =>
+               Put_Line ("Subprog declaration");
                --  The unit is withed library unit that is a subprogram
                --  declaration, or,
                --  it is the declaration of the compilation unit body being
@@ -4483,9 +4759,11 @@ package body Tree_Walk is
                --  subprogram into the symbol table.
                Do_Subprogram_Declaration (N);
             when N_Package_Declaration =>
+               Put_Line ("Package declaration");
                Do_Package_Declaration (N);
             when N_Package_Body =>
                null;
+               Put_Line ("Package body");
             when others =>
                Put_Line (Standard_Error,
                          "This type of library_unit is not yet handled");
@@ -4835,14 +5113,20 @@ package body Tree_Walk is
 
    procedure Process_Declaration (N : Node_Id; Block : Irep) is
    begin
+      Print_Node_Briefly (N);
       --  Deal with the declaration
-
       case Nkind (N) is
 
          --  basic_declarations  --
 
          when N_Full_Type_Declaration =>
             Do_Full_Type_Declaration (N);
+
+         when N_Incomplete_Type_Declaration =>
+            Do_Incomplete_Type_Declaration (N);
+
+         when N_Private_Type_Declaration =>
+            Do_Private_Type_Declaration (N);
 
          when N_Subtype_Declaration =>
             Do_Subtype_Declaration (N);
@@ -5052,7 +5336,7 @@ package body Tree_Walk is
          when N_Pragma =>
             Do_Pragma (N, Block);
 
-         --  Not sure the nex two should be here -
+         --  Not sure the next two should be here -
          --  should they be in declarations? --
 --         when N_Itype_Reference =>
 --            Do_Itype_Reference (N);
@@ -5119,6 +5403,30 @@ package body Tree_Walk is
 
       Global_Symbol_Table.Insert (Subprog_Name, Subprog_Symbol);
    end Register_Subprogram_Specification;
+
+   -------------------------------
+   -- Register_Type_Declaration --
+   -------------------------------
+
+   procedure Register_Type_Declaration (N : Node_Id; E : Entity_Id) is
+      New_Type : constant Irep :=
+        Do_Type_Definition (Type_Definition (N),
+                            Discriminant_Specifications (N));
+   begin
+      Put_Line ("Registering type declaration");
+      if Kind (New_Type) not in Class_Type then
+         Report_Unhandled_Node_Empty (N, "Register_Type_Declaration",
+                                      "identifier not in class type");
+         return;
+      end if;
+
+      Do_Type_Declaration (New_Type, E);
+
+      --  Declare the implicit initial subtype too
+      if Etype (E) /= E then
+         Do_Type_Declaration (New_Type, Etype (E));
+      end if;
+   end Register_Type_Declaration;
 
    procedure Remove_Entity_Substitution (E : Entity_Id) is
    begin
