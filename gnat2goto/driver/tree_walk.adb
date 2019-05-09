@@ -980,7 +980,7 @@ package body Tree_Walk is
 
          when others =>
             Report_Unhandled_Node_Empty (N, "Do_Compilation_Unit",
-                                         "Unknown tree node");
+                                         "Unhandled library unit sort");
       end case;
 
       return Unit_Symbol;
