@@ -1,3 +1,4 @@
+with Uname;                 use Uname;
 with Namet;                 use Namet;
 with Nlists;                use Nlists;
 with Sem;
