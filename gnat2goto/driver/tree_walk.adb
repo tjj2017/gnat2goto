@@ -1021,7 +1021,6 @@ package body Tree_Walk is
                --  and update the symbol table entry for this subprogram.
                Global_Symbol_Table.Replace (Unit_Name, Unit_Symbol);
                Unit_Is_Subprogram := True;
-            end;
 
          when N_Package_Body =>
             declare
