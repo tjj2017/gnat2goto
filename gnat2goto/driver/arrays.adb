@@ -417,7 +417,7 @@ package body Arrays is
       Alloc : constant Irep :=
         Make_Malloc_Function_Call_Expr (Num_Elem          => Len,
                                         Element_Type_Size =>
-                                          Esize (Get_Array_Component_Type (E)),
+                                     Esize (Get_Array_Component_Type (E)),
                                         Source_Loc        => Source_Loc);
       Ret : constant Irep :=
         Make_Struct_Expr (Source_Location => Source_Loc,
@@ -432,6 +432,7 @@ package body Arrays is
                             Typecast_If_Necessary (Alloc, Comp_P_Type,
                               Global_Symbol_Table));
       return Ret;
+
    end Make_Array_Default_Initialiser;
 
    -------------------------------------
