@@ -1,6 +1,5 @@
 with Nlists;                use Nlists;
 with Uintp;                 use Uintp;
-
 with Tree_Walk;             use Tree_Walk;
 with Follow;                use Follow;
 
@@ -416,8 +415,8 @@ package body Arrays is
         Do_Type_Reference (Get_Array_Component_Type (E));
       Alloc : constant Irep :=
         Make_Malloc_Function_Call_Expr (Num_Elem          => Len,
-                                        Element_Type_Size =>
-                                     Esize (Get_Array_Component_Type (E)),
+                                        Element_Type_Size => Esize
+                                          (Get_Array_Component_Type (E)),
                                         Source_Loc        => Source_Loc);
       Ret : constant Irep :=
         Make_Struct_Expr (Source_Location => Source_Loc,
