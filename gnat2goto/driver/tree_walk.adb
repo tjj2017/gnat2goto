@@ -1213,7 +1213,9 @@ package body Tree_Walk is
       if Is_Out_Param then
          return Deref : constant Irep := New_Irep (I_Dereference_Expr) do
             Set_Type   (Deref, Result_Type);
+            Put_Line ("Calling Set_Object from Do_Defining_Identifier");
             Set_Object (Deref, Sym);
+            Put_Line ("Done Set_Object");
          end return;
       else
          return Sym;
@@ -1228,7 +1230,9 @@ package body Tree_Walk is
       Ret : constant Irep := New_Irep (I_Dereference_Expr);
    begin
       Set_Type   (Ret, Do_Type_Reference (Etype (N)));
+      Put_Line ("Calling Set_Object from Do_Dereference");
       Set_Object (Ret, Do_Expression (Prefix (N)));
+      Put_Line ("Done Set_Object");
       return Ret;
    end Do_Dereference;
 
@@ -2081,17 +2085,41 @@ package body Tree_Walk is
          end;
       else
          if Present (Condition (Iter_Scheme)) then
+            Put_Line ("Processing while loop");
             --  WHILE loop
             declare
                Cond : constant Irep := Do_Expression (Condition (Iter_Scheme));
             begin
+               Put_Line ("Do the loop");
                Loop_Irep := Do_While_Statement (Cond);
+               Put_Line ("The loop is done");
             end;
          else
+            Put_Line ("For loop");
             --  FOR loop.
             --   Ada 1995: loop_parameter_specification
             --   Ada 2012: +iterator_specification
             if Present (Loop_Parameter_Specification (Iter_Scheme)) then
+               Put_Line ("Iter scheme present");
+               Print_Node_Briefly (Iter_Scheme);
+               Print_Node_Briefly (Loop_Parameter_Specification (Iter_Scheme));
+               Print_Node_Briefly
+                 (Defining_Identifier
+                    (Loop_Parameter_Specification (Iter_Scheme)));
+               Print_Node_Briefly
+                 (Discrete_Subtype_Definition
+                    (Loop_Parameter_Specification (Iter_Scheme)));
+               if Nkind
+                 (Discrete_Subtype_Definition
+                    (Loop_Parameter_Specification (Iter_Scheme))) =
+                   N_Subtype_Indication
+               then
+                  Print_Node_Briefly
+                    (Range_Expression
+                       (Discrete_Subtype_Definition
+                            (Loop_Parameter_Specification (Iter_Scheme))));
+               end if;
+
                declare
                   Spec : constant Node_Id :=
                     Loop_Parameter_Specification (Iter_Scheme);
@@ -2132,6 +2160,8 @@ package body Tree_Walk is
                   Bound_High : Irep;
                   Pre_Dsd : Node_Id := Discrete_Subtype_Definition (Spec);
                begin
+                  Put_Line ("************* in loop **************");
+                  Print_Node_Briefly (Pre_Dsd);
                   if Nkind (Pre_Dsd) = N_Subtype_Indication then
                      Pre_Dsd := Range_Expression (Constraint (Pre_Dsd));
                   end if;
@@ -5332,7 +5362,9 @@ package body Tree_Walk is
             Append_Op (Block, Do_Case_Statement (N));
 
          when N_Loop_Statement =>
+            Put_Line ("Processing loop statement");
             Append_Op (Block, Do_Loop_Statement (N));
+            Put_Line ("Done loop statement");
 
          when N_Block_Statement =>
             Append_Op (Block, Do_N_Block_Statement (N));

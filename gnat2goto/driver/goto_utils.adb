@@ -25,7 +25,9 @@ package body GOTO_Utils is
    function Make_Address_Of (Base : Irep) return Irep is
       R : constant Irep := New_Irep (I_Address_Of_Expr);
    begin
+      Put_Line ("Calling Set_Object from Make_Address_Of");
       Set_Object (R, Base);
+      Put_Line ("Done Set_Object");
       Set_Type   (R, Make_Pointer_Type (Get_Type (Base)));
       return R;
    end Make_Address_Of;
