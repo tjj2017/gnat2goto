@@ -862,6 +862,7 @@ package body Tree_Walk is
          Actual_Irep   : Irep;
          Expression    : constant Irep := Do_Expression (Actual);
       begin
+         Put_Line ("Into Handle_Parameter");
          if Is_Out and then
            not (Kind (Get_Type (Expression)) in Class_Type)
          then
@@ -869,8 +870,10 @@ package body Tree_Walk is
                                          "Kind of actual not in class type");
             return;
          end if;
-         Actual_Irep := Wrap_Argument (
-          Handle_Enum_Symbol_Members (Expression), Is_Out);
+         Put_Line ("After check");
+         Actual_Irep := Wrap_Argument
+           (Handle_Enum_Symbol_Members (Expression), Is_Out);
+         Put_Line ("After Wrap_Argument");
          Append_Argument (Args, Actual_Irep);
       end Handle_Parameter;
 
@@ -1016,6 +1019,8 @@ package body Tree_Walk is
       --  specification of the given compilation unit into the symbol table.
       Do_Withed_Units_Specs;
 
+      Put_Line ("Processing given unit");
+      pp (Union_Id (U));
       case Nkind (U) is
          when N_Subprogram_Body =>
             --  The specification of the subprogram body has already
@@ -2087,6 +2092,7 @@ package body Tree_Walk is
       Loop_Irep : Irep;
       Loop_Wrapper : constant Irep := New_Irep (I_Code_Block);
    begin
+      Put_Line ("Into loop processing");
       if not Present (Iter_Scheme) then
          --  infinite loop
          declare
@@ -3802,7 +3808,9 @@ package body Tree_Walk is
       Set_Source_Location (R, Sloc (N));
       Set_Lhs (R, Make_Nil (Sloc (N)));
       Set_Function (R, Proc);
+      Put_Line ("Setting arguments");
       Set_Arguments (R, Do_Call_Parameters (N));
+      Put_Line ("Arguments set");
 
       if Global_Symbol_Table.Contains (Sym_Id) then
          Set_Type (Proc, Global_Symbol_Table (Sym_Id).SymType);
@@ -4468,6 +4476,8 @@ package body Tree_Walk is
 
    procedure Do_Withed_Unit_Spec (N : Node_Id) is
    begin
+      Put_Line ("Withed_Unit");
+      pp (Union_Id (N));
       if Defining_Entity (N) = Stand.Standard_Standard then
          --  TODO: github issue #252
          --  At the moment Standard is not processed
@@ -5320,6 +5330,8 @@ package body Tree_Walk is
 
    procedure Process_Statement (N : Node_Id; Block : Irep) is
    begin
+      Put_Line ("Process_Statement");
+      pp (Union_Id (N));
       --  Deal with the statement
       case Nkind (N) is
          -- Simple statements --
@@ -5376,7 +5388,16 @@ package body Tree_Walk is
 
          when N_Loop_Statement =>
             Put_Line ("Processing loop statement");
-            Append_Op (Block, Do_Loop_Statement (N));
+            declare
+               D_Irep : Irep;
+            begin
+               Put_Line ("Calling Do_Loop_Statement");
+               D_Irep := Do_Loop_Statement (N);
+               Put_Line ("Do_Loop_Statement_Called");
+               Append_Op (Block, D_Irep);
+            end;
+
+            --  Append_Op (Block, Do_Loop_Statement (N));
             Put_Line ("Done loop statement");
 
          when N_Block_Statement =>
