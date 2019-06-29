@@ -831,7 +831,6 @@ package body Tree_Walk is
          Followed_Type_Symbol : constant Irep :=
             Follow_Symbol_Type (Get_Type (Mem), Global_Symbol_Table);
       begin
-         HERE's THE Problem
          if Kind (Followed_Type_Symbol) = I_C_Enum_Type then
             declare
                Val : constant Irep := Global_Symbol_Table
