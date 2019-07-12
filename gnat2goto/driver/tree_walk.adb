@@ -831,7 +831,17 @@ package body Tree_Walk is
          Followed_Type_Symbol : constant Irep :=
             Follow_Symbol_Type (Get_Type (Mem), Global_Symbol_Table);
       begin
+         Put_Line ("Handle parameter Irep: " & Irep_Kind'Image (Kind (Mem)));
+
+         if Kind (Mem) /= I_Symbol_Type then
+            Put_Line ("Not an I_Symbol_Type");
+         else
+            Put_Line ("An I_Symbol_Type");
+         end if;
+
          if Kind (Followed_Type_Symbol) = I_C_Enum_Type then
+
+            Put_Line ("Is an enumeration");
             declare
                Val : constant Irep := Global_Symbol_Table
                  (Intern
@@ -839,6 +849,13 @@ package body Tree_Walk is
                      (Mem)))
                  .Value;
             begin
+               Put_Line ("Into declare");
+               if Kind (Val) = I_Op_Typecast then
+                  Put_Line ("Type_Cast");
+               else
+                  Put_Line ("Not Type_Cast");
+               end if;
+
                return
                  (if Kind (Val) = I_Op_Typecast
                   then Get_Op0 (Val) else Val);
@@ -866,6 +883,12 @@ package body Tree_Walk is
             return;
          end if;
          Put_Line ("After check");
+         if Is_Out then
+            Put_Line ("Is_Out True");
+         else
+            Put_Line ("Is_Out False");
+         end if;
+
          Actual_Irep := Wrap_Argument
            (Handle_Enum_Symbol_Members (Expression), Is_Out);
          Put_Line ("After Wrap_Argument");
