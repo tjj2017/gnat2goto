@@ -871,6 +871,12 @@ package body Tree_Walk is
             return;
          end if;
          Put_Line ("After check");
+         if Is_Out then
+            Put_Line ("Is_Out True");
+         else
+            Put_Line ("Is_Out False");
+         end if;
+
          Actual_Irep := Wrap_Argument
            (Handle_Enum_Symbol_Members (Expression), Is_Out);
          Put_Line ("After Wrap_Argument");
