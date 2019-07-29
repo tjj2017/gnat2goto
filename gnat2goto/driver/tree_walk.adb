@@ -26,6 +26,26 @@ with Gnat2goto_Itypes; use Gnat2goto_Itypes;
 
 package body Tree_Walk is
 
+   Error_File   : constant File_Type  := Standard_Output;
+   Warning_File : constant File_Type  := Standard_Output;
+   --  Can be changed to, e.g.,       := Standard_Error;
+
+   procedure Put_Line_Diag (M : String);
+
+   procedure Put_Line_Diag (M : String) is
+   begin
+      --  Put_Line (M);
+      null;
+   end Put_Line_Diag;
+
+   procedure Print_Node_Diag (N : Node_Id);
+
+   procedure Print_Node_Diag (N : Node_Id) is
+   begin
+      --  Print_Node_Briefly (N);
+      null;
+   end Print_Node_Diag;
+
    procedure Add_Entity_Substitution (E : Entity_Id; Subst : Irep);
 
    function Do_Address_Of (N : Node_Id) return Irep
@@ -440,8 +460,8 @@ package body Tree_Walk is
                                           Fun_Name : String;
                                           Message : String) is
    begin
-      Put_Line (Standard_Error, "----------At: " & Fun_Name & "----------");
-      Put_Line (Standard_Error, "----------" & Message & "----------");
+      Put_Line (Error_File, "----------At: " & Fun_Name & "----------");
+      Put_Line (Error_File, "----------" & Message & "----------");
       pp (Union_Id (N));
    end Report_Unhandled_Node_Empty;
 
@@ -862,7 +882,7 @@ package body Tree_Walk is
          Actual_Irep   : Irep;
          Expression    : constant Irep := Do_Expression (Actual);
       begin
-         Put_Line ("Into Handle_Parameter");
+         Put_Line_Diag ("Into Handle_Parameter");
          if Is_Out and then
            not (Kind (Get_Type (Expression)) in Class_Type)
          then
@@ -870,16 +890,16 @@ package body Tree_Walk is
                                          "Kind of actual not in class type");
             return;
          end if;
-         Put_Line ("After check");
+         Put_Line_Diag ("After check");
          if Is_Out then
-            Put_Line ("Is_Out True");
+            Put_Line_Diag ("Is_Out True");
          else
-            Put_Line ("Is_Out False");
+            Put_Line_Diag ("Is_Out False");
          end if;
 
          Actual_Irep := Wrap_Argument
            (Handle_Enum_Symbol_Members (Expression), Is_Out);
-         Put_Line ("After Wrap_Argument");
+         Put_Line_Diag ("After Wrap_Argument");
          Append_Argument (Args, Actual_Irep);
       end Handle_Parameter;
 
@@ -1025,8 +1045,8 @@ package body Tree_Walk is
       --  specification of the given compilation unit into the symbol table.
       Do_Withed_Units_Specs;
 
-      Put_Line ("Processing given unit");
-      pp (Union_Id (U));
+      Put_Line_Diag ("Processing given unit");
+      Print_Node_Diag (U);
       case Nkind (U) is
          when N_Subprogram_Body =>
             --  The specification of the subprogram body has already
@@ -1229,9 +1249,9 @@ package body Tree_Walk is
       if Is_Out_Param then
          return Deref : constant Irep := New_Irep (I_Dereference_Expr) do
             Set_Type   (Deref, Result_Type);
-            Put_Line ("Calling Set_Object from Do_Defining_Identifier");
+            Put_Line_Diag ("Calling Set_Object from Do_Defining_Identifier");
             Set_Object (Deref, Sym);
-            Put_Line ("Done Set_Object");
+            Put_Line_Diag ("Done Set_Object");
          end return;
       else
          return Sym;
@@ -1246,9 +1266,9 @@ package body Tree_Walk is
       Ret : constant Irep := New_Irep (I_Dereference_Expr);
    begin
       Set_Type   (Ret, Do_Type_Reference (Etype (N)));
-      Put_Line ("Calling Set_Object from Do_Dereference");
+      Put_Line_Diag ("Calling Set_Object from Do_Dereference");
       Set_Object (Ret, Do_Expression (Prefix (N)));
-      Put_Line ("Done Set_Object");
+      Put_Line_Diag ("Done Set_Object");
       return Ret;
    end Do_Dereference;
 
@@ -2098,7 +2118,7 @@ package body Tree_Walk is
       Loop_Irep : Irep;
       Loop_Wrapper : constant Irep := New_Irep (I_Code_Block);
    begin
-      Put_Line ("Into loop processing");
+      Put_Line_Diag ("Into loop processing");
       if not Present (Iter_Scheme) then
          --  infinite loop
          declare
@@ -2110,28 +2130,28 @@ package body Tree_Walk is
          end;
       else
          if Present (Condition (Iter_Scheme)) then
-            Put_Line ("Processing while loop");
+            Put_Line_Diag ("Processing while loop");
             --  WHILE loop
             declare
                Cond : constant Irep := Do_Expression (Condition (Iter_Scheme));
             begin
-               Put_Line ("Do the loop");
+               Put_Line_Diag ("Do the loop");
                Loop_Irep := Do_While_Statement (Cond);
-               Put_Line ("The loop is done");
+               Put_Line_Diag ("The loop is done");
             end;
          else
-            Put_Line ("For loop");
+            Put_Line_Diag ("For loop");
             --  FOR loop.
             --   Ada 1995: loop_parameter_specification
             --   Ada 2012: +iterator_specification
             if Present (Loop_Parameter_Specification (Iter_Scheme)) then
-               Put_Line ("Iter scheme present");
-               Print_Node_Briefly (Iter_Scheme);
-               Print_Node_Briefly (Loop_Parameter_Specification (Iter_Scheme));
-               Print_Node_Briefly
+               Put_Line_Diag ("Iter scheme present");
+               Print_Node_Diag (Iter_Scheme);
+               Print_Node_Diag (Loop_Parameter_Specification (Iter_Scheme));
+               Print_Node_Diag
                  (Defining_Identifier
                     (Loop_Parameter_Specification (Iter_Scheme)));
-               Print_Node_Briefly
+               Print_Node_Diag
                  (Discrete_Subtype_Definition
                     (Loop_Parameter_Specification (Iter_Scheme)));
                if Nkind
@@ -2139,7 +2159,7 @@ package body Tree_Walk is
                     (Loop_Parameter_Specification (Iter_Scheme))) =
                    N_Subtype_Indication
                then
-                  Print_Node_Briefly
+                  Print_Node_Diag
                     (Range_Expression
                        (Discrete_Subtype_Definition
                             (Loop_Parameter_Specification (Iter_Scheme))));
@@ -2185,8 +2205,8 @@ package body Tree_Walk is
                   Bound_High : Irep;
                   Pre_Dsd : Node_Id := Discrete_Subtype_Definition (Spec);
                begin
-                  Put_Line ("************* in loop **************");
-                  Print_Node_Briefly (Pre_Dsd);
+                  Put_Line_Diag ("************* in loop **************");
+                  Print_Node_Diag (Pre_Dsd);
                   if Nkind (Pre_Dsd) = N_Subtype_Indication then
                      Pre_Dsd := Range_Expression (Constraint (Pre_Dsd));
                   end if;
@@ -3814,9 +3834,9 @@ package body Tree_Walk is
       Set_Source_Location (R, Sloc (N));
       Set_Lhs (R, Make_Nil (Sloc (N)));
       Set_Function (R, Proc);
-      Put_Line ("Setting arguments");
+      Put_Line_Diag ("Setting arguments");
       Set_Arguments (R, Do_Call_Parameters (N));
-      Put_Line ("Arguments set");
+      Put_Line_Diag ("Arguments set");
 
       if Global_Symbol_Table.Contains (Sym_Id) then
          Set_Type (Proc, Global_Symbol_Table (Sym_Id).SymType);
@@ -4482,8 +4502,8 @@ package body Tree_Walk is
 
    procedure Do_Withed_Unit_Spec (N : Node_Id) is
    begin
-      Put_Line ("Withed_Unit");
-      pp (Union_Id (N));
+      Put_Line_Diag ("Withed_Unit");
+      Print_Node_Diag (N);
       if Defining_Entity (N) = Stand.Standard_Standard then
          --  TODO: github issue #252
          --  At the moment Standard is not processed
@@ -5106,7 +5126,7 @@ package body Tree_Walk is
                end loop;
 
                if not Is_Intrinsic then
-                  Put_Line (Standard_Error,
+                  Put_Line (Warning_File,
                             "Warning: Multi-language analysis unsupported.");
                end if;
             end;
@@ -5191,7 +5211,7 @@ package body Tree_Walk is
             --  allowing an Ada subprogram to be called from a foreign
             --  language, or an Ada object to be accessed from a foreign
             --  language. Need to be detected.
-            Put_Line (Standard_Error,
+            Put_Line (Warning_File,
                       "Warning: Multi-language analysis unsupported.");
          when Name_Linker_Options =>
             --  Used to specify the system linker parameters needed when a
@@ -5336,8 +5356,8 @@ package body Tree_Walk is
 
    procedure Process_Statement (N : Node_Id; Block : Irep) is
    begin
-      Put_Line ("Process_Statement");
-      pp (Union_Id (N));
+      Put_Line_Diag ("Process_Statement");
+      Print_Node_Diag (N);
       --  Deal with the statement
       case Nkind (N) is
          -- Simple statements --
@@ -5393,18 +5413,18 @@ package body Tree_Walk is
             Append_Op (Block, Do_Case_Statement (N));
 
          when N_Loop_Statement =>
-            Put_Line ("Processing loop statement");
+            Put_Line_Diag ("Processing loop statement");
             declare
                D_Irep : Irep;
             begin
-               Put_Line ("Calling Do_Loop_Statement");
+               Put_Line_Diag ("Calling Do_Loop_Statement");
                D_Irep := Do_Loop_Statement (N);
-               Put_Line ("Do_Loop_Statement_Called");
+               Put_Line_Diag ("Do_Loop_Statement_Called");
                Append_Op (Block, D_Irep);
             end;
 
             --  Append_Op (Block, Do_Loop_Statement (N));
-            Put_Line ("Done loop statement");
+            Put_Line_Diag ("Done loop statement");
 
          when N_Block_Statement =>
             Append_Op (Block, Do_N_Block_Statement (N));
@@ -5474,14 +5494,14 @@ package body Tree_Walk is
             Process_Statement (Stmt, Reps);
          exception
             when Error : others =>
-               IO.Put_Line (IO.Standard_Error, "<========================>");
-               IO.Put_Line (IO.Standard_Error,
+               IO.Put_Line (Error_File, "<========================>");
+               IO.Put_Line (Error_File,
                             Ada.Exceptions.Exception_Information
                               (Error));
                if GNAT2GOTO.Options.Dump_Statement_AST_On_Error then
                   Treepr.Print_Node_Subtree (Stmt);
                end if;
-               IO.Put_Line (IO.Standard_Error, "<========================>");
+               IO.Put_Line (Error_File, "<========================>");
          end;
          Next (Stmt);
       end loop;
