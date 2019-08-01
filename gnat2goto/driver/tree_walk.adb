@@ -2159,17 +2159,6 @@ package body Tree_Walk is
                Print_Node_Diag
                  (Discrete_Subtype_Definition
                     (Loop_Parameter_Specification (Iter_Scheme)));
-               if Nkind
-                 (Discrete_Subtype_Definition
-                    (Loop_Parameter_Specification (Iter_Scheme))) =
-                   N_Subtype_Indication
-               then
-                  Print_Node_Diag
-                    (Range_Expression
-                       (Discrete_Subtype_Definition
-                            (Loop_Parameter_Specification (Iter_Scheme))));
-               end if;
-
                declare
                   Spec : constant Node_Id :=
                     Loop_Parameter_Specification (Iter_Scheme);
