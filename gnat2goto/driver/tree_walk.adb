@@ -1459,13 +1459,16 @@ package body Tree_Walk is
          when N_Indexed_Component    => return Do_Indexed_Component (N);
          when N_Slice                => return Do_Slice (N);
          when N_In =>
-            if not (Present (Low_Bound (Right_Opnd (N)))) or
-              not (Present (High_Bound (Right_Opnd (N))))
-            then
-               return Report_Unhandled_Node_Irep (N, "Do_Expression",
-                                                  "N_In not a range");
-            end if;
-            return Do_In (N);
+            declare
+               The_Range : constant Node_Id := Get_Range (Right_Opnd (N));
+            begin
+               if Nkind (The_Range) = N_Range then
+                  return Do_In (N);
+               else
+                  return Report_Unhandled_Node_Irep (N, "Do_Expression",
+                                                     "N_In not a range");
+               end if;
+            end;
          when N_Real_Literal => return Do_Real_Constant (N);
          when N_If_Expression => return Do_If_Expression (N);
          when N_And_Then => return Do_And_Then (N);
@@ -4593,6 +4596,26 @@ package body Tree_Walk is
 
       return Ret;
    end Get_Fresh_Type_Name;
+
+   ---------------
+   -- Get_Range --
+   ---------------
+
+   function Get_Range (N : Node_Id) return Node_Id is
+      --  A discrete_subtype_definition
+      --  may be a subtype_indication or a range.
+      --  For determining the upper bounds and lower bounds a range
+      --  is required if N is a subtype_indication, the constraints
+      --  of the subtype have to be obtained - which should be a range.
+     (if Nkind (N) = N_Range then
+        --  It is a range
+        N
+      elsif Nkind (N) = N_Subtype_Indication then
+        --  It is an anonymous subtype
+        Scalar_Range (Etype (N))
+      else
+        --  It is an explicitly declared subtype
+        Scalar_Range (Entity (N)));
 
    -----------------------------------
    -- Get_Variant_Union_Member_Name --
