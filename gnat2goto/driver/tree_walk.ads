@@ -110,6 +110,15 @@ package Tree_Walk is
      with Pre => Nkind (N) in N_In,
      Post => Kind (Do_In'Result) = I_Op_And;
 
+   function Get_Range_From_Discrete_Subtype_Definition (N : Node_Id)
+                                                        return Node_Id
+   --  Given a discrete_subtype_definition returns its range.
+     with Pre => Nkind (N) in N_Range |
+                 N_Subtype_Indication |
+                 N_Identifier | N_Expanded_Name,
+          Post => Nkind (Get_Range_From_Discrete_Subtype_Definition'Result) =
+                 N_Range;
+
    function Make_Memcpy_Function_Call_Expr (Destination : Irep;
                                             Source : Irep;
                                             Num_Elem : Irep;
