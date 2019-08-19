@@ -751,6 +751,8 @@ package body Tree_Walk is
    function Do_Range_Constraint (N : Node_Id; Underlying : Irep)
                                      return Irep
    is
+      --  Syntactically, N must be a range node.
+      Range_Expr : constant Node_Id := Range_Expression (N);
       Resolved_Underlying : constant Irep :=
         Follow_Symbol_Type (Underlying, Global_Symbol_Table);
       --  ??? why not get this from the entity
@@ -771,9 +773,8 @@ package body Tree_Walk is
          end if;
       end Get_Array_Attr_Bound_Symbol;
 
-      --  Syntactically, N must be a range node.
-      Lower_Bound : constant Node_Id := Low_Bound (N);
-      Upper_Bound : constant Node_Id := High_Bound (N);
+      Lower_Bound : constant Node_Id := Low_Bound (Range_Expr);
+      Upper_Bound : constant Node_Id := High_Bound (Range_Expr);
 
       Lower_Bound_Value : Integer;
       Upper_Bound_Value : Integer;
@@ -786,17 +787,39 @@ package body Tree_Walk is
       if not (Kind (Resolved_Underlying) in Class_Bitvector_Type or
               Kind (Resolved_Underlying) = I_C_Enum_Type)
       then
-         return Report_Unhandled_Node_Type (N,
+         return Report_Unhandled_Node_Type (Range_Expr,
                                             "Do_Base_Range_Constraint",
                                         "range expression not bitvector type");
       end if;
 
-      case Nkind (Lower_Bound) is
+      --  For static expressions, the gnat front end replaces all attribute
+      --  references by the lower and upper bounds of the attributed prefix.
+      --  If the type of the range is an integer type, it folds the lower and
+      --  upper bounds expressions into their integer value
+
+      if Is_OK_Static_Expression (Lower_Bound) then
+         case Nkind (Lower_Bound) is
          when N_Integer_Literal => Lower_Bound_Value :=
               Store_Nat_Bound (Bound_Type_Nat (Intval (Lower_Bound)));
-         when N_Attribute_Reference =>
+            when N_Identifier =>
+               if Is_Enumeration_Type (Defining_Identifier (Lower_Bound)) then
+                  return Report_Unhandled_Node_Type
+                    (Lower_Bound,
+                     "Do_Range_Constraint",
+                     "Enumeration subtypes not handled");
+               else
+                  return Report_Unhandled_Node_Type
+                    (Lower_Bound,
+                     "Do_Range_Constraint",
+                     "Wrong type of bound");
+               end if;
+            when others =>
+
+
+
+               when N_Attribute_Reference =>
             if Get_Attribute_Id (Attribute_Name (Lower_Bound)) =
-              Attribute_Range
+              Attribute_First
             then
                if Is_Array_Type (Prefix (Lower_Bound)) then
                   Lower_Bound_Value :=

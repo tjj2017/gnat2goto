@@ -115,7 +115,7 @@ package Tree_Walk is
    --  Given a discrete_subtype_definition returns its range.
      with Pre => Nkind (N) in N_Range |
                    N_Subtype_Indication |
-                   N_Identifier,
+                   N_Identifier | N_Expanded_Name,
        Post => Nkind (Get_Range_From_Discrete_Subtype_Definition'Result) =
                  N_Range;
 
