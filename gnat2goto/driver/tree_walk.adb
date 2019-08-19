@@ -748,7 +748,7 @@ package body Tree_Walk is
    -- Do_Bare_Range_Constraint --
    ------------------------------
 
-   function Do_Bare_Range_Constraint (N : Node_Id; Underlying : Irep)
+   function Do_Range_Constraint (N : Node_Id; Underlying : Irep)
                                      return Irep
    is
       Resolved_Underlying : constant Irep :=
@@ -771,9 +771,9 @@ package body Tree_Walk is
          end if;
       end Get_Array_Attr_Bound_Symbol;
 
-      Range_Expr  : constant Node_Id := Get_Range (N);
-      Lower_Bound : constant Node_Id := Low_Bound (Range_Expr);
-      Upper_Bound : constant Node_Id := High_Bound (Range_Expr);
+      --  Syntactically, N must be a range node.
+      Lower_Bound : constant Node_Id := Low_Bound (N);
+      Upper_Bound : constant Node_Id := High_Bound (N);
 
       Lower_Bound_Value : Integer;
       Upper_Bound_Value : Integer;
@@ -786,7 +786,7 @@ package body Tree_Walk is
       if not (Kind (Resolved_Underlying) in Class_Bitvector_Type or
               Kind (Resolved_Underlying) = I_C_Enum_Type)
       then
-         return Report_Unhandled_Node_Type (Range_Expr,
+         return Report_Unhandled_Node_Type (N,
                                             "Do_Base_Range_Constraint",
                                         "range expression not bitvector type");
       end if;
@@ -794,8 +794,27 @@ package body Tree_Walk is
       case Nkind (Lower_Bound) is
          when N_Integer_Literal => Lower_Bound_Value :=
               Store_Nat_Bound (Bound_Type_Nat (Intval (Lower_Bound)));
-         when N_Attribute_Reference => Lower_Bound_Value :=
-              Store_Symbol_Bound (Get_Array_Attr_Bound_Symbol (Lower_Bound));
+         when N_Attribute_Reference =>
+            if Get_Attribute_Id (Attribute_Name (Lower_Bound)) =
+              Attribute_Range
+            then
+               if Is_Array_Type (Prefix (Lower_Bound)) then
+                  Lower_Bound_Value :=
+                    Store_Symbol_Bound
+                      (Get_Array_Attr_Bound_Symbol (Lower_Bound));
+               else
+                  Lower_Bound_Value :=
+                    Store_Symbol_Bound
+                      (Bound_Type_Symbol
+                         (Low_Bound (Scalar_Range (Prefix (Lower_Bound)))));
+               end if;
+            else
+               return Report_Unhandled_Node_Type
+                 (Lower_Bound,
+                  "Do_Bare_Range_Constraint",
+                  "Attribute Range expected");
+            end if;
+
          when N_Identifier =>
             Lower_Bound_Value :=
               Store_Symbol_Bound (Bound_Type_Symbol (
@@ -830,7 +849,7 @@ package body Tree_Walk is
       Set_Lower_Bound (Result_Type, Lower_Bound_Value);
       Set_Upper_Bound (Result_Type, Upper_Bound_Value);
       return Result_Type;
-   end Do_Bare_Range_Constraint;
+   end Do_Range_Constraint;
 
    ------------------------
    -- Do_Call_Parameters --
@@ -852,9 +871,7 @@ package body Tree_Walk is
          Followed_Type_Symbol : constant Irep :=
             Follow_Symbol_Type (Get_Type (Mem), Global_Symbol_Table);
       begin
-         if Kind (Followed_Type_Symbol) = I_C_Enum_Type and
-           Kind (Mem) = I_Symbol_Expr
-         then
+         if Kind (Followed_Type_Symbol) = I_C_Enum_Type then
             declare
                Val : constant Irep := Global_Symbol_Table
                  (Intern
@@ -891,16 +908,8 @@ package body Tree_Walk is
                                          "Kind of actual not in class type");
             return;
          end if;
-         Put_Line_Diag ("After check");
-         if Is_Out then
-            Put_Line_Diag ("Is_Out True");
-         else
-            Put_Line_Diag ("Is_Out False");
-         end if;
-
-         Actual_Irep := Wrap_Argument
-           (Handle_Enum_Symbol_Members (Expression), Is_Out);
-         Put_Line_Diag ("After Wrap_Argument");
+         Actual_Irep := Wrap_Argument (
+          Handle_Enum_Symbol_Members (Expression), Is_Out);
          Append_Argument (Args, Actual_Irep);
       end Handle_Parameter;
 
@@ -1461,23 +1470,13 @@ package body Tree_Walk is
    end Do_Expression;
 
    function Do_In (N : Node_Id) return Irep is
-      function Get_Range (N : Node_Id) return Node_Id;
-      function Get_Range (N : Node_Id) return Node_Id is
-         Underlying_Type : Entity_Id := N;
-      begin
-         while not (Nkind (Underlying_Type) = N_Defining_Identifier) loop
-            Underlying_Type := Etype (N);
-         end loop;
-         if No (Scalar_Range (Underlying_Type)) then
-            Report_Unhandled_Node_Empty (N, "Get_Range",
-                                         "Does not contain range");
-            return N;
-         end if;
-         return Scalar_Range (Underlying_Type);
-      end Get_Range;
-
       Left_Op : constant Irep := Do_Expression (Left_Opnd (N));
-      Right_Range_Expr : constant Node_Id := Get_Range (Right_Opnd (N));
+      Right_Range_Expr : constant Node_Id :=
+      --  The use of Get_Range_From_Discrete_Subtype_Definition is
+      --  more general than required here but as only a subtype_markor a range
+      --  is permitted in Ada 2005. Ada 2012 can have a ist of ranges and
+      --  subtype_marks but also expressions - This is not currently supported.
+        Get_Range_From_Discrete_Subtype_Definition (Right_Opnd (N));
       Low_Right : constant Irep :=
         Do_Expression (Low_Bound (Right_Range_Expr));
       High_Right : constant Irep :=
@@ -2164,7 +2163,8 @@ package body Tree_Walk is
                     Unique_Name (Defining_Identifier (Spec));
 
                   Dsd : constant Node_Id :=
-                    Get_Range (Discrete_Subtype_Definition (Spec));
+                    Get_Range_From_Discrete_Subtype_Definition
+                      (Discrete_Subtype_Definition (Spec));
 
                   Type_Loopvar : constant Irep := Do_Type_Reference
                     (Etype (Etype (Defining_Identifier (Spec))));
@@ -2224,12 +2224,12 @@ package body Tree_Walk is
                end;
             else
                if not Present (Iterator_Specification (Iter_Scheme)) then
-                  Report_Unhandled_Node_Empty (N, "Do_While_Statement",
+                  Report_Unhandled_Node_Empty (N, "Do_For_Statement",
                                            "Scheme specification not present");
                   return Loop_Wrapper;
 
                end if;
-               Report_Unhandled_Node_Empty (N, "Do_While_Statement",
+               Report_Unhandled_Node_Empty (N, "Do_For_Statement",
                                             "Loop iterators not implemented");
                return Loop_Wrapper;
             end if;
@@ -3807,9 +3807,9 @@ package body Tree_Walk is
    -- Do_Range_Constraint --
    -------------------------
 
-   function Do_Range_Constraint (N : Node_Id; Underlying : Irep)
-                                 return Irep
-   is (Do_Bare_Range_Constraint (Range_Expression (N), Underlying));
+--   function Do_Range_Constraint (N : Node_Id; Underlying : Irep)
+--                                 return Irep
+--   is (Do_Bare_Range_Constraint (Range_Expression (N), Underlying));
 
    --------------------------
    -- Do_Record_Definition --
@@ -4110,8 +4110,6 @@ package body Tree_Walk is
                                       "Entity id is not a type");
          return Ret;
       end if;
-      --  A signed integer definition has a Low_Bound and a High_Bound and
-      --  Get_Range (N) should not be called
          Set_Lower_Bound (I     => Ret,
                           Value => Store_Nat_Bound (Bound_Type_Nat (Intval (
                             Low_Bound (N)))));
@@ -4553,25 +4551,26 @@ package body Tree_Walk is
       return Ret;
    end Get_Fresh_Type_Name;
 
-   ---------------
-   -- Get_Range --
-   ---------------
+   ------------------------------------------------
+   -- Get_Range_From_Discrete_Subtype_Definition --
+   ------------------------------------------------
 
-   function Get_Range (N : Node_Id) return Node_Id is
-      --  A discrete_subtype_definition
-      --  may be a subtype_indication or a range.
+   function Get_Range_From_Discrete_Subtype_Definition (N : Node_Id)
+                                                        return Node_Id is
+      --  A discrete_subtype_definition may be a range, or,
+      --  a subtype_indication with or without a constraint.
       --  For determining the upper bounds and lower bounds a range
-      --  is required if N is a subtype_indication, the constraints
-      --  of the subtype have to be obtained - which should be a range.
+      --  is required if N is a subtype_indication, the constraint
+      --  of the subtype has to be obtained - which should be a range.
      (if Nkind (N) = N_Range then
-        --  It is a range
-        N
+         --  It is a range
+         N
       elsif Nkind (N) = N_Subtype_Indication then
-        --  It is an anonymous subtype
-        Scalar_Range (Etype (N))
+         --  It is a subtype with a constraint
+         Range_Expression (Constraint (N))
       else
-        --  It is an explicitly declared subtype
-        Scalar_Range (Entity (N)));
+         --  It is s subtype with no constraint
+         Scalar_Range (Entity (N)));
 
    -----------------------------------
    -- Get_Variant_Union_Member_Name --
