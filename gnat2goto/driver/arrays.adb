@@ -383,7 +383,8 @@ package body Arrays is
    function Make_Array_Default_Initialiser (E : Entity_Id) return Irep is
       --  Note this function only works for one dimensional arrays at present.
       Idx : constant Node_Id := First_Index (E);
-      Bound_Range : constant Node_Id := Get_Range (Idx);
+      Bound_Range : constant Node_Id :=
+        Get_Range_From_Discrete_Subtype_Definition (Idx);
       Lbound : constant Irep :=
         Typecast_If_Necessary (Do_Expression (Low_Bound (Bound_Range)),
                                CProver_Size_T, Global_Symbol_Table);
@@ -768,13 +769,13 @@ package body Arrays is
    --  This handled the oddball anonymous range nodes that can occur
    --  in array type declarations; they're effectively subtype indication
    --  nodes with an implied base type and a range constraint.
-   function Do_Array_Range (N : Node_Id) return Irep
-   is
-      Underlying : constant Irep :=
-        Do_Type_Reference (Etype (Etype (N)));
-   begin
-      return Do_Bare_Range_Constraint (N, Underlying);
-   end Do_Array_Range;
+--   function Do_Array_Range (N : Node_Id) return Irep
+--   is
+--      Underlying : constant Irep :=
+--        Do_Type_Reference (Etype (Etype (N)));
+--   begin
+--      return Do_Bare_Range_Constraint (N, Underlying);
+--   end Do_Array_Range;
 
    ------------------------------
    -- Get_Array_Component_Type --
@@ -878,7 +879,9 @@ package body Arrays is
          Base : constant Irep := Param_Symbol (Array_Param);
          Idx_Type : constant Entity_Id :=
            Etype (First_Index (Etype (N)));
-         The_Range : constant Node_Id := Get_Range (Scalar_Range (Idx_Type));
+         The_Range : constant Node_Id :=
+           Get_Range_From_Discrete_Subtype_Definition
+             (Scalar_Range (Idx_Type));
          New_First_Expr : constant Irep :=
            Typecast_If_Necessary (Do_Expression (Low_Bound (The_Range)),
                                   CProver_Size_T,
