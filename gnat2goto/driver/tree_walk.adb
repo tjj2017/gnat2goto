@@ -751,11 +751,7 @@ package body Tree_Walk is
    -- Do_Bare_Range_Constraint --
    ------------------------------
 
-<<<<<<< HEAD
-   function Do_Bare_Range_Constraint (N : Node_Id; Underlying : Irep)
-=======
    function Do_Range_Constraint (N : Node_Id; Underlying : Irep)
->>>>>>> e090b1445d36fde80c0ea5b251e920c8876b7900
                                      return Irep
    is
       --  Syntactically, N must be a range node.
@@ -821,28 +817,24 @@ package body Tree_Walk is
                      "Do_Range_Constraint",
                      "Wrong type of bound");
                end if;
-            when others =>
-
-
-
-               when N_Attribute_Reference =>
-            if Get_Attribute_Id (Attribute_Name (Lower_Bound)) =
-              Attribute_First
-            then
-               if Is_Array_Type (Prefix (Lower_Bound)) then
-                  Lower_Bound_Value :=
-                    Store_Symbol_Bound
-                      (Get_Array_Attr_Bound_Symbol (Lower_Bound));
-               else
-                  Lower_Bound_Value :=
+            when N_Attribute_Reference =>
+               if Get_Attribute_Id (Attribute_Name (Lower_Bound)) =
+                 Attribute_First
+               then
+                  if Is_Array_Type (Prefix (Lower_Bound)) then
+                     Lower_Bound_Value :=
+                       Store_Symbol_Bound
+                         (Bound_Type_Symbol
+                         (Get_Array_Attr_Bound_Symbol (Lower_Bound));
+                  Upper_Bound_Value :=
                     Store_Symbol_Bound
                       (Bound_Type_Symbol
-                         (Low_Bound (Scalar_Range (Prefix (Lower_Bound)))));
+                         (High_Bound (Scalar_Range (Prefix (Upper_Bound)))));
                end if;
             else
                return Report_Unhandled_Node_Type
                  (Lower_Bound,
-                  "Do_Bare_Range_Constraint",
+                  "Do_Range_Constraint",
                   "Attribute Range expected");
             end if;
 
