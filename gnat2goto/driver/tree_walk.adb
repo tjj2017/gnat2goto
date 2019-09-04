@@ -317,6 +317,9 @@ package body Tree_Walk is
 
    function Get_Variant_Union_Member_Name (N : Node_Id) return String;
 
+   function Make_Decrement
+     (Sym : Irep; Sym_Type : Node_Id; Amount : Integer) return Irep;
+
    function Make_Increment
      (Sym : Irep; Sym_Type : Node_Id; Amount : Integer) return Irep;
 
@@ -2151,18 +2154,18 @@ package body Tree_Walk is
                Put_Line_Diag ("The loop is done");
             end;
          else
-            Put_Line_Diag ("For loop");
+            Put_Line ("For loop");
             --  FOR loop.
             --   Ada 1995: loop_parameter_specification
             --   Ada 2012: +iterator_specification
             if Present (Loop_Parameter_Specification (Iter_Scheme)) then
-               Put_Line_Diag ("Iter scheme present");
-               Print_Node_Diag (Iter_Scheme);
-               Print_Node_Diag (Loop_Parameter_Specification (Iter_Scheme));
-               Print_Node_Diag
+               Put_Line ("Iter scheme present");
+               Print_Node_Briefly (Iter_Scheme);
+               Print_Node_Briefly (Loop_Parameter_Specification (Iter_Scheme));
+               Print_Node_Briefly
                  (Defining_Identifier
                     (Loop_Parameter_Specification (Iter_Scheme)));
-               Print_Node_Diag
+               Print_Node_Briefly
                  (Discrete_Subtype_Definition
                     (Loop_Parameter_Specification (Iter_Scheme)));
                declare
@@ -2184,6 +2187,9 @@ package body Tree_Walk is
                        Identifier      => Loopvar_Name);
 
                   Init : constant Irep := New_Irep (I_Code_Assign);
+
+                  pragma Assert (Nkind (Dsd) = N_Range);
+
                   Bound_Low : constant Irep :=
                     Do_Expression (Low_Bound (Dsd));
                   Bound_High : constant Irep :=
@@ -2211,8 +2217,8 @@ package body Tree_Walk is
                         Overflow_Check  => False,
                         I_Type          => Make_Bool_Type,
                         Range_Check     => False);
-                     Post := Make_Increment
-                       (Sym_Loopvar, Etype (Low_Bound (Dsd)), -1);
+                     Post := Make_Decrement
+                       (Sym_Loopvar, Etype (Low_Bound (Dsd)), 1);
                   else
                      Set_Lhs (Init, Sym_Loopvar);
                      Set_Rhs (Init, Bound_Low);
@@ -2717,8 +2723,8 @@ package body Tree_Walk is
             Full_View_Entity : constant Entity_Id := Full_View (Entity);
 
          begin
-            if not Has_Init_Expression (N) and then
-              Present (Full_View_Entity)
+            if not (Has_Init_Expression (N) or Present (Expression (N)))
+              and then Present (Full_View_Entity)
             then
                --  The constant declaration has no initialisation expression
                --  so it is a deferred constant declaration with a completion.
@@ -3026,7 +3032,7 @@ package body Tree_Walk is
       Set_Symbol (Decl, Id);
       Append_Op (Block, Decl);
 
-      if Has_Init_Expression (N) then
+      if Has_Init_Expression (N) or Present (Expression (N)) then
          Init_Expr := Do_Expression (Expression (N));
       elsif Needs_Default_Initialisation (Etype (Defined)) then
          declare
@@ -4599,6 +4605,27 @@ package body Tree_Walk is
    end Get_Variant_Union_Member_Name;
 
    --------------------
+   -- Make_Decrement --
+   --------------------
+
+   function Make_Decrement
+     (Sym : Irep; Sym_Type : Node_Id; Amount : Integer) return Irep
+   is
+      Dec   : constant Irep := New_Irep (I_Side_Effect_Expr_Assign);
+      Minus : constant Irep := New_Irep (I_Op_Sub);
+      Amount_Expr : constant Irep :=
+        Make_Integer_Constant (Amount, Sym_Type);
+   begin
+      Set_Lhs (Minus, Sym);
+      Set_Rhs (Minus, Amount_Expr);
+      Set_Type (Minus, Get_Type (Sym));
+
+      Set_Lhs (Dec, Sym);
+      Set_Rhs (Dec, Minus);
+      return Dec;
+   end Make_Decrement;
+
+   --------------------
    -- Make_Increment --
    --------------------
 
@@ -5453,6 +5480,14 @@ package body Tree_Walk is
 --         when N_Freeze_Entity =>
 --            --  Ignore, nothing to generate
 --            null;
+
+         when N_Declaration =>
+            --  The grammer does not allow a declaration as a statement and
+            --  the parser will reject them but the semantic analyser inserts
+            --  declarations into the tree where statements are expected.
+            --  See sinfo.adb,  5.1 Sequence Of Statements.
+            --  So they must be handled.
+            Process_Declaration (N, Block);
 
          when others =>
             Report_Unhandled_Node_Empty (N, "Process_Statement",
