@@ -291,6 +291,12 @@ package body Tree_Walk is
    function Get_Fresh_Type_Name (Actual_Type : Irep; Associated_Node : Node_Id)
                                 return Irep;
 
+   function Get_Import_Convention (N : Node_Id) return String;
+
+   function Get_Import_Entity (N : Node_Id) return Entity_Id;
+
+   function Get_Import_External_Name (N : Node_Id) return String;
+
    function Get_Variant_Union_Member_Name (N : Node_Id) return String;
 
    function Make_Increment
@@ -4672,6 +4678,85 @@ package body Tree_Walk is
 
       return Ret;
    end Get_Fresh_Type_Name;
+
+   ---------------------------
+   -- Get_Import_Convention --
+   ---------------------------
+
+   function Get_Import_Convention (N : Node_Id) return String is
+      --  The gnat front end insists thet the parameters for
+      --  pragma Import are given in the specified order even
+      --  if named association is used:
+      --  1. Convention,
+      --  2. Enity,
+      --  3. Optional External_Name,
+      --  4. Optional Link_Name.
+      --  The first 2 parameters are mandatory and
+      --  for ASVAT models the External_Name is required.
+      --
+      --  The Convention parameter will always be present as
+      --  the first parameter.
+      Conv_Assoc : constant Node_Id := First (Pragma_Argument_Associations (N));
+      Conv_Name  : constant String  := Get_Name_String (Chars (Entity_Assoc));
+      Convetion  : constant Entity_Id  := Get_Name_String
+        (Chars (Expression (Conv_Assoc)));
+   begin
+      --  Double check the named parameter if named association is used.
+      pragma Assert (Conv_Name /= No_Name or Conv_Name = "convention");
+      return Convention;
+   end Get_Import_Convention;
+
+
+   function Get_Import_Entity (N : Node_Id) return Entity_Id is
+      --  The gnat front end insists thet the parameters for
+      --  pragma Import are given in the specified order even
+      --  if named association is used:
+      --  1. Convention,
+      --  2. Enity,
+      --  3. Optional External_Name,
+      --  4. Optional Link_Name.
+      --  The first 2 parameters are mandatory and
+      --  for ASVAT models the External_Name is required.
+      --
+      --  The Entity parameter will always be present as
+      --  the second parameter.
+      Entity_Assoc : constant Node_Id :=
+        Next (First (Pragma_Argument_Associations (N)));
+      Entity_Name  : constant String  :=
+        Get_Name_String (Chars (Entity__Assoc));
+      Entity       : constant Entity_Id := Expression (Entity_Assoc);
+   begin
+      --  Double check the named parameter if named association is used.
+      pragma Assert (Conv_Name /= No_Name or Conv_Name = "entity");
+      return Entity;
+   end Get_Import_Entity;
+
+   function Get_Import_External_Name (N : Node_Id) return String;
+      --  The gnat front end insists thet the parameters for
+      --  pragma Import are given in the specified order even
+      --  if named association is used:
+      --  1. Convention,
+      --  2. Enity,
+      --  3. Optional External_Name,
+      --  4. Optional Link_Name.
+      --  The first 2 parameters are mandatory and
+      --  for ASVAT models the External_Name is required.
+      --
+      --  The External_Name parameter, if present, will be
+      --  the third parameter.
+      Conv_Assoc : constant Node_Id := First (Pragma_Argument_Associations (N));
+      Conv_Name  : constant String  := Get_Name_String (Chars (Entity_Assoc));
+      Convetion  : constant Entity_Id  := Get_Name_String
+        (Chars (Expression (Conv_Assoc)));
+   begin
+      --  Double check the named parameter if named association is used.
+      pragma Assert (Conv_Name /= No_Name or Conv_Name = "convention");
+      return Convention;
+   end Get_Import_Convention;
+
+
+
+
 
    -----------------------------------
    -- Get_Variant_Union_Member_Name --
