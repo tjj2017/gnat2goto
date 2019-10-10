@@ -23,6 +23,7 @@ with GNAT2GOTO.Options;
 with Range_Check; use Range_Check;
 with Arrays; use Arrays;
 with Gnat2goto_Itypes; use Gnat2goto_Itypes;
+with ASVAT_Modelling;
 
 package body Tree_Walk is
 
@@ -2398,6 +2399,7 @@ package body Tree_Walk is
                                       "Original node not present");
       end if;
       N_Orig := Original_Node (N);
+
       case Pragma_Name (N_Orig) is
          when Name_Assert |
               Name_Assume |
@@ -2431,8 +2433,44 @@ package body Tree_Walk is
             Report_Unhandled_Node_Empty (N, "Do_Pragma",
                                          "Unsupported pragma: SPARK Mode");
          when Name_Global =>
-            Report_Unhandled_Node_Empty (N, "Do_Pragma",
-                                         "Unsupported pragma: Global");
+--            Report_Unhandled_Node_Empty (N, "Do_Pragma",
+--                                         "Unsupported pragma: Global");
+
+            Put_Line ("pragma Global found in sequence of statements");
+            declare
+               procedure Handle_Arg
+                 (Arg_Pos : Positive; Arg_Name : Name_Id; Expr : Node_Id);
+
+               procedure Handle_Arg
+                 (Arg_Pos : Positive; Arg_Name : Name_Id; Expr : Node_Id) is
+               begin
+                  Put_Line ("Arg " & Positive'Image (Arg_Pos));
+                  if Arg_Name = No_Name then
+                     Put_Line ("No Name");
+                  end if;
+                  Print_Node_Briefly (Expr);
+                  if Nkind (Expr) = N_Identifier then
+                     --  Ent_Id := Defining_Identifier (Expr);
+                     if Present (Entity (Expr)) then
+                        Print_Node_Briefly (Entity (Expr));
+                     else
+                        Put_Line ("Entity not Present");
+                        Sem.Analyze (Expr);
+                        if Present (Entity (Expr)) then
+                           Put_Line ("Now Present");
+                           Print_Node_Briefly (Entity (Expr));
+                        end if;
+                     end if;
+                  end if;
+
+               end Handle_Arg;
+
+               procedure Iterate_Args is new
+                 Iterate_Pragma_Parameters (Handle_Arg => Handle_Arg);
+            begin
+               Iterate_Args (N_Orig);
+            end;
+
          when Name_Variant =>
             --  Could as well be ignored but is another verification condition
             --  that should be checked
@@ -5089,8 +5127,80 @@ package body Tree_Walk is
             Report_Unhandled_Node_Empty (N, "Process_Pragma_Declaration",
                                          "Unsupported pragma: Refine");
          when Name_Global =>
-            Report_Unhandled_Node_Empty (N, "Process_Pragma_Declaration",
-                                         "Unsupported pragma: Global");
+            --  Report_Unhandled_Node_Empty (N, "Process_Pragma_Declaration",
+            --                               "Unsupported pragma: Global");
+            Put_Line ("pragma Global found in declarative part");
+            declare
+               procedure Handle_Arg
+                 (Arg_Pos : Positive; Arg_Name : Name_Id; Expr : Node_Id);
+
+               procedure Handle_Arg
+                 (Arg_Pos : Positive; Arg_Name : Name_Id; Expr : Node_Id) is
+               begin
+                  Put_Line ("Arg " & Positive'Image (Arg_Pos));
+                  if Arg_Name = No_Name then
+                     Put_Line ("No Name");
+                  end if;
+                  Print_Node_Briefly (Expr);
+                  if Nkind (Expr) = N_Aggregate then
+                     if Present (Expressions (Expr)) then
+                        Put_Line ("Expressions present");
+                     elsif Present (Component_Associations (Expr)) then
+                        Put_Line ("Component_associations present");
+                        declare
+                           Comp_Ass : constant Node_Id := First
+                             (Component_Associations (Expr));
+                        begin
+                           Put_Line ("First component_association");
+                           Print_Node_Briefly (Comp_Ass);
+                           if Present (First (Choices (Comp_Ass))) then
+                              Put_Line ("First Choice");
+                              Print_Node_Briefly (First (Choices (Comp_Ass)));
+                           end if;
+                           if Present (Expression (Comp_Ass)) then
+                              Put_Line ("The expression");
+                              Print_Node_Briefly (Expression (Comp_Ass));
+                              if Nkind (Expression (Comp_Ass)) =
+                                N_Aggregate
+                              then
+                                 if Present (Expressions
+                                             (Expression (Comp_Ass)))
+                                 then
+                                    Put_Line ("We have expressions");
+                                    declare
+                                       Exp : constant Node_Id :=
+                                         First (Expressions (Expression
+                                                (Comp_Ass)));
+                                    begin
+                                       Put_Line ("First Expression");
+                                       Print_Node_Briefly (Exp);
+                                    end;
+                                 end if;
+
+                                 if Present (Component_Associations
+                                             (Expression (Comp_Ass)))
+                                 then
+                                    Put_Line ("There are component_Ass");
+                                 end if;
+                              else
+                                 Put_Line ("Not an aggregate");
+                              end if;
+                           end if;
+                        end;
+                     else
+                        Put_Line ("No expressions or associations");
+                     end if;
+                  else
+                     Put_Line ("Not an aggregate");
+                  end if;
+               end Handle_Arg;
+
+               procedure Iterate_Args is new
+                 Iterate_Pragma_Parameters (Handle_Arg => Handle_Arg);
+            begin
+               Iterate_Args (N);
+            end;
+
          when Name_Variant =>
             --  Could as well be ignored but is another verification condition
             --  that should be checked
@@ -5135,6 +5245,10 @@ package body Tree_Walk is
             --  However, if the calling convention is specified as "Intrinsic"
             --  then the subprogram is built into the compiler and gnat2goto
             --  can safely ignore the pragma.
+            --  If the convention is "Ada" then, in gnat2goto this is used
+            --  to represent an ASVAT model of a subprogram.
+            --  A check is made that the import pragma is indeed referencing
+            --  an external ASVAT model subprogram.
             declare
                --  If the pragma is specified with positional parameter
                --  association, then the calling convention is the first
@@ -5143,10 +5257,14 @@ package body Tree_Walk is
                Is_Intrinsic : Boolean := Present (Next_Ass) and then
                  Nkind (Expression (Next_Ass)) = N_Identifier and then
                  Get_Name_String (Chars (Expression (Next_Ass))) = "intrinsic";
+               Is_Ada : Boolean := Present (Next_Ass) and then
+                 Nkind (Expression (Next_Ass)) = N_Identifier and then
+                 Get_Name_String (Chars (Expression (Next_Ass))) = "ada";
             begin
                --  If the first parameter is not Intrinsic, check named
                --  parameters for calling convention
-               while not Is_Intrinsic and Present (Next_Ass) loop
+               while not Is_Intrinsic and not Is_Ada and Present (Next_Ass)
+               loop
                   if Chars (Next_Ass) /= No_Name and then
                     Get_Name_String (Chars (Next_Ass)) = "convention"
                   then
@@ -5155,14 +5273,76 @@ package body Tree_Walk is
                      Is_Intrinsic :=
                        Get_Name_String (Chars (Expression (Next_Ass))) =
                        "intrinsic";
+                     Is_Ada :=
+                       Get_Name_String (Chars (Expression (Next_Ass))) =
+                       "Ada";
                   end if;
-                     --  Get the next parameter association
+                  --  Get the next parameter association
                   Next_Ass := Next (Next_Ass);
                end loop;
 
-               if not Is_Intrinsic then
+               if not (Is_Intrinsic or Is_Ada) then
                   Put_Line (Standard_Error,
                             "Warning: Multi-language analysis unsupported.");
+               end if;
+
+               if Is_Ada then
+                  declare
+                     --  The gnat front end insists thet the parameters for
+                     --  pragma import are given in the specified order even
+                     --  if named association is used:
+                     --  1. Convention,
+                     --  2. Enity,
+                     --  3. Optional External_Name,
+                     --  4. Optional Link_Name.
+                     --  The first 2 parameters are mandatory and
+                     --  for ASVAT models the External_Name is required.
+                     --
+                     --  Get the third parameter association.
+                     Ext_Name_Param_Assoc : constant Node_Id :=
+                       Next (Next (First (Pragma_Argument_Associations (N))));
+                     Unsupported_Import : Boolean;
+                  begin
+                     if Present (Ext_Name_Param_Assoc) then
+                        --  Ensure we have the External_Name parameter if it is
+                        --  named association.  Syntatically this can't happen
+                        --  as it is enforced by the gnat front end.
+                        pragma Assert (if Chars (Ext_Name_Param_Assoc) /=
+                                         No_Name
+                                       then
+                                          Get_Name_String
+                                         (Chars
+                                            (Ext_Name_Param_Assoc)) =
+                                           "external_name");
+
+                        declare
+                           Actual_Param_Id : constant String_Id :=
+                             Strval (Expression (Ext_Name_Param_Assoc));
+                           Actual_Length : constant Natural :=
+                             Natural (String_Length (Actual_Param_Id));
+                        begin
+                           String_To_Name_Buffer (Actual_Param_Id);
+                           declare
+                              Actual_Param : String
+                              renames Name_Buffer (1 .. Actual_Length);
+                           begin
+                              Unsupported_Import :=
+                                not ASVAT_Modelling.Is_Model (Actual_Param);
+                           end;
+                        end;
+
+                     else
+                        Unsupported_Import := True;
+                     end if;
+
+                     if Unsupported_Import then
+                        Put_Line (Standard_Error,
+                                  "Warning pragma Import with convention Ada" &
+                                    " is unsupported except when specifying" &
+                                    " an ASVAT model subprogram."
+                                 );
+                     end if;
+                  end;
                end if;
             end;
 
