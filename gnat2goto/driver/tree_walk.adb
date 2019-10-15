@@ -4,6 +4,8 @@ with Sem;
 with Sem_Eval;              use Sem_Eval;
 with Sem_Util;              use Sem_Util;
 with Sem_Aux;               use Sem_Aux;
+with Sem_Prag;              use Sem_Prag;
+with Elists;                use Elists;
 with Snames;                use Snames;
 with Stringt;               use Stringt;
 with Treepr;                use Treepr;
@@ -291,11 +293,18 @@ package body Tree_Walk is
    function Get_Fresh_Type_Name (Actual_Type : Irep; Associated_Node : Node_Id)
                                 return Irep;
 
-   function Get_Import_Convention (N : Node_Id) return String;
+   function Get_Import_Convention (N : Node_Id) return String
+   with Pre => Nkind (N) = N_Pragma and then
+               Get_Pragma_Id (N) = Pragma_Import;
 
-   function Get_Import_Entity (N : Node_Id) return Entity_Id;
+   function Get_Import_Entity (N : Node_Id) return Entity_Id
+   with Pre => Nkind (N) = N_Pragma and then
+               Get_Pragma_Id (N) = Pragma_Import;
 
-   function Get_Import_External_Name (N : Node_Id) return String;
+   function Get_Import_External_Name (N : Node_Id) return String
+   with Pre => Nkind (N) = N_Pragma and then
+               Get_Pragma_Id (N) = Pragma_Import;
+   --  Returns null string if the External_Name parameter is not present.
 
    function Get_Variant_Union_Member_Name (N : Node_Id) return String;
 
@@ -4357,8 +4366,55 @@ package body Tree_Walk is
    -------------------------------
 
    procedure Do_Subprogram_Declaration (N : Node_Id) is
+      E : constant Node_Id := Defining_Unit_Name (Specification (N));
    begin
       Register_Subprogram_Specification (Specification (N));
+      Put_Line ("Subprogram:");
+      Print_Node_Briefly (E);
+      if Is_Imported (E) then
+         Put_Line ("is imported");
+         Print_Node_Briefly (Import_Pragma (E));
+         pragma Assert (Get_Pragma_Id (Import_Pragma (E)) = Pragma_Import);
+         if Get_Import_Convention (Import_Pragma (E)) = "ada" then
+            Put_Line ("Ada convention");
+            Put_Line ("External name " &
+                        Get_Import_External_Name (Import_Pragma (E)));
+            if ASVAT_Modelling.Is_Model
+              (Get_Import_External_Name (Import_Pragma (E)))
+            then
+               Put_Line ("It is an ASVAT model");
+               declare
+                  Subp_Inputs  : Elist_Id := No_Elist;
+                  Subp_Outputs : Elist_Id := No_Elist;
+                  Global_Seen  : Boolean;
+                  Iter : Elmt_Id;
+               begin
+                  Collect_Subprogram_Inputs_Outputs
+                    (Subp_Id      => E,
+                     Synthesize   => False,
+                     Subp_Inputs  => Subp_Inputs,
+                     Subp_Outputs => Subp_Outputs,
+                     Global_Seen  => Global_Seen);
+                  if Global_Seen then
+                     Put_Line ("Global seen");
+                  else
+                     Put_Line ("No global seen");
+                  end if;
+                  Iter := First_Elmt (Subp_Outputs);
+                  while Present (Iter) loop
+                     Print_Node_Briefly (Node (Iter));
+                     if Nkind (Node (Iter)) = N_Identifier then
+                        Print_Node_Briefly (Entity (Node (Iter)));
+                     end if;
+                     Next_Elmt (Iter);
+                  end loop;
+               end;
+            end if;
+
+         end if;
+      else
+         Put_Line ("is not imported");
+      end if;
       --  Todo Aspect specifications
    end Do_Subprogram_Declaration;
 
@@ -4696,16 +4752,17 @@ package body Tree_Walk is
       --
       --  The Convention parameter will always be present as
       --  the first parameter.
-      Conv_Assoc : constant Node_Id := First (Pragma_Argument_Associations (N));
-      Conv_Name  : constant String  := Get_Name_String (Chars (Entity_Assoc));
-      Convetion  : constant Entity_Id  := Get_Name_String
+      Conv_Assoc : constant Node_Id :=
+        First (Pragma_Argument_Associations (N));
+      Conv_Name  : constant Name_Id := Chars (Conv_Assoc);
+      Convention : constant String  := Get_Name_String
         (Chars (Expression (Conv_Assoc)));
    begin
       --  Double check the named parameter if named association is used.
-      pragma Assert (Conv_Name /= No_Name or Conv_Name = "convention");
+      pragma Assert (Conv_Name /= No_Name or
+                       Get_Name_String (Conv_Name) = "convention");
       return Convention;
    end Get_Import_Convention;
-
 
    function Get_Import_Entity (N : Node_Id) return Entity_Id is
       --  The gnat front end insists thet the parameters for
@@ -4722,16 +4779,16 @@ package body Tree_Walk is
       --  the second parameter.
       Entity_Assoc : constant Node_Id :=
         Next (First (Pragma_Argument_Associations (N)));
-      Entity_Name  : constant String  :=
-        Get_Name_String (Chars (Entity__Assoc));
+      Entity_Name  : constant Name_Id := Chars (Entity_Assoc);
       Entity       : constant Entity_Id := Expression (Entity_Assoc);
    begin
       --  Double check the named parameter if named association is used.
-      pragma Assert (Conv_Name /= No_Name or Conv_Name = "entity");
+      pragma Assert (Entity_Name /= No_Name or
+                       Get_Name_String (Entity_Name) = "entity");
       return Entity;
    end Get_Import_Entity;
 
-   function Get_Import_External_Name (N : Node_Id) return String;
+   function Get_Import_External_Name (N : Node_Id) return String is
       --  The gnat front end insists thet the parameters for
       --  pragma Import are given in the specified order even
       --  if named association is used:
@@ -4744,19 +4801,29 @@ package body Tree_Walk is
       --
       --  The External_Name parameter, if present, will be
       --  the third parameter.
-      Conv_Assoc : constant Node_Id := First (Pragma_Argument_Associations (N));
-      Conv_Name  : constant String  := Get_Name_String (Chars (Entity_Assoc));
-      Convetion  : constant Entity_Id  := Get_Name_String
-        (Chars (Expression (Conv_Assoc)));
+      External_Assoc : constant Node_Id := Next
+        (Next
+           (First (Pragma_Argument_Associations (N))));
    begin
-      --  Double check the named parameter if named association is used.
-      pragma Assert (Conv_Name /= No_Name or Conv_Name = "convention");
-      return Convention;
-   end Get_Import_Convention;
-
-
-
-
+      if Present (External_Assoc) then
+         declare
+            External_Name : constant Name_Id := Chars (External_Assoc);
+            External_Name_Id : constant String_Id :=
+              Strval (Expression (External_Assoc));
+            External_Name_Id_Length : constant Natural :=
+              Natural (String_Length (External_Name_Id));
+         begin
+            --  Double check the named parameter if named association is used.
+            pragma Assert (External_Name /= No_Name or
+                             Get_Name_String
+                               (External_Name) = "external_name");
+            String_To_Name_Buffer (External_Name_Id);
+            return Name_Buffer (1 .. External_Name_Id_Length);
+         end;
+      else
+         return "";
+      end if;
+   end Get_Import_External_Name;
 
    -----------------------------------
    -- Get_Variant_Union_Member_Name --
@@ -5334,38 +5401,48 @@ package body Tree_Walk is
             --  to represent an ASVAT model of a subprogram.
             --  A check is made that the import pragma is indeed referencing
             --  an external ASVAT model subprogram.
-            declare
+--            declare
                --  If the pragma is specified with positional parameter
                --  association, then the calling convention is the first
                --  parameter. Check to see if it is Intrinsic.
-               Next_Ass : Node_Id := First (Pragma_Argument_Associations (N));
-               Is_Intrinsic : Boolean := Present (Next_Ass) and then
-                 Nkind (Expression (Next_Ass)) = N_Identifier and then
-                 Get_Name_String (Chars (Expression (Next_Ass))) = "intrinsic";
-               Is_Ada : Boolean := Present (Next_Ass) and then
-                 Nkind (Expression (Next_Ass)) = N_Identifier and then
-                 Get_Name_String (Chars (Expression (Next_Ass))) = "ada";
+--             Next_Ass : Node_Id := First (Pragma_Argument_Associations (N));
+--             Is_Intrinsic : Boolean := Present (Next_Ass) and then
+--                Nkind (Expression (Next_Ass)) = N_Identifier and then
+--              Get_Name_String (Chars (Expression (Next_Ass))) = "intrinsic";
+--             Is_Ada : Boolean := Present (Next_Ass) and then
+--                Nkind (Expression (Next_Ass)) = N_Identifier and then
+--                Get_Name_String (Chars (Expression (Next_Ass))) = "ada";
+--              begin
+--                 --  If the first parameter is not Intrinsic, check named
+--                 --  parameters for calling convention
+--                 while not Is_Intrinsic and not Is_Ada and Present (Next_Ass)
+--                 loop
+--                    if Chars (Next_Ass) /= No_Name and then
+--                      Get_Name_String (Chars (Next_Ass)) = "convention"
+--                    then
+--                 --  The named parameter is Convention, check to see if it
+--                       --  is Intrinsic
+--                       Is_Intrinsic :=
+--                         Get_Name_String (Chars (Expression (Next_Ass))) =
+--                         "intrinsic";
+--                       Is_Ada :=
+--                         Get_Name_String (Chars (Expression (Next_Ass))) =
+--                         "Ada";
+--                    end if;
+--                    --  Get the next parameter association
+--                    Next_Ass := Next (Next_Ass);
+--                 end loop;
+            Put_Line ("Convention: " & Get_Import_Convention (N));
+            Put_Line ("Entity: ");
+            Print_Node_Briefly (Get_Import_Entity (N));
+            Print_Node_Briefly (Get_Import_Entity (N));
+            Put_Line ("External Name: " & Get_Import_External_Name (N));
+            declare
+               Is_Intrinsic : constant Boolean :=
+                 Get_Import_Convention (N) = "intrinsic";
+               Is_Ada : constant Boolean :=
+                 Get_Import_Convention (N) = "ada";
             begin
-               --  If the first parameter is not Intrinsic, check named
-               --  parameters for calling convention
-               while not Is_Intrinsic and not Is_Ada and Present (Next_Ass)
-               loop
-                  if Chars (Next_Ass) /= No_Name and then
-                    Get_Name_String (Chars (Next_Ass)) = "convention"
-                  then
-                     --  The named parameter is Convention, check to see if it
-                     --  is Intrinsic
-                     Is_Intrinsic :=
-                       Get_Name_String (Chars (Expression (Next_Ass))) =
-                       "intrinsic";
-                     Is_Ada :=
-                       Get_Name_String (Chars (Expression (Next_Ass))) =
-                       "Ada";
-                  end if;
-                  --  Get the next parameter association
-                  Next_Ass := Next (Next_Ass);
-               end loop;
-
                if not (Is_Intrinsic or Is_Ada) then
                   Put_Line (Standard_Error,
                             "Warning: Multi-language analysis unsupported.");
