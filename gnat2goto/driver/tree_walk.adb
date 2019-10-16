@@ -5,7 +5,6 @@ with Sem_Eval;              use Sem_Eval;
 with Sem_Util;              use Sem_Util;
 with Sem_Aux;               use Sem_Aux;
 with Sem_Prag;              use Sem_Prag;
-with Elists;                use Elists;
 with Snames;                use Snames;
 with Stringt;               use Stringt;
 with Treepr;                use Treepr;
@@ -294,10 +293,6 @@ package body Tree_Walk is
                                 return Irep;
 
    function Get_Import_Convention (N : Node_Id) return String
-   with Pre => Nkind (N) = N_Pragma and then
-               Get_Pragma_Id (N) = Pragma_Import;
-
-   function Get_Import_Entity (N : Node_Id) return Entity_Id
    with Pre => Nkind (N) = N_Pragma and then
                Get_Pragma_Id (N) = Pragma_Import;
 
@@ -4368,49 +4363,57 @@ package body Tree_Walk is
    procedure Do_Subprogram_Declaration (N : Node_Id) is
       E : constant Node_Id := Defining_Unit_Name (Specification (N));
    begin
+      pragma Assert (Ekind (E) in Subprogram_Kind);
       Register_Subprogram_Specification (Specification (N));
-      Put_Line ("Subprogram:");
-      Print_Node_Briefly (E);
+      if Has_Completion (E) and not Is_Imported (E) then
+         --  It is a normal Ada subprogram.  Nothing to be done.
+         return;
+      end if;
+
       if Is_Imported (E) then
-         Put_Line ("is imported");
-         Print_Node_Briefly (Import_Pragma (E));
          pragma Assert (Get_Pragma_Id (Import_Pragma (E)) = Pragma_Import);
          if Get_Import_Convention (Import_Pragma (E)) = "ada" then
-            Put_Line ("Ada convention");
-            Put_Line ("External name " &
-                        Get_Import_External_Name (Import_Pragma (E)));
             if ASVAT_Modelling.Is_Model
               (Get_Import_External_Name (Import_Pragma (E)))
             then
-               Put_Line ("It is an ASVAT model");
+               --  Get lists of all the inputs and outputs of the model
+               --  subprogram including all those listed in a pragma Global.
+               --  Presently the list of inputs is not used.
                declare
-                  Subp_Inputs  : Elist_Id := No_Elist;
-                  Subp_Outputs : Elist_Id := No_Elist;
-                  Global_Seen  : Boolean;
-                  Iter : Elmt_Id;
+                  Model_Inputs  : Elist_Id := No_Elist;
+                  Model_Outputs : Elist_Id := No_Elist;
+                  Global_Seen   : Boolean;
                begin
                   Collect_Subprogram_Inputs_Outputs
                     (Subp_Id      => E,
                      Synthesize   => False,
-                     Subp_Inputs  => Subp_Inputs,
-                     Subp_Outputs => Subp_Outputs,
+                     Subp_Inputs  => Model_Inputs,
+                     Subp_Outputs => Model_Outputs,
                      Global_Seen  => Global_Seen);
-                  if Global_Seen then
-                     Put_Line ("Global seen");
-                  else
-                     Put_Line ("No global seen");
+                  if not Global_Seen then
+                     Put_Line
+                       (Standard_Error,
+                        "Global pragma expected for imported ASVAT model.");
+                     Put_Line
+                       (Standard_Error,
+                        "Specify 'Global => null' if the model has no " &
+                          "global variables");
                   end if;
-                  Iter := First_Elmt (Subp_Outputs);
-                  while Present (Iter) loop
-                     Print_Node_Briefly (Node (Iter));
-                     if Nkind (Node (Iter)) = N_Identifier then
-                        Print_Node_Briefly (Entity (Node (Iter)));
-                     end if;
-                     Next_Elmt (Iter);
-                  end loop;
-               end;
-            end if;
 
+                  ASVAT_Modelling.Make_Model
+                    (Get_Import_External_Name (Import_Pragma (E)),
+                     Model_Outputs);
+               end;
+            else
+               Report_Unhandled_Node_Empty
+                 (N, "Do_Subprogram_Declaratiom",
+                  "Import of non-ASVAT Ada subprogram.");
+            end if;
+         elsif not Has_Completion (E) then
+            --  Here it would be possible to nondet outputs specified
+            --  in subprogram specification but at present nothing is done.
+            --  A missing body will be reported when it is "linked".
+            null;
          end if;
       else
          Put_Line ("is not imported");
@@ -4764,29 +4767,9 @@ package body Tree_Walk is
       return Convention;
    end Get_Import_Convention;
 
-   function Get_Import_Entity (N : Node_Id) return Entity_Id is
-      --  The gnat front end insists thet the parameters for
-      --  pragma Import are given in the specified order even
-      --  if named association is used:
-      --  1. Convention,
-      --  2. Enity,
-      --  3. Optional External_Name,
-      --  4. Optional Link_Name.
-      --  The first 2 parameters are mandatory and
-      --  for ASVAT models the External_Name is required.
-      --
-      --  The Entity parameter will always be present as
-      --  the second parameter.
-      Entity_Assoc : constant Node_Id :=
-        Next (First (Pragma_Argument_Associations (N)));
-      Entity_Name  : constant Name_Id := Chars (Entity_Assoc);
-      Entity       : constant Entity_Id := Expression (Entity_Assoc);
-   begin
-      --  Double check the named parameter if named association is used.
-      pragma Assert (Entity_Name /= No_Name or
-                       Get_Name_String (Entity_Name) = "entity");
-      return Entity;
-   end Get_Import_Entity;
+   ------------------------------
+   -- Get_Import_External_Name --
+   ------------------------------
 
    function Get_Import_External_Name (N : Node_Id) return String is
       --  The gnat front end insists thet the parameters for
@@ -5279,80 +5262,16 @@ package body Tree_Walk is
             Report_Unhandled_Node_Empty (N, "Process_Pragma_Declaration",
                                          "Unsupported pragma: Refine");
          when Name_Global =>
-            --  Report_Unhandled_Node_Empty (N, "Process_Pragma_Declaration",
-            --                               "Unsupported pragma: Global");
-            Put_Line ("pragma Global found in declarative part");
-            declare
-               procedure Handle_Arg
-                 (Arg_Pos : Positive; Arg_Name : Name_Id; Expr : Node_Id);
-
-               procedure Handle_Arg
-                 (Arg_Pos : Positive; Arg_Name : Name_Id; Expr : Node_Id) is
-               begin
-                  Put_Line ("Arg " & Positive'Image (Arg_Pos));
-                  if Arg_Name = No_Name then
-                     Put_Line ("No Name");
-                  end if;
-                  Print_Node_Briefly (Expr);
-                  if Nkind (Expr) = N_Aggregate then
-                     if Present (Expressions (Expr)) then
-                        Put_Line ("Expressions present");
-                     elsif Present (Component_Associations (Expr)) then
-                        Put_Line ("Component_associations present");
-                        declare
-                           Comp_Ass : constant Node_Id := First
-                             (Component_Associations (Expr));
-                        begin
-                           Put_Line ("First component_association");
-                           Print_Node_Briefly (Comp_Ass);
-                           if Present (First (Choices (Comp_Ass))) then
-                              Put_Line ("First Choice");
-                              Print_Node_Briefly (First (Choices (Comp_Ass)));
-                           end if;
-                           if Present (Expression (Comp_Ass)) then
-                              Put_Line ("The expression");
-                              Print_Node_Briefly (Expression (Comp_Ass));
-                              if Nkind (Expression (Comp_Ass)) =
-                                N_Aggregate
-                              then
-                                 if Present (Expressions
-                                             (Expression (Comp_Ass)))
-                                 then
-                                    Put_Line ("We have expressions");
-                                    declare
-                                       Exp : constant Node_Id :=
-                                         First (Expressions (Expression
-                                                (Comp_Ass)));
-                                    begin
-                                       Put_Line ("First Expression");
-                                       Print_Node_Briefly (Exp);
-                                    end;
-                                 end if;
-
-                                 if Present (Component_Associations
-                                             (Expression (Comp_Ass)))
-                                 then
-                                    Put_Line ("There are component_Ass");
-                                 end if;
-                              else
-                                 Put_Line ("Not an aggregate");
-                              end if;
-                           end if;
-                        end;
-                     else
-                        Put_Line ("No expressions or associations");
-                     end if;
-                  else
-                     Put_Line ("Not an aggregate");
-                  end if;
-               end Handle_Arg;
-
-               procedure Iterate_Args is new
-                 Iterate_Pragma_Parameters (Handle_Arg => Handle_Arg);
-            begin
-               Iterate_Args (N);
-            end;
-
+            --  Global is used in SPARK 2014 to allow modular analysis.  It
+            --  is not required and can be safely ignored when performing
+            --  whole program analysis.
+            --  ASVAT essentially performs whole program analysis and the only
+            --  use of pragma Global is when the body of a called subprogram
+            --  is not included in the analysis.  In such cases, ASVAT obtains
+            --  the list of inputs and outputs, including any listed in a
+            --  pragma Global from the subprogram specification.
+            --  No action is required here.
+            null;
          when Name_Variant =>
             --  Could as well be ignored but is another verification condition
             --  that should be checked
@@ -5399,112 +5318,19 @@ package body Tree_Walk is
             --  can safely ignore the pragma.
             --  If the convention is "Ada" then, in gnat2goto this is used
             --  to represent an ASVAT model of a subprogram.
-            --  A check is made that the import pragma is indeed referencing
-            --  an external ASVAT model subprogram.
---            declare
-               --  If the pragma is specified with positional parameter
-               --  association, then the calling convention is the first
-               --  parameter. Check to see if it is Intrinsic.
---             Next_Ass : Node_Id := First (Pragma_Argument_Associations (N));
---             Is_Intrinsic : Boolean := Present (Next_Ass) and then
---                Nkind (Expression (Next_Ass)) = N_Identifier and then
---              Get_Name_String (Chars (Expression (Next_Ass))) = "intrinsic";
---             Is_Ada : Boolean := Present (Next_Ass) and then
---                Nkind (Expression (Next_Ass)) = N_Identifier and then
---                Get_Name_String (Chars (Expression (Next_Ass))) = "ada";
---              begin
---                 --  If the first parameter is not Intrinsic, check named
---                 --  parameters for calling convention
---                 while not Is_Intrinsic and not Is_Ada and Present (Next_Ass)
---                 loop
---                    if Chars (Next_Ass) /= No_Name and then
---                      Get_Name_String (Chars (Next_Ass)) = "convention"
---                    then
---                 --  The named parameter is Convention, check to see if it
---                       --  is Intrinsic
---                       Is_Intrinsic :=
---                         Get_Name_String (Chars (Expression (Next_Ass))) =
---                         "intrinsic";
---                       Is_Ada :=
---                         Get_Name_String (Chars (Expression (Next_Ass))) =
---                         "Ada";
---                    end if;
---                    --  Get the next parameter association
---                    Next_Ass := Next (Next_Ass);
---                 end loop;
-            Put_Line ("Convention: " & Get_Import_Convention (N));
-            Put_Line ("Entity: ");
-            Print_Node_Briefly (Get_Import_Entity (N));
-            Print_Node_Briefly (Get_Import_Entity (N));
-            Put_Line ("External Name: " & Get_Import_External_Name (N));
+            --  A pragma Import with the convention Ada is checked when the
+            --  subprogram to which it applies is translated.
             declare
+               Convention : constant String := Get_Import_Convention (N);
                Is_Intrinsic : constant Boolean :=
-                 Get_Import_Convention (N) = "intrinsic";
+                 Convention = "intrinsic";
                Is_Ada : constant Boolean :=
-                 Get_Import_Convention (N) = "ada";
+                 Convention = "ada";
             begin
                if not (Is_Intrinsic or Is_Ada) then
-                  Put_Line (Standard_Error,
-                            "Warning: Multi-language analysis unsupported.");
-               end if;
-
-               if Is_Ada then
-                  declare
-                     --  The gnat front end insists thet the parameters for
-                     --  pragma import are given in the specified order even
-                     --  if named association is used:
-                     --  1. Convention,
-                     --  2. Enity,
-                     --  3. Optional External_Name,
-                     --  4. Optional Link_Name.
-                     --  The first 2 parameters are mandatory and
-                     --  for ASVAT models the External_Name is required.
-                     --
-                     --  Get the third parameter association.
-                     Ext_Name_Param_Assoc : constant Node_Id :=
-                       Next (Next (First (Pragma_Argument_Associations (N))));
-                     Unsupported_Import : Boolean;
-                  begin
-                     if Present (Ext_Name_Param_Assoc) then
-                        --  Ensure we have the External_Name parameter if it is
-                        --  named association.  Syntatically this can't happen
-                        --  as it is enforced by the gnat front end.
-                        pragma Assert (if Chars (Ext_Name_Param_Assoc) /=
-                                         No_Name
-                                       then
-                                          Get_Name_String
-                                         (Chars
-                                            (Ext_Name_Param_Assoc)) =
-                                           "external_name");
-
-                        declare
-                           Actual_Param_Id : constant String_Id :=
-                             Strval (Expression (Ext_Name_Param_Assoc));
-                           Actual_Length : constant Natural :=
-                             Natural (String_Length (Actual_Param_Id));
-                        begin
-                           String_To_Name_Buffer (Actual_Param_Id);
-                           declare
-                              Actual_Param : String
-                              renames Name_Buffer (1 .. Actual_Length);
-                           begin
-                              Unsupported_Import :=
-                                not ASVAT_Modelling.Is_Model (Actual_Param);
-                           end;
-                        end;
-
-                     else
-                        Unsupported_Import := True;
-                     end if;
-
-                     if Unsupported_Import then
-                        Put_Line (Standard_Error,
-                                  "Warning pragma Import with convention Ada" &
-                                    " is unsupported except when specifying" &
-                                    " an ASVAT model subprogram."
-                                 );
-                     end if;
-                  end;
+                  Report_Unhandled_Node_Empty
+                    (N, "Process_Pragma_Declaration",
+                     "pragma Import: Multi-language analysis unsupported");
                end if;
             end;
 
@@ -5588,8 +5414,8 @@ package body Tree_Walk is
             --  allowing an Ada subprogram to be called from a foreign
             --  language, or an Ada object to be accessed from a foreign
             --  language. Need to be detected.
-            Put_Line (Standard_Error,
-                      "Warning: Multi-language analysis unsupported.");
+            Report_Unhandled_Node_Empty (N, "Process_Pragma_Declaration",
+                     "pragma Export: Multi-language analysis unsupported");
          when Name_Linker_Options =>
             --  Used to specify the system linker parameters needed when a
             --  given compilation unit is included in a partition. We want to

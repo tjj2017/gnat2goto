@@ -1,4 +1,11 @@
 with Ada.Strings.Fixed; use Ada.Strings.Fixed;
+with Elists;            use Elists;
+with Treepr;            use Treepr;
+with Sinfo;             use Sinfo;
+with Einfo;             use Einfo;
+with Atree;             use Atree;
+with Sem_Util;          use Sem_Util;
+with Ada.Text_IO;       use Ada.Text_IO;
 package body ASVAT_Modelling is
 
    --------------
@@ -18,5 +25,30 @@ package body ASVAT_Modelling is
       end loop;
       return Found;
    end Is_Model;
+
+   procedure Make_Model (Name : String; Outputs : Elist_Id) is
+      Iter : Elmt_Id := First_Elmt (Outputs);
+   begin
+      pragma Assert (Is_Model (Name));
+      while Present (Iter) loop
+         Print_Node_Briefly (Node (Iter));
+         if Nkind (Node (Iter)) in N_Identifier | N_Expanded_Name
+         then
+            Print_Node_Briefly (Entity (Node (Iter)));
+            Print_Node_Briefly (Etype (Entity (Node (Iter))));
+            Put_Line (Unique_Name (Etype (Entity (Node (Iter)))));
+            Put_Line (Entity_Kind'Image
+                      (Ekind (Entity (Node (Iter)))));
+            Put_Line (Unique_Name (Entity (Node (Iter))));
+         else
+            Print_Node_Briefly (Etype (Node (Iter)));
+            Put_Line (Entity_Kind'Image (Ekind (Node (Iter))));
+            Put_Line (Unique_Name (Etype (Node (Iter))));
+            Put_Line (Unique_Name (Node (Iter)));
+         end if;
+
+         Next_Elmt (Iter);
+      end loop;
+   end Make_Model;
 
 end ASVAT_Modelling;
