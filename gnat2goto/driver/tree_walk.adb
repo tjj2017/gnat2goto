@@ -4365,8 +4365,16 @@ package body Tree_Walk is
    begin
       pragma Assert (Ekind (E) in Subprogram_Kind);
       Register_Subprogram_Specification (Specification (N));
+
       if Has_Completion (E) and not Is_Imported (E) then
-         --  It is a normal Ada subprogram.  Nothing to be done.
+         --  It is a normal Ada subprogram.
+         --  Check whether it has a global pragma.
+         --  At present this is unsupported for normal Ada subprograms.
+         if not Present (Get_Pragma (E, Pragma_Global)) then
+            Report_Unhandled_Node_Empty
+              (N, "Do_Subprogram_Declaration",
+               "pragma Global unsupported on completed subprograms");
+         end if;
          return;
       end if;
 
@@ -4409,16 +4417,15 @@ package body Tree_Walk is
                  (N, "Do_Subprogram_Declaratiom",
                   "Import of non-ASVAT Ada subprogram.");
             end if;
-         elsif not Has_Completion (E) then
+         end if;
+
+      elsif not Has_Completion (E) then
             --  Here it would be possible to nondet outputs specified
             --  in subprogram specification but at present nothing is done.
             --  A missing body will be reported when it is "linked".
             null;
-         end if;
-      else
-         Put_Line ("is not imported");
       end if;
-      --  Todo Aspect specifications
+
    end Do_Subprogram_Declaration;
 
    ----------------------------
