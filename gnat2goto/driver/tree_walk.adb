@@ -4,7 +4,7 @@ with Sem;
 with Sem_Eval;              use Sem_Eval;
 with Sem_Util;              use Sem_Util;
 with Sem_Aux;               use Sem_Aux;
-with Sem_Prag;              use Sem_Prag;
+--  with Sem_Prag;              use Sem_Prag;
 with Snames;                use Snames;
 with Stringt;               use Stringt;
 with Treepr;                use Treepr;
@@ -291,15 +291,6 @@ package body Tree_Walk is
 
    function Get_Fresh_Type_Name (Actual_Type : Irep; Associated_Node : Node_Id)
                                 return Irep;
-
-   function Get_Import_Convention (N : Node_Id) return String
-   with Pre => Nkind (N) = N_Pragma and then
-               Get_Pragma_Id (N) = Pragma_Import;
-
-   function Get_Import_External_Name (N : Node_Id) return String
-   with Pre => Nkind (N) = N_Pragma and then
-               Get_Pragma_Id (N) = Pragma_Import;
-   --  Returns null string if the External_Name parameter is not present.
 
    function Get_Variant_Union_Member_Name (N : Node_Id) return String;
 
@@ -2749,7 +2740,13 @@ package body Tree_Walk is
       Decl : constant Irep := New_Irep (I_Code_Decl);
       Init_Expr : Irep := Ireps.Empty;
 
-      Obj_Id : constant Symbol_Id := Intern (Unique_Name (Defined));
+      Obj_Id : constant Symbol_Id := Intern
+        (if Is_Imported (Defined) and then
+         ASVAT_Modelling.Is_Model_Sort (Defined, ASVAT_Modelling.From_Unit)
+         then
+              ASVAT_Modelling.Rename_Import (Defined)
+         else
+            Unique_Name (Defined));
       Obj_Type : constant Irep := Get_Type (Id);
 
       function Has_Defaulted_Components (E : Entity_Id) return Boolean;
@@ -4376,54 +4373,21 @@ package body Tree_Walk is
                "pragma Global unsupported on completed subprograms");
          end if;
          return;
-      end if;
-
-      if Is_Imported (E) then
-         pragma Assert (Get_Pragma_Id (Import_Pragma (E)) = Pragma_Import);
-         if Get_Import_Convention (Import_Pragma (E)) = "ada" then
-            if ASVAT_Modelling.Is_Model
-              (Get_Import_External_Name (Import_Pragma (E)))
-            then
-               --  Get lists of all the inputs and outputs of the model
-               --  subprogram including all those listed in a pragma Global.
-               --  Presently the list of inputs is not used.
-               declare
-                  Model_Inputs  : Elist_Id := No_Elist;
-                  Model_Outputs : Elist_Id := No_Elist;
-                  Global_Seen   : Boolean;
-               begin
-                  Collect_Subprogram_Inputs_Outputs
-                    (Subp_Id      => E,
-                     Synthesize   => False,
-                     Subp_Inputs  => Model_Inputs,
-                     Subp_Outputs => Model_Outputs,
-                     Global_Seen  => Global_Seen);
-                  if not Global_Seen then
-                     Put_Line
-                       (Standard_Error,
-                        "Global pragma expected for imported ASVAT model.");
-                     Put_Line
-                       (Standard_Error,
-                        "Specify 'Global => null' if the model has no " &
-                          "global variables");
-                  end if;
-
-                  ASVAT_Modelling.Make_Model
-                    (Get_Import_External_Name (Import_Pragma (E)),
-                     Model_Outputs);
-               end;
-            else
-               Report_Unhandled_Node_Empty
-                 (N, "Do_Subprogram_Declaratiom",
-                  "Import of non-ASVAT Ada subprogram.");
-            end if;
+      elsif Is_Imported (E) then
+         if ASVAT_Modelling.Is_Model (E) then
+            ASVAT_Modelling.Make_Model (E);
+         else
+            Report_Unhandled_Node_Empty
+              (E,
+               "Do_Subprogram_Declaration",
+               "pragma Import: Multi-language analysis unsupported");
          end if;
 
       elsif not Has_Completion (E) then
-            --  Here it would be possible to nondet outputs specified
-            --  in subprogram specification but at present nothing is done.
-            --  A missing body will be reported when it is "linked".
-            null;
+         --  Here it would be possible to nondet outputs specified
+         --  in subprogram specification but at present nothing is done.
+         --  A missing body will be reported when it is "linked".
+         null;
       end if;
 
    end Do_Subprogram_Declaration;
@@ -4744,76 +4708,6 @@ package body Tree_Walk is
 
       return Ret;
    end Get_Fresh_Type_Name;
-
-   ---------------------------
-   -- Get_Import_Convention --
-   ---------------------------
-
-   function Get_Import_Convention (N : Node_Id) return String is
-      --  The gnat front end insists thet the parameters for
-      --  pragma Import are given in the specified order even
-      --  if named association is used:
-      --  1. Convention,
-      --  2. Enity,
-      --  3. Optional External_Name,
-      --  4. Optional Link_Name.
-      --  The first 2 parameters are mandatory and
-      --  for ASVAT models the External_Name is required.
-      --
-      --  The Convention parameter will always be present as
-      --  the first parameter.
-      Conv_Assoc : constant Node_Id :=
-        First (Pragma_Argument_Associations (N));
-      Conv_Name  : constant Name_Id := Chars (Conv_Assoc);
-      Convention : constant String  := Get_Name_String
-        (Chars (Expression (Conv_Assoc)));
-   begin
-      --  Double check the named parameter if named association is used.
-      pragma Assert (Conv_Name /= No_Name or
-                       Get_Name_String (Conv_Name) = "convention");
-      return Convention;
-   end Get_Import_Convention;
-
-   ------------------------------
-   -- Get_Import_External_Name --
-   ------------------------------
-
-   function Get_Import_External_Name (N : Node_Id) return String is
-      --  The gnat front end insists thet the parameters for
-      --  pragma Import are given in the specified order even
-      --  if named association is used:
-      --  1. Convention,
-      --  2. Enity,
-      --  3. Optional External_Name,
-      --  4. Optional Link_Name.
-      --  The first 2 parameters are mandatory and
-      --  for ASVAT models the External_Name is required.
-      --
-      --  The External_Name parameter, if present, will be
-      --  the third parameter.
-      External_Assoc : constant Node_Id := Next
-        (Next
-           (First (Pragma_Argument_Associations (N))));
-   begin
-      if Present (External_Assoc) then
-         declare
-            External_Name : constant Name_Id := Chars (External_Assoc);
-            External_Name_Id : constant String_Id :=
-              Strval (Expression (External_Assoc));
-            External_Name_Id_Length : constant Natural :=
-              Natural (String_Length (External_Name_Id));
-         begin
-            --  Double check the named parameter if named association is used.
-            pragma Assert (External_Name /= No_Name or
-                             Get_Name_String
-                               (External_Name) = "external_name");
-            String_To_Name_Buffer (External_Name_Id);
-            return Name_Buffer (1 .. External_Name_Id_Length);
-         end;
-      else
-         return "";
-      end if;
-   end Get_Import_External_Name;
 
    -----------------------------------
    -- Get_Variant_Union_Member_Name --
@@ -5327,8 +5221,12 @@ package body Tree_Walk is
             --  to represent an ASVAT model of a subprogram.
             --  A pragma Import with the convention Ada is checked when the
             --  subprogram to which it applies is translated.
+            --  The convention is always the first parameter of pragma Import.
+            --  This is enforced by the gnat front-end.
             declare
-               Convention : constant String := Get_Import_Convention (N);
+               Convention : constant String :=
+                 Get_Name_String (Chars (
+                                  First (Pragma_Argument_Associations (N))));
                Is_Intrinsic : constant Boolean :=
                  Convention = "intrinsic";
                Is_Ada : constant Boolean :=
