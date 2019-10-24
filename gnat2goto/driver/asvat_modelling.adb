@@ -3,37 +3,23 @@ with Ada.Characters.Handling; use Ada.Characters.Handling;
 with Elists;                  use Elists;
 with Nlists;                  use Nlists;
 with Stringt;                 use Stringt;
-with Snames;                  use Snames;
 with Sinput;                  use Sinput;
 --  with Treepr;                 use Treepr;
-with Sinfo;                   use Sinfo;
-with Sem_Util;                use Sem_Util;
 with Namet;                   use Namet;
 with Tree_Walk;               use Tree_Walk;
 with Sem_Prag;                use Sem_Prag;
+with Symbol_Table_Info;       use Symbol_Table_Info;
 with Ada.Text_IO;             use Ada.Text_IO;
 package body ASVAT_Modelling is
 
    Lower_Case_Models     : constant String := To_Lower (Model_List);
 --   Lower_Non_Det         : constant String := To_Lower (Non_Det);
    Lower_Non_Det_In_Type : constant String := To_Lower (Non_Det_In_Type);
-   Lower_From_Unit       : constant String := To_Lower (From_Unit);
-
-   function Get_Import_Convention (N : Node_Id) return String
-   with Pre => Nkind (N) = N_Pragma and then
-               Get_Pragma_Id (N) = Pragma_Import;
-
-   function Get_Import_External_Name (N : Node_Id) return String
-   with Pre => Nkind (N) = N_Pragma and then
-               Get_Pragma_Id (N) = Pragma_Import;
-   --  Returns null string if the External_Name parameter is not present.
-
-   function Get_Import_Link_Name (N : Node_Id) return String
-   with Pre => Nkind (N) = N_Pragma and then
-               Get_Pragma_Id (N) = Pragma_Import;
-   --  Returns null string if the Link_Name parameter is not present.
+   Lower_From_Unit : constant String := To_Lower (From_Unit);
 
    function Replace_Dots (S : String) return String;
+   function Replace_Local_With_Import
+     (Is_Type : Boolean; E : Entity_Id; Print_Message : Boolean) return String;
 
    -----------------
    -- Find_Model  --
@@ -52,10 +38,6 @@ package body ASVAT_Modelling is
       end loop;
       return Model_Index (if Sep_Pos = 0 then 0 else Start_Pos);
    end Find_Model;
-
-   Non_Det_In_Type_Index : constant Model_Index :=
-     Find_Model ("Non_Det_In_Type");
-   pragma Assert (Non_Det_In_Type_Index /= 0);
 
    ---------------------------
    -- Get_Import_Convention --
@@ -211,6 +193,9 @@ package body ASVAT_Modelling is
       return Is_Ada and then To_Lower (Model) = To_Lower (External_Name);
    end Is_Model_Sort;
 
+   function Is_Model_String (S : String) return Boolean is
+     (Find_Model (S) /= 0);
+
    ----------------
    -- Make_Model --
    ----------------
@@ -245,9 +230,35 @@ package body ASVAT_Modelling is
                         Node (Iter)
                      else
                         Entity (Node (Iter)));
+
+                  Obj_Name : constant String :=
+                    (if Is_Imported (Curr_Entity) and then
+                     Is_Model_Sort (Curr_Entity, From_Unit) then
+                          Replace_Local_Object_With_Import (Curr_Entity, False)
+                     else
+                        Unique_Name (Curr_Entity));
+
                   Obj_Type    : constant Node_Id := Etype (Curr_Entity);
-                  Type_Name   : constant String := Unique_Name (Obj_Type);
-                  Obj_Name : constant String := Unique_Name (Curr_Entity);
+
+                  Replacement : constant String :=
+                    (if Is_Imported (Curr_Entity) and then Is_Model_Sort
+                     (Curr_Entity, From_Unit)
+                     then
+                        Replace_Local_Type_With_Import
+                       (Curr_Entity, False)
+                     else
+                        "");
+
+                  Type_Name   : constant String :=
+                    (if Is_Imported (Curr_Entity) and then Replacement /= ""
+                     and then Global_Symbol_Table.Contains
+                       (Intern
+                            (Replacement))
+                     then
+                        Replace_Local_Type_With_Import (Curr_Entity, True)
+                     else
+                       Unique_Name (Etype (Curr_Entity)));
+
                begin
                   if Ekind (Curr_Entity) /= E_Abstract_State then
                      if Section = Declarations then
@@ -310,44 +321,80 @@ package body ASVAT_Modelling is
               "global variables");
       end if;
 
+      Put_Line (Build_Location_String (Sloc (Subprog_Import_Pragma)) &
+                  " ASVAT modelling:");
+      Put_Line ("Adding a " & Model &
+                  " body for imported subprogram " &
+                  Unique_Name (E));
+
       Make_Model_Section (Model, Declarations, Model_Outputs);
       Make_Model_Section (Model, Statements, Model_Outputs);
    end Make_Model;
 
-   function Rename_Import (E : Entity_Id) return String is
+   --------------------------------------
+   -- Replace_Local_Object_With_Import --
+   --------------------------------------
+
+   function Replace_Local_Object_With_Import
+     (E : Entity_Id; Print_Message : Boolean) return String is
+     (Replace_Local_With_Import (Is_Type       => False,
+                                 E             => E,
+                                 Print_Message => Print_Message));
+
+   -------------------------------------
+   -- Replace_Local_Type_With_Import --
+   -------------------------------------
+
+   function Replace_Local_Type_With_Import
+     (E : Entity_Id; Print_Message : Boolean) return String is
+     (Replace_Local_With_Import (Is_Type       => True,
+                                 E             => E,
+                                 Print_Message => Print_Message));
+
+   -------------------------------
+   -- Replace_Local_With_Import --
+   -------------------------------
+
+   function Replace_Local_With_Import
+     (Is_Type : Boolean; E : Entity_Id; Print_Message : Boolean) return String
+   is
       Obj_Import_Pragma : constant Node_Id := Get_Pragma (E, Pragma_Import);
-      Is_Rename : constant Boolean :=
+      Is_Replace : constant Boolean :=
         (if Present (Obj_Import_Pragma) then
-              Get_Import_External_Name (Obj_Import_Pragma) = Lower_From_Unit
+              To_Lower (Get_Import_External_Name (Obj_Import_Pragma)) =
+             Lower_From_Unit
          else
             False);
-      Imported_From_Unit : constant String :=
+      Import_Unit : constant String :=
         Replace_Dots (Get_Import_Link_Name (Obj_Import_Pragma));
 
-      Local_Obj_Unique_Name : constant String := Unique_Name (E);
+      Local_Name : constant String :=
+        (if Is_Type then Get_Name_String (Chars (Etype (E)))
+         else Get_Name_String (Chars (E)));
 
-      Imported_Obj_Unique_Name : constant String :=
-        (if Is_Rename then Imported_From_Unit &
-           Get_Name_String (Chars (E))
-         else
-            "");
+      Replacement_Name : constant String :=
+        (if Import_Unit /= "" then Import_Unit & "__" else "") &
+        Local_Name;
+
    begin
-      if Is_Rename then
+      if Is_Replace then
 
-         Put_Line (Integer'Image (
-                   Integer (Get_Physical_Line_Number (Sloc (E)))) & ":" &
-                     Integer'Image (Integer (Get_Column_Number (Sloc (E)))) &
-                     "ASVAT modelling: Replacing local name " &
-                     Local_Obj_Unique_Name & " by " &
-                     Imported_Obj_Unique_Name);
-         return Imported_Obj_Unique_Name;
+         if Print_Message then
+            Put_Line (Build_Location_String (Sloc (Obj_Import_Pragma)) &
+                        " ASVAT modelling: ");
+            Put_Line ("Replacing local name '" &
+                        Local_Name & "' by '" & Replacement_Name & "'");
+         end if;
+
+         return Replacement_Name;
       else
-         Report_Unhandled_Node_Empty (Obj_Import_Pragma,
-                                      "ASVAT_Modelling.Rename_Import",
-                                      "Unsupported pragma Import");
-         return Local_Obj_Unique_Name;
+         Report_Unhandled_Node_Empty
+           (Obj_Import_Pragma,
+            "ASVAT_Modelling.Rename_Local_To_External",
+            "Unsupported pragma Import of object");
+         return Unique_Name (E);
       end if;
-   end Rename_Import;
+   end Replace_Local_With_Import;
 
    function Replace_Dots (S : String) return String is
       function Replace_Dots_Rec (So_Far : String;
@@ -362,7 +409,7 @@ package body ASVAT_Modelling is
                return Replace_Dots_Rec (So_Far & To_Lower (S (Pos)), Pos + 1);
             end if;
          else
-            return (if So_Far /= "" then So_Far & "__" else "");
+            return So_Far; --  (if So_Far /= "" then So_Far & "__" else "");
          end if;
       end Replace_Dots_Rec;
 

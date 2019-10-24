@@ -1117,7 +1117,14 @@ package body Tree_Walk is
 
    function Do_Defining_Identifier (E : Entity_Id) return Irep is
       Sym          : constant Irep := New_Irep (I_Symbol_Expr);
-      Result_Type  : constant Irep := Do_Type_Reference (Etype (E));
+      Result_Type  : constant Irep :=
+        (if Is_Imported (E) and then
+         ASVAT_Modelling.Is_Model_Sort (E, ASVAT_Modelling.From_Unit)
+         then
+            Make_Symbol_Type
+              (ASVAT_Modelling.Replace_Local_Type_With_Import (E, True))
+         else
+            Do_Type_Reference (Etype (E)));
 
       Is_Out_Param : constant Boolean :=
         Ekind (E) in E_In_Out_Parameter | E_Out_Parameter;
@@ -1127,9 +1134,19 @@ package body Tree_Walk is
          then Make_Pointer_Type (Result_Type)
          else Result_Type);
 
+      Print_Message : constant Boolean := True;
+      Obj_Id : constant String :=
+        (if Is_Imported (E) and then
+         ASVAT_Modelling.Is_Model_Sort (E, ASVAT_Modelling.From_Unit)
+         then
+            ASVAT_Modelling.Replace_Local_Object_With_Import
+           (E, Print_Message)
+         else
+            Unique_Name (E));
+
    begin
       Set_Source_Location (Sym, Sloc (E));
-      Set_Identifier      (Sym, Unique_Name (E));
+      Set_Identifier      (Sym, Obj_Id);
       Set_Type            (Sym, Symbol_Type);
 
       if Is_Out_Param then
@@ -2434,43 +2451,9 @@ package body Tree_Walk is
             Report_Unhandled_Node_Empty (N, "Do_Pragma",
                                          "Unsupported pragma: SPARK Mode");
          when Name_Global =>
---            Report_Unhandled_Node_Empty (N, "Do_Pragma",
---                                         "Unsupported pragma: Global");
-
-            Put_Line ("pragma Global found in sequence of statements");
-            declare
-               procedure Handle_Arg
-                 (Arg_Pos : Positive; Arg_Name : Name_Id; Expr : Node_Id);
-
-               procedure Handle_Arg
-                 (Arg_Pos : Positive; Arg_Name : Name_Id; Expr : Node_Id) is
-               begin
-                  Put_Line ("Arg " & Positive'Image (Arg_Pos));
-                  if Arg_Name = No_Name then
-                     Put_Line ("No Name");
-                  end if;
-                  Print_Node_Briefly (Expr);
-                  if Nkind (Expr) = N_Identifier then
-                     --  Ent_Id := Defining_Identifier (Expr);
-                     if Present (Entity (Expr)) then
-                        Print_Node_Briefly (Entity (Expr));
-                     else
-                        Put_Line ("Entity not Present");
-                        Sem.Analyze (Expr);
-                        if Present (Entity (Expr)) then
-                           Put_Line ("Now Present");
-                           Print_Node_Briefly (Entity (Expr));
-                        end if;
-                     end if;
-                  end if;
-
-               end Handle_Arg;
-
-               procedure Iterate_Args is new
-                 Iterate_Pragma_Parameters (Handle_Arg => Handle_Arg);
-            begin
-               Iterate_Args (N_Orig);
-            end;
+            Report_Unhandled_Node_Empty (N, "Do_Pragma",
+                                         "pragma Global is unsupported " &
+                                           "in a sequence of statements");
 
          when Name_Variant =>
             --  Could as well be ignored but is another verification condition
@@ -2676,8 +2659,17 @@ package body Tree_Walk is
    ---------------------------
 
    procedure Do_Object_Declaration (N : Node_Id; Block : Irep) is
-      Obj_Id : constant Symbol_Id :=
-        Intern (Unique_Name (Defining_Identifier (N)));
+      No_Message : constant Boolean := False;
+      Defined : constant Entity_Id := Defining_Identifier (N);
+      Obj_Id : constant Symbol_Id := Intern
+        (if Is_Imported (Defined) and then
+         ASVAT_Modelling.Is_Model_Sort
+           (Defined, ASVAT_Modelling.From_Unit)
+         then
+            ASVAT_Modelling.Replace_Local_Object_With_Import
+           (Defined, No_Message)
+         else
+            Unique_Name (Defined));
    begin
       --  First check for object declarations which are not constants
       if not Constant_Present (N) then
@@ -2689,14 +2681,13 @@ package body Tree_Walk is
       then
          --  The declaration is of constant which may be deferred.
          declare
-            Entity : constant Entity_Id := Defining_Identifier (N);
             --  The full view of a deferred constant is obtained
             --  by calling the Full_View function.  As the gnat front-end
             --  has completed semantic analysis before invoking the
             --  gnat to goto translation all object_declarations that are
             --  deferred constants should have a full view unless the
             --  declaration has the pragma Import applied.
-            Full_View_Entity : constant Entity_Id := Full_View (Entity);
+            Full_View_Entity : constant Entity_Id := Full_View (Defined);
 
          begin
             if not Has_Init_Expression (N) and then
@@ -2710,8 +2701,7 @@ package body Tree_Walk is
                --  register it in the symbol table so that it is not
                --  processed again when the completion is encountered in
                --  the tree.
-               New_Valueless_Object_Symbol_Entry (Intern (Unique_Name
-                                          (Defining_Identifier (N))),
+               New_Valueless_Object_Symbol_Entry (Obj_Id,
                                           Global_Symbol_Table);
                --  Adds a dummy entry to the symbol table to register that a
                --  constant has already been processed.
@@ -2740,11 +2730,14 @@ package body Tree_Walk is
       Decl : constant Irep := New_Irep (I_Code_Decl);
       Init_Expr : Irep := Ireps.Empty;
 
+      No_Message : constant Boolean := False;
       Obj_Id : constant Symbol_Id := Intern
         (if Is_Imported (Defined) and then
-         ASVAT_Modelling.Is_Model_Sort (Defined, ASVAT_Modelling.From_Unit)
+         ASVAT_Modelling.Is_Model_Sort
+           (Defined, ASVAT_Modelling.From_Unit)
          then
-              ASVAT_Modelling.Rename_Import (Defined)
+            ASVAT_Modelling.Replace_Local_Object_With_Import
+           (Defined, No_Message)
          else
             Unique_Name (Defined));
       Obj_Type : constant Irep := Get_Type (Id);
@@ -5221,21 +5214,38 @@ package body Tree_Walk is
             --  to represent an ASVAT model of a subprogram.
             --  A pragma Import with the convention Ada is checked when the
             --  subprogram to which it applies is translated.
-            --  The convention is always the first parameter of pragma Import.
+            --  The convention is always the first parameter and External_Name
+            --  (if present) the third parameter of pragma Import.
             --  This is enforced by the gnat front-end.
             declare
                Convention : constant String :=
-                 Get_Name_String (Chars (
-                                  First (Pragma_Argument_Associations (N))));
+                 ASVAT_Modelling.Get_Import_Convention (N);
+
                Is_Intrinsic : constant Boolean :=
                  Convention = "intrinsic";
                Is_Ada : constant Boolean :=
                  Convention = "ada";
+
             begin
                if not (Is_Intrinsic or Is_Ada) then
                   Report_Unhandled_Node_Empty
                     (N, "Process_Pragma_Declaration",
                      "pragma Import: Multi-language analysis unsupported");
+
+               elsif Is_Ada then
+                  declare
+                     External_Name : constant String :=
+                       ASVAT_Modelling.Get_Import_External_Name (N);
+                  begin
+                     if not ASVAT_Modelling.Is_Model_String (External_Name)
+                     then
+                        Report_Unhandled_Node_Empty
+                          (N, "Process_Pragma_Declaration",
+                           "Import convention Ada but " &
+                             External_Name &
+                             " is not an ASVAT model");
+                     end if;
+                  end;
                end if;
             end;
 
