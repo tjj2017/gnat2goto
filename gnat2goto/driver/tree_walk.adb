@@ -1117,14 +1117,7 @@ package body Tree_Walk is
 
    function Do_Defining_Identifier (E : Entity_Id) return Irep is
       Sym          : constant Irep := New_Irep (I_Symbol_Expr);
-      Result_Type  : constant Irep :=
-        (if Is_Imported (E) and then
-         ASVAT_Modelling.Is_Model_Sort (E, ASVAT_Modelling.From_Unit)
-         then
-            Make_Symbol_Type
-              (ASVAT_Modelling.Replace_Local_Type_With_Import (E, True))
-         else
-            Do_Type_Reference (Etype (E)));
+      Result_Type  : constant Irep := Do_Type_Reference (Etype (E));
 
       Is_Out_Param : constant Boolean :=
         Ekind (E) in E_In_Out_Parameter | E_Out_Parameter;
@@ -1134,15 +1127,7 @@ package body Tree_Walk is
          then Make_Pointer_Type (Result_Type)
          else Result_Type);
 
-      Print_Message : constant Boolean := True;
-      Obj_Id : constant String :=
-        (if Is_Imported (E) and then
-         ASVAT_Modelling.Is_Model_Sort (E, ASVAT_Modelling.From_Unit)
-         then
-            ASVAT_Modelling.Replace_Local_Object_With_Import
-           (E, Print_Message)
-         else
-            Unique_Name (E));
+      Obj_Id : constant String := Unique_Name (E);
 
    begin
       Set_Source_Location (Sym, Sloc (E));
@@ -2659,17 +2644,8 @@ package body Tree_Walk is
    ---------------------------
 
    procedure Do_Object_Declaration (N : Node_Id; Block : Irep) is
-      No_Message : constant Boolean := False;
       Defined : constant Entity_Id := Defining_Identifier (N);
-      Obj_Id : constant Symbol_Id := Intern
-        (if Is_Imported (Defined) and then
-         ASVAT_Modelling.Is_Model_Sort
-           (Defined, ASVAT_Modelling.From_Unit)
-         then
-            ASVAT_Modelling.Replace_Local_Object_With_Import
-           (Defined, No_Message)
-         else
-            Unique_Name (Defined));
+      Obj_Id : constant Symbol_Id := Intern (Unique_Name (Defined));
    begin
       --  First check for object declarations which are not constants
       if not Constant_Present (N) then
@@ -2730,16 +2706,7 @@ package body Tree_Walk is
       Decl : constant Irep := New_Irep (I_Code_Decl);
       Init_Expr : Irep := Ireps.Empty;
 
-      No_Message : constant Boolean := False;
-      Obj_Id : constant Symbol_Id := Intern
-        (if Is_Imported (Defined) and then
-         ASVAT_Modelling.Is_Model_Sort
-           (Defined, ASVAT_Modelling.From_Unit)
-         then
-            ASVAT_Modelling.Replace_Local_Object_With_Import
-           (Defined, No_Message)
-         else
-            Unique_Name (Defined));
+      Obj_Id : constant Symbol_Id := Intern (Unique_Name (Defined));
       Obj_Type : constant Irep := Get_Type (Id);
 
       function Has_Defaulted_Components (E : Entity_Id) return Boolean;
@@ -4356,31 +4323,32 @@ package body Tree_Walk is
       pragma Assert (Ekind (E) in Subprogram_Kind);
       Register_Subprogram_Specification (Specification (N));
 
-      if Has_Completion (E) and not Is_Imported (E) then
-         --  It is a normal Ada subprogram.
-         --  Check whether it has a global pragma.
-         --  At present this is unsupported for normal Ada subprograms.
-         if not Present (Get_Pragma (E, Pragma_Global)) then
-            Report_Unhandled_Node_Empty
-              (N, "Do_Subprogram_Declaration",
-               "pragma Global unsupported on completed subprograms");
+      if Present (Import_Pragma (E)) then
+         if ASVAT_Modelling.Get_Import_Convention (Import_Pragma (E)) = "ada"
+         then
+            if ASVAT_Modelling.Is_Model (E) then
+               ASVAT_Modelling.Make_Model (E);
+            else
+               Report_Unhandled_Node_Empty
+                 (E,
+                  "Do_Subprogram_Declaration",
+                  "pragma Import: Convention Ada but not an ASVAT model.");
+            end if;
          end if;
-         return;
-      elsif Is_Imported (E) then
-         if ASVAT_Modelling.Is_Model (E) then
-            ASVAT_Modelling.Make_Model (E);
-         else
-            Report_Unhandled_Node_Empty
-              (E,
-               "Do_Subprogram_Declaration",
-               "pragma Import: Multi-language analysis unsupported");
-         end if;
-
       elsif not Has_Completion (E) then
          --  Here it would be possible to nondet outputs specified
          --  in subprogram specification but at present nothing is done.
          --  A missing body will be reported when it is "linked".
          null;
+      else
+         --  It is a normal Ada subprogram.
+         --  Check whether it has a global pragma.
+         --  At present this is unsupported for normal Ada subprograms.
+         if Present (Get_Pragma (E, Pragma_Global)) then
+            Report_Unhandled_Node_Empty
+              (N, "Do_Subprogram_Declaration",
+               "pragma Global unsupported on completed subprograms");
+         end if;
       end if;
 
    end Do_Subprogram_Declaration;
@@ -5241,9 +5209,9 @@ package body Tree_Walk is
                      then
                         Report_Unhandled_Node_Empty
                           (N, "Process_Pragma_Declaration",
-                           "Import convention Ada but " &
+                           "Import convention Ada but '" &
                              External_Name &
-                             " is not an ASVAT model");
+                             "' is not an ASVAT model sort");
                      end if;
                   end;
                end if;

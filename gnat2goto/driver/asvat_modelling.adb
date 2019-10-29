@@ -7,19 +7,22 @@ with Sinput;                  use Sinput;
 --  with Treepr;                 use Treepr;
 with Namet;                   use Namet;
 with Tree_Walk;               use Tree_Walk;
+with Einfo;                   use Einfo;
 with Sem_Prag;                use Sem_Prag;
-with Symbol_Table_Info;       use Symbol_Table_Info;
+--  with Symbol_Table_Info;       use Symbol_Table_Info;
 with Ada.Text_IO;             use Ada.Text_IO;
 package body ASVAT_Modelling is
 
-   Lower_Case_Models     : constant String := To_Lower (Model_List);
---   Lower_Non_Det         : constant String := To_Lower (Non_Det);
-   Lower_Non_Det_In_Type : constant String := To_Lower (Non_Det_In_Type);
-   Lower_From_Unit : constant String := To_Lower (From_Unit);
+   type Model_Index is range 0 .. Model_List'Length;
+
+   function Find_Model (S : String) return Model_Index;
 
    function Replace_Dots (S : String) return String;
+
    function Replace_Local_With_Import
-     (Is_Type : Boolean; E : Entity_Id; Print_Message : Boolean) return String;
+     (Is_Type : Boolean; E : Entity_Id) return String
+     with Pre => Ekind (E) in E_Variable | E_Constant and then
+                 Is_Model_Sort (E, Replace_With);
 
    -----------------
    -- Find_Model  --
@@ -28,13 +31,13 @@ package body ASVAT_Modelling is
    function Find_Model (S : String) return Model_Index is
       Lower_S   : constant String := To_Lower (S);
       Start_Pos : Positive := Lower_S'First;
-      Sep_Pos   : Natural  := Index (Lower_Case_Models,
+      Sep_Pos   : Natural  := Index (Model_List,
                                      "#", From => Start_Pos);
    begin
       while Sep_Pos /= 0 loop
-         exit when  Lower_Case_Models (Start_Pos .. Sep_Pos - 1) = Lower_S;
+         exit when  Model_List (Start_Pos .. Sep_Pos - 1) = Lower_S;
          Start_Pos := Sep_Pos + 1;
-         Sep_Pos   := Index (Lower_Case_Models, "#", From => Start_Pos);
+         Sep_Pos   := Index (Model_List, "#", From => Start_Pos);
       end loop;
       return Model_Index (if Sep_Pos = 0 then 0 else Start_Pos);
    end Find_Model;
@@ -102,7 +105,7 @@ package body ASVAT_Modelling is
                              Get_Name_String
                                (External_Name) = "external_name");
             String_To_Name_Buffer (External_Name_Id);
-            return Name_Buffer (1 .. External_Name_Id_Length);
+            return To_Lower (Name_Buffer (1 .. External_Name_Id_Length));
          end;
       else
          return "";
@@ -146,7 +149,7 @@ package body ASVAT_Modelling is
                              Get_Name_String
                                (Link_Name) = "link_name");
             String_To_Name_Buffer (Link_Name_Id);
-            return Name_Buffer (1 .. Link_Name_Id_Length);
+            return To_Lower (Name_Buffer (1 .. Link_Name_Id_Length));
          end;
       else
          return "";
@@ -190,7 +193,7 @@ package body ASVAT_Modelling is
          else
             "");
    begin
-      return Is_Ada and then To_Lower (Model) = To_Lower (External_Name);
+      return Is_Ada and then To_Lower (Model) = External_Name;
    end Is_Model_Sort;
 
    function Is_Model_String (S : String) return Boolean is
@@ -204,7 +207,7 @@ package body ASVAT_Modelling is
       Subprog_Import_Pragma : constant Node_Id := Import_Pragma (E);
       Model : constant String :=
         (if Present (Subprog_Import_Pragma) then
-              To_Lower (Get_Import_External_Name (Subprog_Import_Pragma))
+              Get_Import_External_Name (Subprog_Import_Pragma)
          else
             "");
 
@@ -219,6 +222,7 @@ package body ASVAT_Modelling is
                                     Outputs : Elist_Id) is
          Iter      : Elmt_Id  := First_Elmt (Outputs);
          Type_List : constant Elist_Id := New_Elmt_List;
+         Print_Model : constant Boolean := False;
       begin
          while Present (Iter) loop
             if Nkind (Node (Iter)) in
@@ -231,50 +235,75 @@ package body ASVAT_Modelling is
                      else
                         Entity (Node (Iter)));
 
-                  Obj_Name : constant String :=
-                    (if Is_Imported (Curr_Entity) and then
-                     Is_Model_Sort (Curr_Entity, From_Unit) then
-                          Replace_Local_Object_With_Import (Curr_Entity, False)
+                  Given_Type : constant Node_Id := Etype (Curr_Entity);
+
+                  Replace_Object : constant Boolean :=
+                    Is_Imported (Curr_Entity) and then
+                     Is_Model_Sort (Curr_Entity, Replace_With);
+
+                  Obj_Name_String : constant String :=
+                    (if Replace_Object then
+                        Replace_Local_With_Import
+                       (Is_Type => False,
+                        E       => Curr_Entity)
                      else
                         Unique_Name (Curr_Entity));
 
-                  Obj_Type    : constant Node_Id := Etype (Curr_Entity);
-
-                  Replacement : constant String :=
-                    (if Is_Imported (Curr_Entity) and then Is_Model_Sort
-                     (Curr_Entity, From_Unit)
-                     then
-                        Replace_Local_Type_With_Import
-                       (Curr_Entity, False)
+                  Optional_Type_Name : constant String :=
+                    (if Replace_Object then
+                        Replace_Local_With_Import
+                       (Is_Type => True,
+                        E       => Curr_Entity)
                      else
                         "");
 
-                  Type_Name   : constant String :=
-                    (if Is_Imported (Curr_Entity) and then Replacement /= ""
-                     and then Global_Symbol_Table.Contains
-                       (Intern
-                            (Replacement))
+                  Type_Name_String : constant String :=
+                    (if Replace_Object and Optional_Type_Name /= ""
                      then
-                        Replace_Local_Type_With_Import (Curr_Entity, True)
+                        Optional_Type_Name
                      else
-                       Unique_Name (Etype (Curr_Entity)));
+                        Unique_Name (Given_Type));
 
                begin
+                  if Replace_Object and then Obj_Name_String = "" then
+                     --  Object replacement requested but no replacement
+                     --  object specified.
+                     Report_Unhandled_Node_Empty
+                       (Curr_Entity, "Make_Model",
+                        "ASVAT_Modelling: replacement object missing from " &
+                        "Replace_With pragma Import.");
+                     return;
+                  end if;
+
                   if Ekind (Curr_Entity) /= E_Abstract_State then
                      if Section = Declarations then
-                        if not Contains (Type_List, Obj_Type) then
-                           Append_Elmt (Obj_Type, Type_List);
-                           Put_Line ("Declare " & Type_Name &
-                                       "_non_det : " & Type_Name);
+                        Put_Line (Build_Location_String (Sloc (Curr_Entity)) &
+                                    " ASVAT modlling: ");
+                        Put_Line ("Replace local object '" &
+                                    Unique_Name (Curr_Entity) &
+                                    "' with '" &
+                                    Obj_Name_String &
+                                    " : " &
+                                    Type_Name_String &
+                                    "'");
+                        if not Contains (Type_List, Given_Type) then
+                           Append_Elmt (Given_Type, Type_List);
+                           if Print_Model then
+                              Put_Line ("Declare " & Type_Name_String &
+                                          "_non_det : " & Type_Name_String);
+                           end if;
                         end if;
-                     else
-                        Put_Line ("Assign " & Obj_Name & " := " &
-                                    Type_Name & "_non_det");
-                        if Model =  Lower_Non_Det_In_Type and then
-                          Is_Scalar_Type (Obj_Type)
+                     elsif Print_Model then
+                        Put_Line ("Assign " & Obj_Name_String & " := " &
+                                    Type_Name_String & "_non_det");
+                        if Model =  Non_Det_In_Type and then
+                          Is_Scalar_Type (Given_Type)
                         then
-                           Put_Line ("pragma Assume (" & Obj_Name &
-                                       " in " & Type_Name & "'Range)");
+                           if Print_Model then
+                              Put_Line ("pragma Assume (" & Obj_Name_String &
+                                          " in " & Unique_Name (Given_Type) &
+                                          "'Range)");
+                           end if;
                         end if;
                      end if;
                   elsif Section = Declarations then
@@ -331,69 +360,45 @@ package body ASVAT_Modelling is
       Make_Model_Section (Model, Statements, Model_Outputs);
    end Make_Model;
 
-   --------------------------------------
-   -- Replace_Local_Object_With_Import --
-   --------------------------------------
-
-   function Replace_Local_Object_With_Import
-     (E : Entity_Id; Print_Message : Boolean) return String is
-     (Replace_Local_With_Import (Is_Type       => False,
-                                 E             => E,
-                                 Print_Message => Print_Message));
-
-   -------------------------------------
-   -- Replace_Local_Type_With_Import --
-   -------------------------------------
-
-   function Replace_Local_Type_With_Import
-     (E : Entity_Id; Print_Message : Boolean) return String is
-     (Replace_Local_With_Import (Is_Type       => True,
-                                 E             => E,
-                                 Print_Message => Print_Message));
-
    -------------------------------
    -- Replace_Local_With_Import --
    -------------------------------
 
    function Replace_Local_With_Import
-     (Is_Type : Boolean; E : Entity_Id; Print_Message : Boolean) return String
+     (Is_Type : Boolean; E : Entity_Id) return String
    is
-      Obj_Import_Pragma : constant Node_Id := Get_Pragma (E, Pragma_Import);
-      Is_Replace : constant Boolean :=
-        (if Present (Obj_Import_Pragma) then
-              To_Lower (Get_Import_External_Name (Obj_Import_Pragma)) =
-             Lower_From_Unit
-         else
-            False);
-      Import_Unit : constant String :=
+      Obj_Import_Pragma  : constant Node_Id := Get_Pragma (E, Pragma_Import);
+
+      Import_Object_Desc : constant String :=
         Replace_Dots (Get_Import_Link_Name (Obj_Import_Pragma));
 
-      Local_Name : constant String :=
-        (if Is_Type then Get_Name_String (Chars (Etype (E)))
-         else Get_Name_String (Chars (E)));
+      Has_Type_Specified : constant Natural := Index (Import_Object_Desc, ":");
 
-      Replacement_Name : constant String :=
-        (if Import_Unit /= "" then Import_Unit & "__" else "") &
-        Local_Name;
+      Obj_Name_End       : constant Natural :=
+        (if Has_Type_Specified /= 0 then
+            Has_Type_Specified - 1
+         else
+            Import_Object_Desc'Last);
 
+      Replacement_Obj_Name : constant String := To_Lower
+        (Trim
+           (Import_Object_Desc
+                (Import_Object_Desc'First .. Obj_Name_End),
+            Ada.Strings.Both));
+
+      Replacement_Type_Name : constant String :=
+        (if Has_Type_Specified /= 0 then
+            To_Lower (Trim
+           (Import_Object_Desc
+                (Has_Type_Specified + 1 .. Import_Object_Desc'Last),
+                Ada.Strings.Both))
+         else
+             "");
    begin
-      if Is_Replace then
-
-         if Print_Message then
-            Put_Line (Build_Location_String (Sloc (Obj_Import_Pragma)) &
-                        " ASVAT modelling: ");
-            Put_Line ("Replacing local name '" &
-                        Local_Name & "' by '" & Replacement_Name & "'");
-         end if;
-
-         return Replacement_Name;
-      else
-         Report_Unhandled_Node_Empty
-           (Obj_Import_Pragma,
-            "ASVAT_Modelling.Rename_Local_To_External",
-            "Unsupported pragma Import of object");
-         return Unique_Name (E);
-      end if;
+      return (if Is_Type then
+                 Replacement_Type_Name
+              else
+                 Replacement_Obj_Name);
    end Replace_Local_With_Import;
 
    function Replace_Dots (S : String) return String is
@@ -406,7 +411,7 @@ package body ASVAT_Modelling is
             if S (Pos) = '.' then
                return Replace_Dots_Rec (So_Far & "__", Pos + 1);
             else
-               return Replace_Dots_Rec (So_Far & To_Lower (S (Pos)), Pos + 1);
+               return Replace_Dots_Rec (So_Far & S (Pos), Pos + 1);
             end if;
          else
             return So_Far; --  (if So_Far /= "" then So_Far & "__" else "");
