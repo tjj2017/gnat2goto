@@ -239,7 +239,7 @@ package body ASVAT_Modelling is
 
                   Replace_Object : constant Boolean :=
                     Is_Imported (Curr_Entity) and then
-                     Is_Model_Sort (Curr_Entity, Replace_With);
+                    Is_Model_Sort (Curr_Entity, Replace_With);
 
                   Obj_Name_String : constant String :=
                     (if Replace_Object then
@@ -277,15 +277,20 @@ package body ASVAT_Modelling is
 
                   if Ekind (Curr_Entity) /= E_Abstract_State then
                      if Section = Declarations then
-                        Put_Line (Build_Location_String (Sloc (Curr_Entity)) &
-                                    " ASVAT modlling: ");
-                        Put_Line ("Replace local object '" &
-                                    Unique_Name (Curr_Entity) &
-                                    "' with '" &
-                                    Obj_Name_String &
-                                    " : " &
-                                    Type_Name_String &
-                                    "'");
+
+                        if Replace_Object then
+                           Put_Line (Build_Location_String
+                                     (Sloc (Curr_Entity)) &
+                                       " ASVAT modlling: ");
+                           Put_Line ("Replace local object '" &
+                                       Unique_Name (Curr_Entity) &
+                                     "' with " &
+                                       Obj_Name_String &
+                                       " : " &
+                                       Type_Name_String &
+                                       "'");
+                        end if;
+
                         if not Contains (Type_List, Given_Type) then
                            Append_Elmt (Given_Type, Type_List);
                            if Print_Model then
@@ -293,6 +298,7 @@ package body ASVAT_Modelling is
                                           "_non_det : " & Type_Name_String);
                            end if;
                         end if;
+
                      elsif Print_Model then
                         Put_Line ("Assign " & Obj_Name_String & " := " &
                                     Type_Name_String & "_non_det");

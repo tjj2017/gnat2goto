@@ -100,6 +100,13 @@ package body Tree_Walk is
    procedure Do_Full_Type_Declaration (N : Node_Id)
    with Pre => Nkind (N) = N_Full_Type_Declaration;
 
+   function Do_Nondet_Address_Attribute (N : Node_Id) return Irep;
+
+      function Do_Nondet_Size_Attribute (N : Node_Id) return Irep;
+
+   function Do_Nondet_General
+     (N : Node_Id; Name : String; In_Type : Boolean) return Irep;
+
    function Do_Function_Call (N : Node_Id) return Irep
    with Pre  => Nkind (N) = N_Function_Call,
         Post => Kind (Do_Function_Call'Result) in Class_Expr;
@@ -776,17 +783,20 @@ package body Tree_Walk is
          Actual_Irep   : Irep;
          Expression    : constant Irep := Do_Expression (Actual);
       begin
+
          if Is_Out and then
            not (Kind (Get_Type (Expression)) in Class_Type)
          then
-            Report_Unhandled_Node_Empty (Actual, "Handle_Parameter",
-                                         "Kind of actual not in class type");
+            Report_Unhandled_Node_Empty
+              (Actual, "Handle_Parameter",
+               "Kind of actual not in class type");
             return;
          end if;
-         Actual_Irep := Wrap_Argument (
-          Typecast_If_Necessary (Handle_Enum_Symbol_Members (Expression),
-                          Formal_Type, Global_Symbol_Table), Is_Out);
+         Actual_Irep := Wrap_Argument
+           (Typecast_If_Necessary (Handle_Enum_Symbol_Members (Expression),
+            Formal_Type, Global_Symbol_Table), Is_Out);
          Append_Argument (Args, Actual_Irep);
+
       end Handle_Parameter;
 
       procedure Handle_Parameters is new
@@ -1320,6 +1330,10 @@ package body Tree_Walk is
                   return Do_Attribute_Pred_Discrete (N);
                when Attribute_Succ =>
                   return Do_Attribute_Succ_Discrete (N);
+               when Attribute_Size =>
+                  return Do_Nondet_Size_Attribute (N);
+               when Attribute_Address =>
+                  return Do_Nondet_Address_Attribute (N);
                when others           =>
                   return Report_Unhandled_Node_Irep (N, "Do_Expression",
                                                      "Unknown attribute");
@@ -1517,18 +1531,47 @@ package body Tree_Walk is
       end case;
    end Do_Qualified_Expression;
 
+   ---------------------------------
+   -- Do_Nondet_Address_Attribute --
+   ---------------------------------
+
+   function Do_Nondet_Address_Attribute (N : Node_Id) return Irep is
+      Sys_Addr : constant String := "system__address";
+   begin
+      return Do_Nondet_General (N => N, Name => Sys_Addr, In_Type => False);
+   end Do_Nondet_Address_Attribute;
+
+   ------------------------------
+   -- Do_Nondet_Size_Attribute --
+   ------------------------------
+
+   function Do_Nondet_Size_Attribute (N : Node_Id) return Irep is
+      Univ_Int : constant String := Unique_Name (Stand.Universal_Integer);
+   begin
+      return Do_Nondet_General (N => N, Name => Univ_Int, In_Type => False);
+   end Do_Nondet_Size_Attribute;
+
    -----------------------------
    -- Do_Nondet_Function_Call --
    -----------------------------
 
    function Do_Nondet_Function_Call (N : Node_Id) return Irep is
-      Func_Str     : constant String := Unique_Name (Entity (Name (N)));
-      Func_Name    : constant Symbol_Id := Intern (Func_Str);
+      Func_Str : constant String :=  Unique_Name (Entity (Name (N)));
+   begin
+      return Do_Nondet_General (N => N, Name => Func_Str, In_Type => True);
+   end Do_Nondet_Function_Call;
+
+   -----------------------
+   -- Do_Nondet_General --
+   -----------------------
+
+   function Do_Nondet_General
+     (N : Node_Id; Name : String; In_Type : Boolean) return Irep
+   is
+      Symbol_Key : constant Symbol_Id := Intern (Name);
       Source_Loc   : constant Source_Ptr := Sloc (N);
    begin
-      if Global_Symbol_Table.Contains (Func_Name) then
-         --  ??? why not get this from the entity
-
+      if Global_Symbol_Table.Contains (Symbol_Key) then
          --  Two implementation options here:
          --  1. Trickery: Use LET expression to create a tmp variable and
          --     assign nondet with ranges (side effect with function call
@@ -1538,12 +1581,16 @@ package body Tree_Walk is
          --     place the assume on ranges.
          --  Due to lack of insight into cbmc, we implement 1.
          declare
-            Func_Symbol : constant Symbol := Global_Symbol_Table (Func_Name);
+            The_Symbol : constant Symbol := Global_Symbol_Table (Symbol_Key);
 
             Type_Irep    : constant Irep :=
-              Get_Return_Type (Func_Symbol.SymType);
+              (if Nkind (N) = N_Function_Call then
+                    Get_Return_Type (The_Symbol.SymType)
+               else
+                  The_Symbol.SymType);
+
             Sym_Nondet   : constant Irep :=
-              Fresh_Var_Symbol_Expr (Type_Irep, Func_Str);
+              Fresh_Var_Symbol_Expr (Type_Irep, "non_det_" & Name);
             Followed_Type : constant Irep :=
               Follow_Symbol_Type (Type_Irep, Global_Symbol_Table);
             Nondet_Expr  : constant Irep :=
@@ -1554,7 +1601,7 @@ package body Tree_Walk is
             Set_Type (Nondet_Expr, Type_Irep);
             Set_Source_Location (Nondet_Expr, Sloc (N));
 
-            if Kind (Followed_Type) in
+            if In_Type and Kind (Followed_Type) in
               I_Bounded_Signedbv_Type | I_Bounded_Floatbv_Type
             then
                Set_Lhs (Assume_And_Yield,
@@ -1581,10 +1628,10 @@ package body Tree_Walk is
                I_Type          => Type_Irep);
          end;
       else -- How did that happen (GNAT should reject)?
-         return Report_Unhandled_Node_Irep (N, "Do_Nondet_Function_Call",
-                                            "func name not in symbol table");
+         return Report_Unhandled_Node_Irep (N, "Do_Nondet_General",
+                                            "Name not in symbol table");
       end if;
-   end Do_Nondet_Function_Call;
+   end Do_Nondet_General;
 
    ----------------------
    -- Do_Function_Call --

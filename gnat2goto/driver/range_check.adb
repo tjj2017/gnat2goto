@@ -283,9 +283,20 @@ package body Range_Check is
                        | I_Unsignedbv_Type
                        | I_Signedbv_Type);
       --  The compared expressions (value and bound) have to be of the
-      --  same type
-      if Get_Width (Bound_Type) > Get_Width (Value_Expr_Type)
+      --  same type except when the Valur_Expr_Type is a universal type
+
+      if Kind (Value_Expr_Type) not in
+        I_Bounded_Unsignedbv_Type
+          | I_Bounded_Signedbv_Type
+            | I_Bounded_Floatbv_Type
+              | I_Unsignedbv_Type
+                | I_Signedbv_Type
       then
+         --  It must be a Universal type and has no bounds
+         Adjusted_Value_Expr := Value_Expr;
+         Adjusted_Lower_Bound := Lower_Bound;
+         Adjusted_Upper_Bound := Upper_Bound;
+      elsif Get_Width (Bound_Type) > Get_Width (Value_Expr_Type) then
          --  If the value checked for being in the range is of smaller
          --  type then we need to cast it to the type of the bounds
          Adjusted_Value_Expr :=
