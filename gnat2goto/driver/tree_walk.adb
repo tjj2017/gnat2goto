@@ -1547,8 +1547,15 @@ package body Tree_Walk is
 
    function Do_Nondet_Size_Attribute (N : Node_Id) return Irep is
       Univ_Int : constant String := Unique_Name (Stand.Universal_Integer);
+      Prefix_Name : constant String := Unique_Name (Etype (Prefix (N)));
    begin
-      return Do_Nondet_General (N => N, Name => Univ_Int, In_Type => False);
+      ASVAT_Modelling.Make_Non_Det_Function
+        (Fun_Name  => "size___" & Prefix_Name,
+         Type_Name => Univ_Int,
+         Loc       => Sloc (N));
+      return Report_Unhandled_Node_Irep (N,
+                                         "Size",
+                                         "Oh dear");
    end Do_Nondet_Size_Attribute;
 
    -----------------------------
@@ -1677,6 +1684,7 @@ package body Tree_Walk is
       if Name_Has_Prefix (N, "nondet") or else
         Has_GNAT2goto_Annotation (Func_Ent, "nondet")
       then
+         Put_Line ("Non-det function call");
          return Do_Nondet_Function_Call (N);
       else
          The_Function := New_Irep (I_Symbol_Expr);

@@ -9,13 +9,13 @@ with Namet;                   use Namet;
 with Tree_Walk;               use Tree_Walk;
 with Einfo;                   use Einfo;
 with Sem_Prag;                use Sem_Prag;
+with Symbol_Table_Info;       use Symbol_Table_Info;
+with GOTO_Utils;              use GOTO_Utils;
 --  with Symbol_Table_Info;       use Symbol_Table_Info;
 with Ada.Text_IO;             use Ada.Text_IO;
 package body ASVAT_Modelling is
 
-   type Model_Index is range 0 .. Model_List'Length;
-
-   function Find_Model (S : String) return Model_Index;
+   function Find_Model (Model : String) return Model_Sorts;
 
    function Replace_Dots (S : String) return String;
 
@@ -24,22 +24,45 @@ package body ASVAT_Modelling is
      with Pre => Ekind (E) in E_Variable | E_Constant and then
                  Is_Model_Sort (E, Replace_With);
 
-   -----------------
-   -- Find_Model  --
-   -----------------
+   ------------------------------
+   -- Do_Non_Det_Function_Call --
+   ------------------------------
 
-   function Find_Model (S : String) return Model_Index is
-      Lower_S   : constant String := To_Lower (S);
-      Start_Pos : Positive := Lower_S'First;
-      Sep_Pos   : Natural  := Index (Model_List,
-                                     "#", From => Start_Pos);
+   function Do_Non_Det_Function_Call
+     (Fun_Name : String; Loc : Source_Ptr) return Irep
+   is
+      Fun_Id     : constant Symbol_Id := Intern (Fun_Name);
+      Fun_Symbol : constant Symbol    := Global_Symbol_Table (Fun_Id);
+      The_Function : constant Irep := New_Irep (I_Symbol_Expr);
    begin
-      while Sep_Pos /= 0 loop
-         exit when  Model_List (Start_Pos .. Sep_Pos - 1) = Lower_S;
-         Start_Pos := Sep_Pos + 1;
-         Sep_Pos   := Index (Model_List, "#", From => Start_Pos);
+      Set_Identifier (The_Function, Fun_Name);
+      Set_Type (The_Function, Fun_Symbol.SymType);
+
+      return R : constant Irep :=
+        New_Irep (I_Side_Effect_Expr_Function_Call)
+      do
+         Set_Source_Location (R, Loc);
+         Set_Function        (R, The_Function);
+         Set_Arguments       (R, New_Irep (I_Argument_List));
+         Set_Type (R, Get_Return_Type (Fun_Symbol.SymType));
+      end return;
+   end Do_Non_Det_Function_Call;
+
+   ----------------
+   -- Find_Model --
+   ----------------
+
+   function Find_Model (Model : String) return Model_Sorts is
+      Result : Model_Sorts := Not_A_Model;
+      Upper_Model : constant String := To_Upper (Model);
+   begin
+      for A_Model in Valid_Model loop
+         if Upper_Model = Model_Sorts'Image (A_Model) then
+            Result := A_Model;
+            exit;
+         end if;
       end loop;
-      return Model_Index (if Sep_Pos = 0 then 0 else Start_Pos);
+      return Result;
    end Find_Model;
 
    ---------------------------
@@ -173,14 +196,15 @@ package body ASVAT_Modelling is
          else
             "");
    begin
-      return Is_Ada and then Find_Model (External_Name) /= 0;
+      return Is_Ada and then Find_Model (External_Name) /= Not_A_Model;
    end Is_Model;
 
    -------------------
    -- Is_Model_Sort --
    -------------------
 
-   function Is_Model_Sort (E : Entity_Id; Model : String) return Boolean is
+   function Is_Model_Sort (E : Entity_Id; Model : Model_Sorts) return Boolean
+   is
       Obj_Import_Pragma : constant Node_Id := Get_Pragma (E, Pragma_Import);
       Is_Ada : constant Boolean :=
         (if Present (Obj_Import_Pragma) then
@@ -193,11 +217,11 @@ package body ASVAT_Modelling is
          else
             "");
    begin
-      return Is_Ada and then To_Lower (Model) = External_Name;
+      return Is_Ada and then Find_Model (External_Name) = Model;
    end Is_Model_Sort;
 
    function Is_Model_String (S : String) return Boolean is
-     (Find_Model (S) /= 0);
+     (Find_Model (S) /= Not_A_Model);
 
    ----------------
    -- Make_Model --
@@ -205,19 +229,19 @@ package body ASVAT_Modelling is
 
    procedure Make_Model (E : Entity_Id) is
       Subprog_Import_Pragma : constant Node_Id := Import_Pragma (E);
-      Model : constant String :=
+      Model : constant Model_Sorts :=
         (if Present (Subprog_Import_Pragma) then
-              Get_Import_External_Name (Subprog_Import_Pragma)
+              Find_Model (Get_Import_External_Name (Subprog_Import_Pragma))
          else
-            "");
+            Not_A_Model);
 
       type Model_Section is (Declarations, Statements);
 
-      procedure Make_Model_Section (Model : String;
+      procedure Make_Model_Section (Model : Model_Sorts;
                                     Section : Model_Section;
                                     Outputs : Elist_Id);
 
-      procedure Make_Model_Section (Model : String;
+      procedure Make_Model_Section (Model : Model_Sorts;
                                     Section : Model_Section;
                                     Outputs : Elist_Id) is
          Iter      : Elmt_Id  := First_Elmt (Outputs);
@@ -358,13 +382,103 @@ package body ASVAT_Modelling is
 
       Put_Line (Build_Location_String (Sloc (Subprog_Import_Pragma)) &
                   " ASVAT modelling:");
-      Put_Line ("Adding a " & Model &
+      Put_Line ("Adding a " & Model_Sorts'Image (Model) &
                   " body for imported subprogram " &
                   Unique_Name (E));
 
       Make_Model_Section (Model, Declarations, Model_Outputs);
       Make_Model_Section (Model, Statements, Model_Outputs);
    end Make_Model;
+
+   ---------------------------
+   -- Make_Non_Det_Function --
+   ---------------------------
+
+   procedure Make_Non_Det_Function (Fun_Name, Type_Name : String;
+                                    Loc : Source_Ptr) is
+      Fun_Symbol_Id : constant Symbol_Id := Intern (Fun_Name);
+   begin
+      if not Global_Symbol_Table.Contains (Fun_Symbol_Id) then
+         declare
+            Ret : constant Irep := New_Irep (I_Code_Type);
+            Type_Irep  : constant Irep :=
+              Make_Symbol_Type (Identifier => Type_Name);
+
+            Param_List : constant Irep := New_Irep (I_Parameter_List);
+            --  For a non_det funcition the Param_List is always empty.
+
+            Obj_Name  : constant String := "Res___" & Type_Name;
+            Obj_Id    : constant Symbol_Id := Intern (Obj_Name);
+            Init_Expr : constant Irep := Ireps.Empty;
+
+            Decl : constant Irep := New_Irep (I_Code_Decl);
+
+            Block  : constant Irep   := New_Irep (I_Code_Block);
+
+            Obj_Sym : constant Irep := New_Irep (I_Symbol_Expr);
+
+            Return_Statement : constant Irep := New_Irep (I_Code_Return);
+            Return_Value     : constant Irep := New_Irep (I_Symbol_Expr);
+
+            Fun_Symbol : Symbol;
+
+         begin
+            Put_Line ("Making non-det function " & Fun_Name &
+                        " : " & Type_Name);
+
+            Set_Return_Type (Ret, Type_Irep);
+            Set_Parameters (Ret, Param_List);
+
+            New_Subprogram_Symbol_Entry
+              (Subprog_Name   => Fun_Symbol_Id,
+               Subprog_Type   => Ret,
+               A_Symbol_Table => Global_Symbol_Table);
+
+            pragma Assert (Global_Symbol_Table.Contains (Fun_Symbol_Id));
+
+            Put_Line ("Making body");
+
+            Put_Line ("Declaring object " & Obj_Name &
+                        " : " & Type_Name);
+
+            Set_Source_Location (Obj_Sym, Loc);
+            Set_Identifier      (Obj_Sym, Obj_Name);
+            Set_Type            (Obj_Sym, Type_Irep);
+
+            New_Object_Symbol_Entry (Object_Name       => Obj_Id,
+                                     Object_Type       => Type_Irep,
+                                     Object_Init_Value => Init_Expr,
+                                     A_Symbol_Table    => Global_Symbol_Table);
+
+            Put_Line ("Finish the declarations");
+
+            Set_Source_Location (Decl, Loc);
+            Set_Symbol (Decl, Obj_Sym);
+            Append_Op (Block, Decl);
+
+            Put_Line ("Create the return value");
+
+            Set_Source_Location (Return_Value, Loc);
+            Set_Identifier (Return_Value, Obj_Name);
+            Set_Type (Return_Value, Type_Irep);
+
+            Put_Line ("Do the return statement");
+
+            Set_Source_Location (Return_Statement, Loc);
+            Set_Return_Value (Return_Statement, Return_Value);
+            Append_Op (Block, Return_Statement);
+
+            Put_Line ("Attach the subprogram body to its specification");
+
+            Fun_Symbol := Global_Symbol_Table (Fun_Symbol_Id);
+            Fun_Symbol.Value := Block;
+            Global_Symbol_Table.Replace (Fun_Symbol_Id, Fun_Symbol);
+         end;
+      else
+         Put_Line ("function " & Fun_Name & " : " &
+                     "Already in symbol table");
+      end if;
+   end Make_Non_Det_Function;
 
    -------------------------------
    -- Replace_Local_With_Import --

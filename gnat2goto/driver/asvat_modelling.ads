@@ -3,17 +3,13 @@ with Atree;                   use Atree;
 with Sinfo;                   use Sinfo;
 with Sem_Util;                use Sem_Util;
 with Snames;                  use Snames;
+with Ireps;                    use Ireps;
 package ASVAT_Modelling is
-   Non_Det         : constant String := "non_det";
-   Non_Det_In_Type : constant String := "non_det_in_type";
-   Replace_With    : constant String := "replace_with";
+   type Model_Sorts is (Not_A_Model, Non_Det, Non_Det_In_Type, Replace_With);
+   subtype Valid_Model is Model_Sorts range Non_Det .. Model_Sorts'Last;
 
-   Model_List : constant String :=
-     (""
-        & Non_Det          & '#'
-        & Non_Det_In_Type  & '#'
-        & Replace_With     & '#'
-     );
+   function Do_Non_Det_Function_Call
+     (Fun_Name : String; Loc : Source_Ptr) return Irep;
 
    function Get_Import_Convention (N : Node_Id) return String
    with Pre => Nkind (N) = N_Pragma and then
@@ -33,9 +29,11 @@ package ASVAT_Modelling is
 
    function Is_Model_String (S : String) return Boolean;
 
-   function Is_Model_Sort (E : Entity_Id; Model : String) return Boolean;
+   function Is_Model_Sort (E : Entity_Id; Model : Model_Sorts) return Boolean;
 
    procedure Make_Model (E : Entity_Id)
    with Pre => Is_Model (E);
 
+   procedure Make_Non_Det_Function (Fun_Name, Type_Name : String;
+                                    Loc : Source_Ptr);
 end ASVAT_Modelling;
