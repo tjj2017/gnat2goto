@@ -100,10 +100,6 @@ package body Tree_Walk is
    procedure Do_Full_Type_Declaration (N : Node_Id)
    with Pre => Nkind (N) = N_Full_Type_Declaration;
 
-   function Do_Nondet_Address_Attribute (N : Node_Id) return Irep;
-
-      function Do_Nondet_Size_Attribute (N : Node_Id) return Irep;
-
    function Do_Nondet_General
      (N : Node_Id; Name : String; In_Type : Boolean) return Irep;
 
@@ -1331,9 +1327,15 @@ package body Tree_Walk is
                when Attribute_Succ =>
                   return Do_Attribute_Succ_Discrete (N);
                when Attribute_Size =>
-                  return Do_Nondet_Size_Attribute (N);
+                  --  Size attribute returns a Universal_Integer but
+                  --  for analysis its value is non-deterministic.
+                  return ASVAT_Modelling.Do_Non_Det_Attribute
+                    (N, Unique_Name (Stand.Universal_Integer));
                when Attribute_Address =>
-                  return Do_Nondet_Address_Attribute (N);
+                  --  Address attribute returns a System.Address but
+                  --  for analysis its value is non-deterministic.
+                  return ASVAT_Modelling.Do_Non_Det_Attribute
+                    (N, "system__address");
                when others           =>
                   return Report_Unhandled_Node_Irep (N, "Do_Expression",
                                                      "Unknown attribute");
@@ -1530,33 +1532,6 @@ package body Tree_Walk is
             return Typecast_Expr;
       end case;
    end Do_Qualified_Expression;
-
-   ---------------------------------
-   -- Do_Nondet_Address_Attribute --
-   ---------------------------------
-
-   function Do_Nondet_Address_Attribute (N : Node_Id) return Irep is
-      Sys_Addr : constant String := "system__address";
-   begin
-      return Do_Nondet_General (N => N, Name => Sys_Addr, In_Type => False);
-   end Do_Nondet_Address_Attribute;
-
-   ------------------------------
-   -- Do_Nondet_Size_Attribute --
-   ------------------------------
-
-   function Do_Nondet_Size_Attribute (N : Node_Id) return Irep is
-      Univ_Int : constant String := Unique_Name (Stand.Universal_Integer);
-      Prefix_Name : constant String := Unique_Name (Etype (Prefix (N)));
-   begin
-      ASVAT_Modelling.Make_Non_Det_Function
-        (Fun_Name  => "size___" & Prefix_Name,
-         Type_Name => Univ_Int,
-         Loc       => Sloc (N));
-      return Report_Unhandled_Node_Irep (N,
-                                         "Size",
-                                         "Oh dear");
-   end Do_Nondet_Size_Attribute;
 
    -----------------------------
    -- Do_Nondet_Function_Call --

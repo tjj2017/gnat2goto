@@ -24,14 +24,39 @@ package body ASVAT_Modelling is
      with Pre => Ekind (E) in E_Variable | E_Constant and then
                  Is_Model_Sort (E, Replace_With);
 
-   ------------------------------
+   -------------------------
+   -- Do_Non_Det_Attribute --
+   -------------------------
+
+   function Do_Non_Det_Attribute
+     (N : Node_Id; Type_Name : String) return Irep is
+      Fun_Name : constant String := To_Lower
+        (Get_Name_String (Attribute_Name (N))) & "___" &
+           Unique_Name (Entity (Prefix (N)));
+      Loc      : constant Source_Ptr := Sloc (N);
+   begin
+      Put_Line ("Creating non-det " & Fun_Name);
+      --  Create the non-det attribute function.
+      --  It is not recreated by Make_Non_Det_Function if it already exists.
+      Make_Non_Det_Function
+        (Fun_Name  => Fun_Name,
+         Type_Name => Type_Name,
+         Loc       => Loc);
+      --  Return the Irep of the non-det attribute function
+      return Do_Non_Det_Function_Call (Fun_Name, Loc);
+   end Do_Non_Det_Attribute;
+
+   -------------------------------
    -- Do_Non_Det_Function_Call --
-   ------------------------------
+   -------------------------------
 
    function Do_Non_Det_Function_Call
      (Fun_Name : String; Loc : Source_Ptr) return Irep
    is
       Fun_Id     : constant Symbol_Id := Intern (Fun_Name);
+      pragma Assert (Global_Symbol_Table.Contains (Fun_Id),
+                     "gnat2goto fatal error: Non_Det_Attribute_Function " &
+                    Fun_Name & " not in symbol table.");
       Fun_Symbol : constant Symbol    := Global_Symbol_Table (Fun_Id);
       The_Function : constant Irep := New_Irep (I_Symbol_Expr);
    begin
@@ -234,19 +259,20 @@ package body ASVAT_Modelling is
               Find_Model (Get_Import_External_Name (Subprog_Import_Pragma))
          else
             Not_A_Model);
+      Loc : constant Source_Ptr := Sloc (E);
 
-      type Model_Section is (Declarations, Statements);
+      Subprog_Id : constant Symbol_Id := Intern (Unique_Name (E));
+
+      Block : constant Irep := New_Irep (I_Code_Block);
 
       procedure Make_Model_Section (Model : Model_Sorts;
-                                    Section : Model_Section;
                                     Outputs : Elist_Id);
 
       procedure Make_Model_Section (Model : Model_Sorts;
-                                    Section : Model_Section;
                                     Outputs : Elist_Id) is
          Iter      : Elmt_Id  := First_Elmt (Outputs);
          Type_List : constant Elist_Id := New_Elmt_List;
-         Print_Model : constant Boolean := False;
+         Print_Model : constant Boolean := True;
       begin
          while Present (Iter) loop
             if Nkind (Node (Iter)) in
@@ -288,6 +314,15 @@ package body ASVAT_Modelling is
                      else
                         Unique_Name (Given_Type));
 
+                  Fun_Name : constant String := "Non_Det___" &
+                    Type_Name_String;
+
+                  Assignment : constant Irep := New_Irep (I_Code_Assign);
+
+                  Obj_Sym : constant Irep := New_Irep (I_Symbol_Expr);
+                  Type_Irep  : constant Irep :=
+                    Make_Symbol_Type (Identifier => Type_Name_String);
+
                begin
                   if Replace_Object and then Obj_Name_String = "" then
                      --  Object replacement requested but no replacement
@@ -296,57 +331,60 @@ package body ASVAT_Modelling is
                        (Curr_Entity, "Make_Model",
                         "ASVAT_Modelling: replacement object missing from " &
                         "Replace_With pragma Import.");
-                     return;
-                  end if;
+                  elsif Ekind (Curr_Entity) /= E_Abstract_State then
 
-                  if Ekind (Curr_Entity) /= E_Abstract_State then
-                     if Section = Declarations then
+                     if Replace_Object then
+                        Put_Line (Build_Location_String
+                                  (Sloc (Curr_Entity)) &
+                                    " ASVAT modlling: ");
+                        Put_Line ("Replace local object '" &
+                                    Unique_Name (Curr_Entity) &
+                                    "' with " &
+                                    Obj_Name_String &
+                                    " : " &
+                                    Type_Name_String &
+                                    "'");
+                     end if;
 
-                        if Replace_Object then
-                           Put_Line (Build_Location_String
-                                     (Sloc (Curr_Entity)) &
-                                       " ASVAT modlling: ");
-                           Put_Line ("Replace local object '" &
-                                       Unique_Name (Curr_Entity) &
-                                     "' with " &
-                                       Obj_Name_String &
-                                       " : " &
-                                       Type_Name_String &
-                                       "'");
-                        end if;
+                     if not Contains (Type_List, Given_Type) then
+                        Append_Elmt (Given_Type, Type_List);
+                        Make_Non_Det_Function (Fun_Name,
+                                               Type_Name_String,
+                                               Sloc (E));
+                     end if;
 
-                        if not Contains (Type_List, Given_Type) then
-                           Append_Elmt (Given_Type, Type_List);
-                           if Print_Model then
-                              Put_Line ("Declare " & Type_Name_String &
-                                          "_non_det : " & Type_Name_String);
-                           end if;
-                        end if;
+                     Set_Source_Location (Obj_Sym, Loc);
+                     Set_Identifier      (Obj_Sym, Obj_Name_String);
+                     Set_Type            (Obj_Sym, Type_Irep);
 
-                     elsif Print_Model then
-                        Put_Line ("Assign " & Obj_Name_String & " := " &
-                                    Type_Name_String & "_non_det");
-                        if Model =  Non_Det_In_Type and then
-                          Is_Scalar_Type (Given_Type)
-                        then
-                           if Print_Model then
-                              Put_Line ("pragma Assume (" & Obj_Name_String &
-                                          " in " & Unique_Name (Given_Type) &
-                                          "'Range)");
-                           end if;
+                     Set_Source_Location (Assignment, Loc);
+                     Set_Lhs             (Assignment, Obj_Sym);
+                     Set_Rhs             (Assignment,
+                                          Do_Non_Det_Function_Call
+                                            (Fun_Name, Loc));
+                     Append_Op (Block, Assignment);
+
+                     if Print_Model then
+                        Put_Line ("Assign " &
+                                 Obj_Name_String & " := " & Fun_Name);
+                     end if;
+
+                     if Model =  Non_Det_In_Type and then
+                       Is_Scalar_Type (Given_Type)
+                     then
+                        if Print_Model then
+                           Put_Line ("pragma Assume (" & Obj_Name_String &
+                                       " in " & Unique_Name (Given_Type) &
+                                       "'Range)");
                         end if;
                      end if;
-                  elsif Section = Declarations then
-                     --  Report unhandled node whilst generating declarations,
-                     --  not again when generating statements.
+                  else
                      Report_Unhandled_Node_Empty
                        (Curr_Entity, "Make_Model",
                         "Abstract_State as a global output is unsupported");
                   end if;
                end;
-            elsif Section = Declarations then
-               --  Report unhandled node whilst generating declarations,
-               --  not again when generating statements.
+            else
                Report_Unhandled_Node_Empty
                  (Node (Iter), "Make_Model",
                   "Unsupported Global output");
@@ -354,6 +392,15 @@ package body ASVAT_Modelling is
 
             Next_Elmt (Iter);
          end loop;
+
+         pragma Assert (Global_Symbol_Table.Contains (Subprog_Id),
+                        "Make_Model_Section: Subprogram not in symbol table.");
+         declare
+            Subprog_Sym : Symbol := Global_Symbol_Table (Subprog_Id);
+         begin
+            Subprog_Sym.Value := Block;
+            Global_Symbol_Table.Replace (Subprog_Id, Subprog_Sym);
+         end;
       end Make_Model_Section;
 
       --  Get lists of all the inputs and outputs of the model
@@ -386,8 +433,7 @@ package body ASVAT_Modelling is
                   " body for imported subprogram " &
                   Unique_Name (E));
 
-      Make_Model_Section (Model, Declarations, Model_Outputs);
-      Make_Model_Section (Model, Statements, Model_Outputs);
+      Make_Model_Section (Model, Model_Outputs);
    end Make_Model;
 
    ---------------------------
@@ -407,7 +453,7 @@ package body ASVAT_Modelling is
             Param_List : constant Irep := New_Irep (I_Parameter_List);
             --  For a non_det funcition the Param_List is always empty.
 
-            Obj_Name  : constant String := "Res___" & Type_Name;
+            Obj_Name  : constant String := "Res___" & Fun_Name;
             Obj_Id    : constant Symbol_Id := Intern (Obj_Name);
             Init_Expr : constant Irep := Ireps.Empty;
 
@@ -472,6 +518,8 @@ package body ASVAT_Modelling is
 
             Fun_Symbol := Global_Symbol_Table (Fun_Symbol_Id);
             Fun_Symbol.Value := Block;
+            --  Mark that this is a non-det function.
+            Fun_Symbol.IsAuxiliary := True;
             Global_Symbol_Table.Replace (Fun_Symbol_Id, Fun_Symbol);
          end;
       else

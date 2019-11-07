@@ -8,6 +8,10 @@ package ASVAT_Modelling is
    type Model_Sorts is (Not_A_Model, Non_Det, Non_Det_In_Type, Replace_With);
    subtype Valid_Model is Model_Sorts range Non_Det .. Model_Sorts'Last;
 
+   function Do_Non_Det_Attribute
+     (N : Node_Id; Type_Name : String) return Irep
+   with Pre => Nkind (N) = N_Attribute_Reference;
+
    function Do_Non_Det_Function_Call
      (Fun_Name : String; Loc : Source_Ptr) return Irep;
 
