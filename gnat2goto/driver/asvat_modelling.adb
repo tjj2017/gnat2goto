@@ -25,37 +25,38 @@ package body ASVAT_Modelling is
                  Is_Model_Sort (E, Replace_With);
 
    -------------------------
-   -- Do_Non_Det_Attribute --
+   -- Do_Nondet_Attribute --
    -------------------------
 
-   function Do_Non_Det_Attribute
+   function Do_Nondet_Attribute
      (N : Node_Id; Type_Name : String) return Irep is
       Fun_Name : constant String := To_Lower
         (Get_Name_String (Attribute_Name (N))) & "___" &
            Unique_Name (Entity (Prefix (N)));
       Loc      : constant Source_Ptr := Sloc (N);
    begin
-      Put_Line ("Creating non-det " & Fun_Name);
+      Put_Line ("Creating nondet " & Fun_Name);
       --  Create the non-det attribute function.
-      --  It is not recreated by Make_Non_Det_Function if it already exists.
-      Make_Non_Det_Function
+      --  It is not recreated by Make_Nondet_Function if it already exists.
+      Make_Nondet_Function
         (Fun_Name  => Fun_Name,
          Type_Name => Type_Name,
+         Statements => Ireps.Empty,
          Loc       => Loc);
       --  Return the Irep of the non-det attribute function
-      return Do_Non_Det_Function_Call (Fun_Name, Loc);
-   end Do_Non_Det_Attribute;
+      return Do_Nondet_Function_Call (Fun_Name, Loc);
+   end Do_Nondet_Attribute;
 
    -------------------------------
-   -- Do_Non_Det_Function_Call --
+   -- Do_Nondet_Function_Call --
    -------------------------------
 
-   function Do_Non_Det_Function_Call
+   function Do_Nondet_Function_Call
      (Fun_Name : String; Loc : Source_Ptr) return Irep
    is
       Fun_Id     : constant Symbol_Id := Intern (Fun_Name);
       pragma Assert (Global_Symbol_Table.Contains (Fun_Id),
-                     "gnat2goto fatal error: Non_Det_Attribute_Function " &
+                     "gnat2goto fatal error: Nondet_Attribute_Function " &
                     Fun_Name & " not in symbol table.");
       Fun_Symbol : constant Symbol    := Global_Symbol_Table (Fun_Id);
       The_Function : constant Irep := New_Irep (I_Symbol_Expr);
@@ -71,7 +72,78 @@ package body ASVAT_Modelling is
          Set_Arguments       (R, New_Irep (I_Argument_List));
          Set_Type (R, Get_Return_Type (Fun_Symbol.SymType));
       end return;
-   end Do_Non_Det_Function_Call;
+   end Do_Nondet_Function_Call;
+
+   function Do_Nondet_Valid (N : Node_Id) return Irep is
+      --        Fun_Name : constant String := To_Lower
+      --          (Get_Name_String (Attribute_Name (N))) & "___" &
+      --             Unique_Name (Entity (Prefix (N)));
+      --        Loc      : constant Source_Ptr := Sloc (N);
+      function Has_Prefix (N : Node_Id) return Boolean is
+        (Nkind (N) in
+             N_Attribute_Reference |
+             --         N_Expanded_Name |
+         N_Explicit_Dereference |
+         N_Indexed_Component |
+         N_Reference |
+         N_Selected_Component |
+         N_Slice);
+
+      function Unique_Prefix_Name (N : Node_Id; So_Far : String) return String;
+
+      function Unique_Prefix_Name
+        (N : Node_Id; So_Far : String) return String is
+         Name_Node : Node_Id := N;
+      begin
+         if Nkind (Parent (Name_Node)) /= N_Attribute_Reference then
+            Name_Node := Parent (Name_Node);
+            return (if Nkind (Name_Node) = N_Selected_Component then
+                       Unique_Prefix_Name (Name_Node, So_Far & "__" &
+                        Get_Name_String
+                        (Chars (Selector_Name (Name_Node))))
+                    elsif Nkind (Name_Node) = N_Indexed_Component then
+                       Unique_Prefix_Name (Name_Node, So_Far & "__indexed")
+                    else
+                       So_Far);
+         else
+            return So_Far;
+         end if;
+      end Unique_Prefix_Name;
+
+      Name_Node : Node_Id := N;
+
+   begin
+      while Has_Prefix (Name_Node) loop
+         Name_Node := Prefix (Name_Node);
+      end loop;
+
+      if Present (Entity_Of (Name_Node)) then
+         Put_Line ("The_Name: valid___" & Unique_Prefix_Name
+                   (Name_Node, Unique_Name (Entity_Of (Name_Node))));
+         Make_Nondet_Function
+           ("valid___" & Unique_Prefix_Name
+              (Name_Node, Unique_Name (Entity_Of (Name_Node))),
+            "standard__boolean",
+            Ireps.Empty,
+            Sloc (N));
+      else
+         Put_Line ("Not an entity and cannot assign to it");
+         Put_Line ("Just return a nondet function call");
+         declare
+            Valid_Default : constant String := "valid___default";
+         begin
+            Make_Nondet_Function (Fun_Name   => Valid_Default,
+                                  Type_Name  => "standard__boolean",
+                                  Statements => Ireps.Empty,
+                                  Loc        => Sloc (N));
+            return Do_Nondet_Function_Call (Valid_Default, Sloc (N));
+         end;
+      end if;
+
+      return Report_Unhandled_Node_Irep (Name_Node,
+                                         "Do_Nondet_Valid",
+                                        "Name_Node used");
+   end Do_Nondet_Valid;
 
    ----------------
    -- Find_Model --
@@ -314,7 +386,7 @@ package body ASVAT_Modelling is
                      else
                         Unique_Name (Given_Type));
 
-                  Fun_Name : constant String := "Non_Det___" &
+                  Fun_Name : constant String := "Nondet___" &
                     Type_Name_String;
 
                   Assignment : constant Irep := New_Irep (I_Code_Assign);
@@ -348,9 +420,10 @@ package body ASVAT_Modelling is
 
                      if not Contains (Type_List, Given_Type) then
                         Append_Elmt (Given_Type, Type_List);
-                        Make_Non_Det_Function (Fun_Name,
-                                               Type_Name_String,
-                                               Sloc (E));
+                        Make_Nondet_Function (Fun_Name   => Fun_Name,
+                                              Type_Name  => Type_Name_String,
+                                              Statements => Ireps.Empty,
+                                              Loc        => Sloc (E));
                      end if;
 
                      Set_Source_Location (Obj_Sym, Loc);
@@ -360,7 +433,7 @@ package body ASVAT_Modelling is
                      Set_Source_Location (Assignment, Loc);
                      Set_Lhs             (Assignment, Obj_Sym);
                      Set_Rhs             (Assignment,
-                                          Do_Non_Det_Function_Call
+                                          Do_Nondet_Function_Call
                                             (Fun_Name, Loc));
                      Append_Op (Block, Assignment);
 
@@ -369,7 +442,7 @@ package body ASVAT_Modelling is
                                  Obj_Name_String & " := " & Fun_Name);
                      end if;
 
-                     if Model =  Non_Det_In_Type and then
+                     if Model =  Nondet_In_Type and then
                        Is_Scalar_Type (Given_Type)
                      then
                         if Print_Model then
@@ -437,11 +510,12 @@ package body ASVAT_Modelling is
    end Make_Model;
 
    ---------------------------
-   -- Make_Non_Det_Function --
+   -- Make_Nondet_Function --
    ---------------------------
 
-   procedure Make_Non_Det_Function (Fun_Name, Type_Name : String;
-                                    Loc : Source_Ptr) is
+   procedure Make_Nondet_Function (Fun_Name, Type_Name : String;
+                                   Statements : Irep;
+                                   Loc : Source_Ptr) is
       Fun_Symbol_Id : constant Symbol_Id := Intern (Fun_Name);
    begin
       if not Global_Symbol_Table.Contains (Fun_Symbol_Id) then
@@ -451,7 +525,7 @@ package body ASVAT_Modelling is
               Make_Symbol_Type (Identifier => Type_Name);
 
             Param_List : constant Irep := New_Irep (I_Parameter_List);
-            --  For a non_det funcition the Param_List is always empty.
+            --  For a nondet funcition the Param_List is always empty.
 
             Obj_Name  : constant String := "Res___" & Fun_Name;
             Obj_Id    : constant Symbol_Id := Intern (Obj_Name);
@@ -508,6 +582,10 @@ package body ASVAT_Modelling is
             Set_Identifier (Return_Value, Obj_Name);
             Set_Type (Return_Value, Type_Irep);
 
+            if Statements /= Ireps.Empty then
+               Put_Line ("Adding statements");
+            end if;
+
             Put_Line ("Do the return statement");
 
             Set_Source_Location (Return_Statement, Loc);
@@ -526,7 +604,7 @@ package body ASVAT_Modelling is
          Put_Line ("function " & Fun_Name & " : " &
                      "Already in symbol table");
       end if;
-   end Make_Non_Det_Function;
+   end Make_Nondet_Function;
 
    -------------------------------
    -- Replace_Local_With_Import --
