@@ -42,7 +42,7 @@ package ASVAT_Modelling is
    procedure Make_Model (E : Entity_Id)
    with Pre => Is_Model (E);
 
-   procedure Make_Nondet_Function (Fun_Name, Type_Name : String;
+   procedure Make_Nondet_Function (Fun_Name, Result_Type : String;
                                    Statements : Irep;
                                    Loc : Source_Ptr);
 end ASVAT_Modelling;
