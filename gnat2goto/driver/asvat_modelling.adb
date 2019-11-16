@@ -35,14 +35,14 @@ package body ASVAT_Modelling is
            Unique_Name (Entity (Prefix (N)));
       Loc      : constant Source_Ptr := Sloc (N);
    begin
-      --  Create the non-det attribute function.
+      --  Create the nondet attribute function.
       --  It is not recreated by Make_Nondet_Function if it already exists.
       Make_Nondet_Function
         (Fun_Name    => Fun_Name,
          Result_Type => Type_Name,
          Statements  => Ireps.Empty,
          Loc         => Loc);
-      --  Return the Irep of the non-det attribute function
+      --  Return the Irep of the nondet attribute function
       return Do_Nondet_Function_Call (Fun_Name, Loc);
    end Do_Nondet_Attribute;
 
@@ -341,7 +341,9 @@ package body ASVAT_Modelling is
 
       procedure Make_Model_Section (Model : Model_Sorts;
                                     Outputs : Elist_Id) is
-         Iter      : Elmt_Id  := First_Elmt (Outputs);
+         Iter      : Elmt_Id  := (if Present (Outputs)
+                                  then First_Elmt (Outputs)
+                                  else No_Elmt);
          Type_List : constant Elist_Id := New_Elmt_List;
          Print_Model : constant Boolean := False;
       begin
@@ -407,7 +409,7 @@ package body ASVAT_Modelling is
                      if Replace_Object then
                         Put_Line (Build_Location_String
                                   (Sloc (Curr_Entity)) &
-                                    " ASVAT modlling: ");
+                                    " ASVAT modelling: ");
                         Put_Line ("Replace local object '" &
                                     Unique_Name (Curr_Entity) &
                                     "' with " &
@@ -501,7 +503,7 @@ package body ASVAT_Modelling is
 
       Put_Line (Build_Location_String (Sloc (Subprog_Import_Pragma)) &
                   " ASVAT modelling:");
-      Put_Line ("Adding a " & Model_Sorts'Image (Model) &
+      Put_Line ("Adding a " & To_Lower (Model_Sorts'Image (Model)) &
                   " body for imported subprogram " &
                   Unique_Name (E));
 
@@ -544,7 +546,7 @@ package body ASVAT_Modelling is
          begin
             Put_Line (Build_Location_String (Loc) &
                       " ASVAT modelling:");
-            Put_Line ("Making non-det function " & Fun_Name &
+            Put_Line ("Making nondet function " & Fun_Name &
                         " : " & Result_Type);
 
             Set_Return_Type (Ret, Type_Irep);
@@ -585,7 +587,7 @@ package body ASVAT_Modelling is
 
             Fun_Symbol := Global_Symbol_Table (Fun_Symbol_Id);
             Fun_Symbol.Value := Block;
-            --  Mark that this is a non-det function.
+            --  Mark that this is a nondet function.
             Fun_Symbol.IsAuxiliary := True;
             Global_Symbol_Table.Replace (Fun_Symbol_Id, Fun_Symbol);
          end;
