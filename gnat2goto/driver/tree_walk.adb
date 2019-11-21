@@ -4357,18 +4357,10 @@ package body Tree_Walk is
       pragma Assert (Ekind (E) in Subprogram_Kind);
       Register_Subprogram_Specification (Specification (N));
 
-      if Present (Import_Pragma (E)) then
-         if ASVAT_Modelling.Get_Import_Convention (Import_Pragma (E)) = "ada"
-         then
-            if ASVAT_Modelling.Is_Model (E) then
-               ASVAT_Modelling.Make_Model (E);
-            else
-               Report_Unhandled_Node_Empty
-                 (E,
-                  "Do_Subprogram_Declaration",
-                  "pragma Import: Convention Ada but not an ASVAT model.");
-            end if;
-         end if;
+      if ASVAT_Modelling.Is_Model (E) then
+         Put_Line ("Is a model");
+         ASVAT_Modelling.Make_Model (E);
+
       elsif not Has_Completion (E) then
          --  Here it would be possible to nondet outputs specified
          --  in subprogram specification but at present nothing is done.
@@ -5377,9 +5369,17 @@ package body Tree_Walk is
          when Name_Abstract_State =>
             Report_Unhandled_Node_Empty (N, "Process_Pragma_Declaration",
                                          "Unsupported pragma: Abstract state");
-         when Name_Annotate |
-            --  Ignore here. Rather look for those when we process a node.
-              Name_Assertion_Policy |
+         when Name_Annotate =>
+            --  Annotate is only supported as an aspect
+            Put_Line ("pragma Annotate found");
+            if not From_Aspect_Specification (N) then
+               Report_Unhandled_Node_Empty
+                 (N, "Process_Pragma_Declaration",
+                  "pragma Annotate: Annotate only supported as an aspect");
+            end if;
+            Put_Line ("End of pragma Annotate processing");
+         when Name_Assertion_Policy |
+
             --  Control the pragma Assert according to the policy identifier
             --  which can be Check, Ignore, or implementation-defined.
             --  Ignore means that assertions are ignored at run-time -> Ignored

@@ -4,7 +4,8 @@ with Elists;                  use Elists;
 with Nlists;                  use Nlists;
 with Stringt;                 use Stringt;
 with Sinput;                  use Sinput;
---  with Treepr;                 use Treepr;
+with Aspects;                 use Aspects;
+with Treepr;                 use Treepr;
 with Namet;                   use Namet;
 with Tree_Walk;               use Tree_Walk;
 with Einfo;                   use Einfo;
@@ -17,12 +18,15 @@ package body ASVAT_Modelling is
 
    function Find_Model (Model : String) return Model_Sorts;
 
+   function Get_Annotation_Model (N : Node_Id) return String
+   with Pre => Is_ASVAT_Annotation (N);
+
    function Replace_Dots (S : String) return String;
 
    function Replace_Local_With_Import
      (Is_Type : Boolean; E : Entity_Id) return String
      with Pre => Ekind (E) in E_Variable | E_Constant and then
-                 Is_Model_Sort (E, Replace_With);
+                 Is_Model_Sort (E, Represents);
 
    -------------------------
    -- Do_Nondet_Attribute --
@@ -161,6 +165,29 @@ package body ASVAT_Modelling is
       return Result;
    end Find_Model;
 
+   -------------------------
+   -- Get_Annotation_Name --
+   -------------------------
+
+   function Get_Annotation_Name (N : Node_Id) return String is
+     (Get_Name_String
+        (Chars (Expression
+                (First (Pragma_Argument_Associations (N))))));
+
+    --------------------------
+    -- Get_Annotation_Model --
+   ---------------------------
+
+   function Get_Annotation_Model (N : Node_Id) return String is
+      Anno_Value : constant Node_Id := Expression (N);
+      --  The Get_Annotation_Value has a preconditionthat the node N
+      --  is an ASVAT annotation which has at least 2 arguments.
+      --  The second argument will be the model
+      Model : constant Node_Id := Next (First (Expressions (Anno_Value)));
+   begin
+      return Get_Name_String (Chars (Model));
+   end Get_Annotation_Model;
+
    ---------------------------
    -- Get_Import_Convention --
    ---------------------------
@@ -275,24 +302,91 @@ package body ASVAT_Modelling is
       end if;
    end Get_Import_Link_Name;
 
+   -------------------------
+   -- Is_ASVAT_Annotation --
+   -------------------------
+
+   function Is_ASVAT_Annotation (N : Node_Id) return Boolean is
+      Anno_Value : constant Node_Id := Expression (N);
+      Is_Aggregate : constant Boolean :=
+        Nkind (Anno_Value) = N_Aggregate;
+
+   begin
+      Print_Node_Briefly (Expression (N));
+      --  The value of an ASVAT annotation must be a non empty aggregate
+      if Is_Aggregate and then Present (Expressions (Anno_Value))
+      then
+         declare
+            First_Arg  : constant Node_Id := First (Expressions (Anno_Value));
+            Second_Arg : constant Node_Id :=
+              (if Present (First_Arg) then Next (First_Arg) else First_Arg);
+            Is_ASVAT : constant Boolean :=
+              Nkind (First_Arg) = N_Identifier and then
+              Get_Name_String (Chars (First_Arg)) = "asvat";
+            Has_Model : constant Boolean :=
+              (Is_ASVAT and Present (Second_Arg)) and then
+              Nkind (Second_Arg) = N_Identifier;
+         begin
+            if Is_ASVAT then
+               Put_Line ("Is ASVAT");
+               if Has_Model then
+                  Put_Line ("Has_Model");
+               end if;
+
+               if Present (Second_Arg) and then
+                 Nkind (Second_Arg) /= N_Identifier
+               then
+                  Report_Unhandled_Node_Empty
+                    (N,
+                     "Is_ASVAT_Annotation",
+                     "ASVAT model must be an identifier");
+               elsif not Present (Second_Arg) then
+                  Report_Unhandled_Node_Empty
+                    (N,
+                     "Is_ASVAT_Annotation",
+                     "ASVAT anotation must supply a model");
+               end if;
+            end if;
+            return Is_ASVAT and Has_Model;
+         end;
+      else
+         if Nkind (Anno_Value) = N_Identifier then
+            if Get_Name_String (Chars (Anno_Value)) = "asvat" then
+               Report_Unhandled_Node_Empty
+                 (N,
+                  "Is_ASVAT_Annotation",
+                  "ASVAT annotation must have a model");
+            end if;
+         end if;
+         Put_Line ("Not an aggregate");
+
+         return False;
+      end if;
+
+   end Is_ASVAT_Annotation;
+
    --------------
    -- Is_Model --
    --------------
 
    function Is_Model (E : Entity_Id) return Boolean is
-      Obj_Import_Pragma : constant Node_Id := Import_Pragma (E);
-      Is_Ada : constant Boolean :=
-        (if Present (Obj_Import_Pragma) then
-              Get_Import_Convention (Obj_Import_Pragma) = "ada"
-         else
-            False);
-      External_Name : constant String :=
-        (if Is_Ada then
-            Get_Import_External_Name (Obj_Import_Pragma)
-         else
-            "");
+      Anno   : constant Node_Id := Find_Aspect (E, Aspect_Annotate);
+      Import : constant Node_Id := Import_Pragma (E);
    begin
-      return Is_Ada and then Find_Model (External_Name) /= Not_A_Model;
+      if Present (Anno) and then Is_ASVAT_Annotation (Anno) then
+         Put_Line  ("Printing Anno Model");
+         Put_Line (Get_Annotation_Model (Anno));
+      else
+         Put_Line ("Anno not present");
+      end if;
+
+      return (Present (Anno) and then
+              Is_ASVAT_Annotation (Anno) and then
+              Find_Model (Get_Annotation_Model (Anno)) /= Not_A_Model)
+              or else
+              (Present (Import) and then
+              Get_Import_Convention (Import) = "ada" and then
+              Find_Model (Get_Import_External_Name (Import)) /= Not_A_Model);
    end Is_Model;
 
    -------------------
@@ -324,9 +418,14 @@ package body ASVAT_Modelling is
    ----------------
 
    procedure Make_Model (E : Entity_Id) is
+      Subprog_Anno : constant Node_Id := Find_Aspect (E, Aspect_Annotate);
       Subprog_Import_Pragma : constant Node_Id := Import_Pragma (E);
+
       Model : constant Model_Sorts :=
-        (if Present (Subprog_Import_Pragma) then
+        (if Present (Subprog_Anno) and then Is_ASVAT_Annotation (Subprog_Anno)
+         then
+              Find_Model (Get_Annotation_Model (Subprog_Anno))
+         elsif Present (Subprog_Import_Pragma) then
               Find_Model (Get_Import_External_Name (Subprog_Import_Pragma))
          else
             Not_A_Model);
@@ -362,7 +461,7 @@ package body ASVAT_Modelling is
 
                   Replace_Object : constant Boolean :=
                     Is_Imported (Curr_Entity) and then
-                    Is_Model_Sort (Curr_Entity, Replace_With);
+                    Is_Model_Sort (Curr_Entity, Represents);
 
                   Obj_Name_String : constant String :=
                     (if Replace_Object then
@@ -372,13 +471,14 @@ package body ASVAT_Modelling is
                      else
                         Unique_Name (Curr_Entity));
 
-                  Optional_Type_Name : constant String :=
-                    (if Replace_Object then
-                        Replace_Local_With_Import
-                       (Is_Type => True,
-                        E       => Curr_Entity)
-                     else
-                        "");
+                  --  Temporary fix for demo
+                  Optional_Type_Name : constant String := "";
+--                      (if Replace_Object then
+--                          Replace_Local_With_Import
+--                         (Is_Type => True,
+--                          E       => Curr_Entity)
+--                       else
+--                          "");
 
                   Type_Name_String : constant String :=
                     (if Replace_Object and Optional_Type_Name /= ""
@@ -605,6 +705,8 @@ package body ASVAT_Modelling is
    function Replace_Local_With_Import
      (Is_Type : Boolean; E : Entity_Id) return String
    is
+      Obj_Annotate_Pragma : constant Node_Id :=
+        Find_Aspect (E, Aspect_Annotate);
       Obj_Import_Pragma  : constant Node_Id := Get_Pragma (E, Pragma_Import);
 
       Import_Object_Desc : constant String :=
@@ -633,6 +735,12 @@ package body ASVAT_Modelling is
          else
              "");
    begin
+      if Present (Obj_Annotate_Pragma) then
+         Put_Line ("Obj dec has Annotate");
+      else
+         Put_Line ("Obj dec has no Annotate");
+      end if;
+
       return (if Is_Type then
                  Replacement_Type_Name
               else
