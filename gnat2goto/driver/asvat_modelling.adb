@@ -4,7 +4,6 @@ with Elists;                  use Elists;
 with Nlists;                  use Nlists;
 with Stringt;                 use Stringt;
 with Sinput;                  use Sinput;
-with Aspects;                 use Aspects;
 with Treepr;                 use Treepr;
 with Namet;                   use Namet;
 with Tree_Walk;               use Tree_Walk;
@@ -18,15 +17,14 @@ package body ASVAT_Modelling is
 
    function Find_Model (Model : String) return Model_Sorts;
 
-   function Get_Annotation_Model (N : Node_Id) return String
-   with Pre => Is_ASVAT_Annotation (N);
+--     function Get_Annotation_Model (N : Node_Id) return String;
 
    function Replace_Dots (S : String) return String;
 
    function Replace_Local_With_Import
      (Is_Type : Boolean; E : Entity_Id) return String
-     with Pre => Ekind (E) in E_Variable | E_Constant and then
-                 Is_Model_Sort (E, Represents);
+   with Pre => Ekind (E) in E_Variable | E_Constant and then
+               Get_Model_Sort (E) = Represents;
 
    -------------------------
    -- Do_Nondet_Attribute --
@@ -174,19 +172,19 @@ package body ASVAT_Modelling is
         (Chars (Expression
                 (First (Pragma_Argument_Associations (N))))));
 
-    --------------------------
-    -- Get_Annotation_Model --
-   ---------------------------
-
-   function Get_Annotation_Model (N : Node_Id) return String is
-      Anno_Value : constant Node_Id := Expression (N);
-      --  The Get_Annotation_Value has a preconditionthat the node N
-      --  is an ASVAT annotation which has at least 2 arguments.
-      --  The second argument will be the model
-      Model : constant Node_Id := Next (First (Expressions (Anno_Value)));
-   begin
-      return Get_Name_String (Chars (Model));
-   end Get_Annotation_Model;
+--      --------------------------
+--      -- Get_Annotation_Model --
+--     ---------------------------
+--
+--     function Get_Annotation_Model (N : Node_Id) return String is
+--        Anno_Value : constant Node_Id := Expression (N);
+--        --  The Get_Annotation_Value has a preconditionthat the node N
+--        --  is an ASVAT annotation which has at least 2 arguments.
+--        --  The second argument will be the model
+--        Model : constant Node_Id := Next (First (Expressions (Anno_Value)));
+--     begin
+--        return Get_Name_String (Chars (Model));
+--     end Get_Annotation_Model;
 
    ---------------------------
    -- Get_Import_Convention --
@@ -303,14 +301,13 @@ package body ASVAT_Modelling is
    end Get_Import_Link_Name;
 
    -------------------------
-   -- Is_ASVAT_Annotation --
+   -- Get_Model_From_Anno --
    -------------------------
 
-   function Is_ASVAT_Annotation (N : Node_Id) return Boolean is
+   function Get_Model_From_Anno (N : Node_Id) return Model_Sorts is
       Anno_Value : constant Node_Id := Expression (N);
       Is_Aggregate : constant Boolean :=
         Nkind (Anno_Value) = N_Aggregate;
-
    begin
       Print_Node_Briefly (Expression (N));
       --  The value of an ASVAT annotation must be a non empty aggregate
@@ -347,7 +344,10 @@ package body ASVAT_Modelling is
                      "ASVAT anotation must supply a model");
                end if;
             end if;
-            return Is_ASVAT and Has_Model;
+            return (if Is_ASVAT and Has_Model then
+                       Find_Model (Get_Name_String (Chars (Second_Arg)))
+                    else
+                       Not_A_Model);
          end;
       else
          if Nkind (Anno_Value) = N_Identifier then
@@ -360,79 +360,144 @@ package body ASVAT_Modelling is
          end if;
          Put_Line ("Not an aggregate");
 
-         return False;
+         return Not_A_Model;
       end if;
 
-   end Is_ASVAT_Annotation;
+   end Get_Model_From_Anno;
 
-   --------------
-   -- Is_Model --
-   --------------
+   ---------------------------
+   -- Get_Model_From_Import --
+   ---------------------------
 
-   function Is_Model (E : Entity_Id) return Boolean is
-      Anno   : constant Node_Id := Find_Aspect (E, Aspect_Annotate);
-      Import : constant Node_Id := Import_Pragma (E);
-   begin
-      if Present (Anno) and then Is_ASVAT_Annotation (Anno) then
-         Put_Line  ("Printing Anno Model");
-         Put_Line (Get_Annotation_Model (Anno));
-      else
-         Put_Line ("Anno not present");
-      end if;
+   function Get_Model_From_Import (N : Node_Id) return Model_Sorts is
+      Convention : constant String :=
+        ASVAT_Modelling.Get_Import_Convention (N);
 
-      return (Present (Anno) and then
-              Is_ASVAT_Annotation (Anno) and then
-              Find_Model (Get_Annotation_Model (Anno)) /= Not_A_Model)
-              or else
-              (Present (Import) and then
-              Get_Import_Convention (Import) = "ada" and then
-              Find_Model (Get_Import_External_Name (Import)) /= Not_A_Model);
-   end Is_Model;
+      Is_Ada : constant Boolean := Convention = "ada";
+      Is_Intrinsic : constant Boolean :=
+        Convention = "intrinsic";
 
-   -------------------
-   -- Is_Model_Sort --
-   -------------------
-
-   function Is_Model_Sort (E : Entity_Id; Model : Model_Sorts) return Boolean
-   is
-      Obj_Import_Pragma : constant Node_Id := Get_Pragma (E, Pragma_Import);
-      Is_Ada : constant Boolean :=
-        (if Present (Obj_Import_Pragma) then
-              Get_Import_Convention (Obj_Import_Pragma) = "ada"
-         else
-            False);
-      External_Name : constant String :=
+      Model_String  : constant String :=
         (if Is_Ada then
-            Get_Import_External_Name (Obj_Import_Pragma)
+            Get_Import_External_Name (N)
          else
             "");
+      Model : constant Model_Sorts := Find_Model (Model_String);
    begin
-      return Is_Ada and then Find_Model (External_Name) = Model;
-   end Is_Model_Sort;
+      if not (Is_Ada or Is_Intrinsic) then
+         Report_Unhandled_Node_Empty
+           (N, "Process_Pragma_Declaration",
+            "pragma Import: Multi-language analysis unsupported");
 
-   function Is_Model_String (S : String) return Boolean is
-     (Find_Model (S) /= Not_A_Model);
+      elsif Is_Ada then
+         if Model_String = "" then
+            Report_Unhandled_Node_Empty
+              (N, "Process_Pragma_Declaration",
+               "Import convention Ada must have a model sort");
+         elsif Model = Not_A_Model then
+            Report_Unhandled_Node_Empty
+              (N, "Process_Pragma_Declaration",
+               "Import convention Ada but '" &
+                 Model_String &
+                 "' is not an ASVAT model sort");
+         end if;
+      end if;
+      return Model;
+   end Get_Model_From_Import;
+
+   function Get_Model_Sort (E : Entity_Id) return Model_Sorts is
+      Obj_Import    : constant Node_Id := Get_Pragma (E, Pragma_Import);
+      Subprog_Import : constant Node_Id :=
+        (if Ekind (E) in E_Procedure | E_Function then
+              Import_Pragma (E)
+         else
+            Obj_Import);
+
+      Anno           : constant Node_Id := Find_Aspect (E, Aspect_Annotate);
+
+      Import_Model   : constant Model_Sorts :=
+        (if Present (Obj_Import) then
+              Get_Model_From_Import (Obj_Import)
+         elsif Present (Subprog_Import) then
+              Get_Model_From_Import (Subprog_Import)
+         else
+            Not_A_Model);
+
+      Anno_Model     : constant Model_Sorts :=
+        (if Present (Anno) then
+              Get_Model_From_Anno (Anno)
+         else
+            Not_A_Model);
+   begin
+      Put_Line ("In Get_Model_Sort");
+      if Anno_Model /= Not_A_Model then
+         if Import_Model /= Not_A_Model then
+            Report_Unhandled_Node_Empty
+              (E,
+               "Get_Model_Sort",
+               "Using model from Annotation, not Import pragma");
+         end if;
+         return Anno_Model;
+      else
+         return Import_Model;
+      end if;
+   end Get_Model_Sort;
+
+--     --------------
+--     -- Is_Model --
+--     --------------
+--
+--     function Is_Model (E : Entity_Id) return Boolean is
+--        Anno   : constant Node_Id := Find_Aspect (E, Aspect_Annotate);
+--        Import : constant Node_Id := Import_Pragma (E);
+--     begin
+--        if Present (Anno) and then Is_ASVAT_Annotation (Anno) then
+--           Put_Line  ("Printing Anno Model");
+--           Put_Line (Get_Annotation_Model (Anno));
+--        else
+--           Put_Line ("Anno not present");
+--        end if;
+--
+--        return (Present (Anno) and then
+--                Is_ASVAT_Annotation (Anno) and then
+--                Find_Model (Get_Annotation_Model (Anno)) /= Not_A_Model)
+--                or else
+--                (Present (Import) and then
+--                Get_Import_Convention (Import) = "ada" and then
+--              Find_Model (Get_Import_External_Name (Import)) /= Not_A_Model);
+--     end Is_Model;
+--
+--     -------------------
+--     -- Is_Model_Sort --
+--     -------------------
+--
+--   function Is_Model_Sort (E : Entity_Id; Model : Model_Sorts) return Boolean
+--     is
+--      Obj_Import_Pragma : constant Node_Id := Get_Pragma (E, Pragma_Import);
+--        Is_Ada : constant Boolean :=
+--          (if Present (Obj_Import_Pragma) then
+--                Get_Import_Convention (Obj_Import_Pragma) = "ada"
+--           else
+--              False);
+--        External_Name : constant String :=
+--          (if Is_Ada then
+--              Get_Import_External_Name (Obj_Import_Pragma)
+--           else
+--              "");
+--     begin
+--        return Is_Ada and then Find_Model (External_Name) = Model;
+--     end Is_Model_Sort;
+--
+--     function Is_Model_String (S : String) return Boolean is
+--       (Find_Model (S) /= Not_A_Model);
 
    ----------------
    -- Make_Model --
    ----------------
 
-   procedure Make_Model (E : Entity_Id) is
-      Subprog_Anno : constant Node_Id := Find_Aspect (E, Aspect_Annotate);
-      Subprog_Import_Pragma : constant Node_Id := Import_Pragma (E);
-
-      Model : constant Model_Sorts :=
-        (if Present (Subprog_Anno) and then Is_ASVAT_Annotation (Subprog_Anno)
-         then
-              Find_Model (Get_Annotation_Model (Subprog_Anno))
-         elsif Present (Subprog_Import_Pragma) then
-              Find_Model (Get_Import_External_Name (Subprog_Import_Pragma))
-         else
-            Not_A_Model);
+   procedure Make_Model (E : Entity_Id; Model : Model_Sorts) is
       Loc : constant Source_Ptr := Sloc (E);
-
       Subprog_Id : constant Symbol_Id := Intern (Unique_Name (E));
-
       Block : constant Irep := New_Irep (I_Code_Block);
 
       procedure Make_Model_Section (Model : Model_Sorts;
@@ -444,8 +509,9 @@ package body ASVAT_Modelling is
                                   then First_Elmt (Outputs)
                                   else No_Elmt);
          Type_List : constant Elist_Id := New_Elmt_List;
-         Print_Model : constant Boolean := False;
+         Print_Model : constant Boolean := True;
       begin
+         Put_Line ("In make section");
          while Present (Iter) loop
             if Nkind (Node (Iter)) in
               N_Identifier | N_Expanded_Name | N_Defining_Identifier
@@ -460,8 +526,7 @@ package body ASVAT_Modelling is
                   Given_Type : constant Node_Id := Etype (Curr_Entity);
 
                   Replace_Object : constant Boolean :=
-                    Is_Imported (Curr_Entity) and then
-                    Is_Model_Sort (Curr_Entity, Represents);
+                    Get_Model_Sort (Curr_Entity) = Represents;
 
                   Obj_Name_String : constant String :=
                     (if Replace_Object then
@@ -601,7 +666,7 @@ package body ASVAT_Modelling is
               "global variables");
       end if;
 
-      Put_Line (Build_Location_String (Sloc (Subprog_Import_Pragma)) &
+      Put_Line (Build_Location_String (Sloc (E)) &
                   " ASVAT modelling:");
       Put_Line ("Adding a " & To_Lower (Model_Sorts'Image (Model)) &
                   " body for imported subprogram " &

@@ -4353,13 +4353,15 @@ package body Tree_Walk is
 
    procedure Do_Subprogram_Declaration (N : Node_Id) is
       E : constant Node_Id := Defining_Unit_Name (Specification (N));
+      ASVAT_Model : constant ASVAT_Modelling.Model_Sorts :=
+        ASVAT_Modelling.Get_Model_Sort (E);
    begin
       pragma Assert (Ekind (E) in Subprogram_Kind);
       Register_Subprogram_Specification (Specification (N));
 
-      if ASVAT_Modelling.Is_Model (E) then
+      if ASVAT_Modelling.Is_Model (ASVAT_Model) then
          Put_Line ("Is a model");
-         ASVAT_Modelling.Make_Model (E);
+         ASVAT_Modelling.Make_Model (E, ASVAT_Model);
 
       elsif not Has_Completion (E) then
          --  Here it would be possible to nondet outputs specified
@@ -5225,21 +5227,6 @@ package body Tree_Walk is
                   Report_Unhandled_Node_Empty
                     (N, "Process_Pragma_Declaration",
                      "pragma Import: Multi-language analysis unsupported");
-
-               elsif Is_Ada then
-                  declare
-                     External_Name : constant String :=
-                       ASVAT_Modelling.Get_Import_External_Name (N);
-                  begin
-                     if not ASVAT_Modelling.Is_Model_String (External_Name)
-                     then
-                        Report_Unhandled_Node_Empty
-                          (N, "Process_Pragma_Declaration",
-                           "Import convention Ada but '" &
-                             External_Name &
-                             "' is not an ASVAT model sort");
-                     end if;
-                  end;
                end if;
             end;
 
@@ -5371,13 +5358,12 @@ package body Tree_Walk is
                                          "Unsupported pragma: Abstract state");
          when Name_Annotate =>
             --  Annotate is only supported as an aspect
-            Put_Line ("pragma Annotate found");
             if not From_Aspect_Specification (N) then
                Report_Unhandled_Node_Empty
                  (N, "Process_Pragma_Declaration",
                   "pragma Annotate: Annotate only supported as an aspect");
             end if;
-            Put_Line ("End of pragma Annotate processing");
+
          when Name_Assertion_Policy |
 
             --  Control the pragma Assert according to the policy identifier

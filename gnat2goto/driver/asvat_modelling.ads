@@ -3,7 +3,8 @@ with Atree;                   use Atree;
 with Sinfo;                   use Sinfo;
 with Sem_Util;                use Sem_Util;
 with Snames;                  use Snames;
-with Ireps;                    use Ireps;
+with Aspects;                 use Aspects;
+with Ireps;                   use Ireps;
 package ASVAT_Modelling is
    type Model_Sorts is (Not_A_Model, Nondet, Nondet_In_Type, Represents);
    subtype Valid_Model is Model_Sorts range Nondet .. Model_Sorts'Last;
@@ -37,17 +38,23 @@ package ASVAT_Modelling is
                Get_Pragma_Id (N) = Pragma_Import;
    --  Returns null string if the Link_Name parameter is not present.
 
-   function Is_ASVAT_Annotation (N : Node_Id) return Boolean
-   with Pre => Nkind (N) = N_Aspect_Specification;
+   function Get_Model_From_Anno (N : Node_Id) return Model_Sorts
+   with Pre => Nkind (N) = N_Aspect_Specification and then
+               Present (Find_Aspect (N, Aspect_Annotate));
 
-   function Is_Model (E : Entity_Id) return Boolean;
+   function Get_Model_From_Import (N : Node_Id) return Model_Sorts
+   with Pre => Nkind (N) = N_Pragma and then Get_Pragma_Id (N) = Pragma_Import;
 
-   function Is_Model_String (S : String) return Boolean;
+   function Get_Model_Sort (E : Entity_Id) return Model_Sorts;
 
-   function Is_Model_Sort (E : Entity_Id; Model : Model_Sorts) return Boolean;
+   function Is_Model (Model : Model_Sorts) return Boolean is
+     (Model /= Not_A_Model);
+--
+--     function Is_Model_String (S : String) return Boolean;
+--
+--  function Is_Model_Sort (E : Entity_Id; Model : Model_Sorts) return Boolean;
 
-   procedure Make_Model (E : Entity_Id)
-   with Pre => Is_Model (E);
+   procedure Make_Model (E : Entity_Id; Model : Model_Sorts);
 
    procedure Make_Nondet_Function (Fun_Name, Result_Type : String;
                                    Statements : Irep;
