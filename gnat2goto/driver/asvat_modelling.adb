@@ -1,10 +1,11 @@
 with Ada.Strings.Fixed;       use Ada.Strings.Fixed;
 with Ada.Characters.Handling; use Ada.Characters.Handling;
+with Aspects;                 use Aspects;
 with Elists;                  use Elists;
 with Nlists;                  use Nlists;
 with Stringt;                 use Stringt;
 with Sinput;                  use Sinput;
-with Treepr;                 use Treepr;
+with Treepr;                  use Treepr;
 with Namet;                   use Namet;
 with Tree_Walk;               use Tree_Walk;
 with Einfo;                   use Einfo;
@@ -309,14 +310,16 @@ package body ASVAT_Modelling is
       Is_Aggregate : constant Boolean :=
         Nkind (Anno_Value) = N_Aggregate;
    begin
-      Print_Node_Briefly (Expression (N));
       --  The value of an ASVAT annotation must be a non empty aggregate
       if Is_Aggregate and then Present (Expressions (Anno_Value))
       then
          declare
-            First_Arg  : constant Node_Id := First (Expressions (Anno_Value));
+            First_Arg  : constant Node_Id :=
+              First (Expressions (Anno_Value));
             Second_Arg : constant Node_Id :=
-              (if Present (First_Arg) then Next (First_Arg) else First_Arg);
+              (if Present (First_Arg) then
+                    Next (First_Arg)
+               else First_Arg);
             Is_ASVAT : constant Boolean :=
               Nkind (First_Arg) = N_Identifier and then
               Get_Name_String (Chars (First_Arg)) = "asvat";
@@ -358,11 +361,8 @@ package body ASVAT_Modelling is
                   "ASVAT annotation must have a model");
             end if;
          end if;
-         Put_Line ("Not an aggregate");
-
          return Not_A_Model;
       end if;
-
    end Get_Model_From_Anno;
 
    ---------------------------
@@ -405,6 +405,10 @@ package body ASVAT_Modelling is
       return Model;
    end Get_Model_From_Import;
 
+   --------------------
+   -- Get_Model_Sort --
+   --------------------
+
    function Get_Model_Sort (E : Entity_Id) return Model_Sorts is
       Obj_Import    : constant Node_Id := Get_Pragma (E, Pragma_Import);
       Subprog_Import : constant Node_Id :=
@@ -424,12 +428,11 @@ package body ASVAT_Modelling is
             Not_A_Model);
 
       Anno_Model     : constant Model_Sorts :=
-        (if Present (Anno) then
+          (if Present (Anno) then
               Get_Model_From_Anno (Anno)
          else
             Not_A_Model);
    begin
-      Put_Line ("In Get_Model_Sort");
       if Anno_Model /= Not_A_Model then
          if Import_Model /= Not_A_Model then
             Report_Unhandled_Node_Empty
@@ -770,12 +773,79 @@ package body ASVAT_Modelling is
    function Replace_Local_With_Import
      (Is_Type : Boolean; E : Entity_Id) return String
    is
-      Obj_Annotate_Pragma : constant Node_Id :=
+      function Get_Object_From_Anno (N : Node_Id;
+                                     Want_Type : Boolean) return String
+      with Pre => Nkind (N) = N_Aspect_Specification;
+
+      function Get_Object_From_Anno (N : Node_Id;
+                                         Want_Type : Boolean) return String is
+         --  From where this subprogram is called it has been determined that
+         --  the ASVAT annotation specifies the model "'Represents'.
+         --  The ASVAT Represents annotation must have at least one more
+         --  argument which is the hidden object that is represented by the
+         --  local object.
+         --  The hidden type, if present is the fourth argument.
+         Hidden_Obj_Name : constant Node_Id :=
+         --  The expression of N is an aggregate, The first of the aggregate
+         --  expressions is "ASVAT", the second is "Represents" and the third
+         --  the hidden object name and the fourth
+         --  (if present) the hidden type.
+           Next (Next (First (Expressions (Expression (N)))));
+         Hidden_Name : constant Node_Id :=
+           (if Want_Type and Present (Hidden_Obj_Name) then
+                 Next (Hidden_Obj_Name)
+            else
+               Hidden_Obj_Name);
+      begin
+         if Present (Hidden_Name) then
+            Print_Node_Briefly (Hidden_Name);
+            if Nkind (Hidden_Name) = N_String_Literal then
+               declare
+                  Hidden_Name_Str : constant String_Id :=
+                    Strval (Hidden_Name);
+                  Hidden_Name_Length : constant Natural :=
+                    Natural (String_Length (Hidden_Name_Str));
+               begin
+                  String_To_Name_Buffer (Hidden_Name_Str);
+                  Put_Line ("The hidden name is " &
+                         To_Lower (Name_Buffer (1 .. Hidden_Name_Length)));
+                  return To_Lower (Name_Buffer (1 .. Hidden_Name_Length));
+               end;
+            else
+               if Want_Type then
+                  Report_Unhandled_Node_Empty
+                    (Hidden_Name,
+                     "Replace_Local_With_Import",
+                     "Hidden subtype name must be a string literal");
+               else
+                  Report_Unhandled_Node_Empty
+                    (Hidden_Name,
+                     "Replace_Local_With_Import",
+                     "Hidden object name must be a string literal");
+               end if;
+            end if;
+         elsif not Want_Type then
+            Report_Unhandled_Node_Empty
+              (Hidden_Name,
+               "Replace_Local_With_Import",
+               "Hidden object name must specified");
+         end if;
+         return "";
+      end Get_Object_From_Anno;
+
+      Obj_ASVAT_Anno : constant Node_Id :=
         Find_Aspect (E, Aspect_Annotate);
       Obj_Import_Pragma  : constant Node_Id := Get_Pragma (E, Pragma_Import);
 
       Import_Object_Desc : constant String :=
-        Replace_Dots (Get_Import_Link_Name (Obj_Import_Pragma));
+        Replace_Dots
+          (if Present (Obj_ASVAT_Anno) then
+                  Get_Object_From_Anno (N => Obj_ASVAT_Anno,
+                                       Want_Type => False)
+           elsif Present (Obj_Import_Pragma) then
+                 Get_Import_Link_Name (Obj_Import_Pragma)
+           else
+              "");
 
       Has_Type_Specified : constant Natural := Index (Import_Object_Desc, ":");
 
@@ -785,22 +855,23 @@ package body ASVAT_Modelling is
          else
             Import_Object_Desc'Last);
 
-      Replacement_Obj_Name : constant String := To_Lower
-        (Trim
-           (Import_Object_Desc
-                (Import_Object_Desc'First .. Obj_Name_End),
-            Ada.Strings.Both));
+      Replacement_Obj_Name : constant String :=
+        Trim
+          (Import_Object_Desc
+             (Import_Object_Desc'First .. Obj_Name_End),
+           Ada.Strings.Both);
 
       Replacement_Type_Name : constant String :=
-        (if Has_Type_Specified /= 0 then
-            To_Lower (Trim
-           (Import_Object_Desc
-                (Has_Type_Specified + 1 .. Import_Object_Desc'Last),
-                Ada.Strings.Both))
+        Trim ((if Present (Obj_ASVAT_Anno) then
+                   Get_Object_From_Anno (N => Obj_ASVAT_Anno,
+                                         Want_Type => True)
+              elsif Has_Type_Specified /= 0 then
+                 Import_Object_Desc
+                (Has_Type_Specified + 1 .. Import_Object_Desc'Last)
          else
-             "");
+             ""), Ada.Strings.Both);
    begin
-      if Present (Obj_Annotate_Pragma) then
+      if Present (Obj_ASVAT_Anno) then
          Put_Line ("Obj dec has Annotate");
       else
          Put_Line ("Obj dec has no Annotate");

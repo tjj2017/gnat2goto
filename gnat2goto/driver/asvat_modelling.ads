@@ -3,7 +3,6 @@ with Atree;                   use Atree;
 with Sinfo;                   use Sinfo;
 with Sem_Util;                use Sem_Util;
 with Snames;                  use Snames;
-with Aspects;                 use Aspects;
 with Ireps;                   use Ireps;
 package ASVAT_Modelling is
    type Model_Sorts is (Not_A_Model, Nondet, Nondet_In_Type, Represents);
@@ -39,8 +38,7 @@ package ASVAT_Modelling is
    --  Returns null string if the Link_Name parameter is not present.
 
    function Get_Model_From_Anno (N : Node_Id) return Model_Sorts
-   with Pre => Nkind (N) = N_Aspect_Specification and then
-               Present (Find_Aspect (N, Aspect_Annotate));
+   with Pre => Nkind (N) = N_Aspect_Specification;
 
    function Get_Model_From_Import (N : Node_Id) return Model_Sorts
    with Pre => Nkind (N) = N_Pragma and then Get_Pragma_Id (N) = Pragma_Import;
