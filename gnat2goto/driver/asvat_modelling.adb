@@ -419,19 +419,28 @@ package body ASVAT_Modelling is
 
       Anno           : constant Node_Id := Find_Aspect (E, Aspect_Annotate);
 
-      Import_Model   : constant Model_Sorts :=
-        (if Present (Obj_Import) then
-              Get_Model_From_Import (Obj_Import)
-         elsif Present (Subprog_Import) then
-              Get_Model_From_Import (Subprog_Import)
-         else
-            Not_A_Model);
-
       Anno_Model     : constant Model_Sorts :=
           (if Present (Anno) then
               Get_Model_From_Anno (Anno)
          else
             Not_A_Model);
+
+      --  The ASVAT anotation is used even if there is a pragma Import
+      --  specifying a, possibly different, model.
+      Import_Model   : constant Model_Sorts :=
+        (if Present (Obj_Import) then
+              (if Anno_Model = Not_A_Model then
+                   Get_Model_From_Import (Obj_Import)
+              else
+                 Anno_Model)
+         elsif Present (Subprog_Import) then
+              (if Anno_Model = Not_A_Model then
+                   Get_Model_From_Import (Subprog_Import)
+              else
+                 Anno_Model)
+         else
+            Not_A_Model);
+
    begin
       if Anno_Model /= Not_A_Model then
          if Import_Model /= Not_A_Model then
@@ -528,6 +537,12 @@ package body ASVAT_Modelling is
 
                   Given_Type : constant Node_Id := Etype (Curr_Entity);
 
+                  Loc_Obj_Unique_Name : constant String :=
+                    Unique_Name (Curr_Entity);
+
+                  Loc_Obj_id : constant Symbol_Id :=
+                    Intern (Loc_Obj_Unique_Name);
+
                   Replace_Object : constant Boolean :=
                     Get_Model_Sort (Curr_Entity) = Represents;
 
@@ -537,16 +552,18 @@ package body ASVAT_Modelling is
                        (Is_Type => False,
                         E       => Curr_Entity)
                      else
-                        Unique_Name (Curr_Entity));
+                        Loc_Obj_Unique_Name);
 
-                  --  Temporary fix for demo
-                  Optional_Type_Name : constant String := "";
---                      (if Replace_Object then
---                          Replace_Local_With_Import
---                         (Is_Type => True,
---                          E       => Curr_Entity)
---                       else
---                          "");
+                  Obj_Name_Id : constant Symbol_Id :=
+                    Intern (Obj_Name_String);
+
+                  Optional_Type_Name : constant String :=
+                    (if Replace_Object then
+                        Replace_Local_With_Import
+                       (Is_Type => True,
+                        E       => Curr_Entity)
+                     else
+                        "");
 
                   Type_Name_String : constant String :=
                     (if Replace_Object and Optional_Type_Name /= ""
@@ -585,6 +602,23 @@ package body ASVAT_Modelling is
                                     " : " &
                                     Type_Name_String &
                                     "'");
+                        if not Global_Symbol_Table.Contains (Obj_Name_Id)
+                        then
+                           declare
+                              --  The symbol table must contain the local
+                              --  object as it has just been declared
+                              Loc_Obj_Symbol : constant Symbol :=
+                                Global_Symbol_Table (Loc_Obj_id);
+                           begin
+                              Put_Line ("About to enter " & Obj_Name_String &
+                                          " into table");
+                              New_Object_Symbol_Entry
+                                (Object_Name       => Obj_Name_Id,
+                                 Object_Type       => Loc_Obj_Symbol.SymType,
+                                 Object_Init_Value => Loc_Obj_Symbol.Value,
+                                 A_Symbol_Table    => Global_Symbol_Table);
+                           end;
+                        end if;
                      end if;
 
                      if not Contains (Type_List, Given_Type) then
@@ -616,7 +650,7 @@ package body ASVAT_Modelling is
                      then
                         if Print_Model then
                            Put_Line ("pragma Assume (" & Obj_Name_String &
-                                       " in " & Unique_Name (Given_Type) &
+                                       " in " & Type_Name_String &
                                        "'Range)");
                         end if;
                      end if;
