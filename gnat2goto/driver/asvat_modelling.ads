@@ -47,10 +47,6 @@ package ASVAT_Modelling is
 
    function Is_Model (Model : Model_Sorts) return Boolean is
      (Model /= Not_A_Model);
---
---     function Is_Model_String (S : String) return Boolean;
---
---  function Is_Model_Sort (E : Entity_Id; Model : Model_Sorts) return Boolean;
 
    procedure Make_Model (E : Entity_Id; Model : Model_Sorts);
 

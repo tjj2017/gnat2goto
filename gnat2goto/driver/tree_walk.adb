@@ -1671,7 +1671,6 @@ package body Tree_Walk is
       if Name_Has_Prefix (N, "nondet") or else
         Has_GNAT2goto_Annotation (Func_Ent, "nondet")
       then
-         Put_Line ("Non-det function call");
          return Do_Nondet_Function_Call (N);
       else
          The_Function := New_Irep (I_Symbol_Expr);
@@ -3669,7 +3668,6 @@ package body Tree_Walk is
 
    begin
       Def_Unit_Name := Defining_Unit_Name (N);
-
       --  Defining_Unit_Name will return a N_Defining_Identifier
       --  for non-child package but a N_Package_Specification when it is a
       --  child package.
@@ -4368,7 +4366,6 @@ package body Tree_Walk is
       Register_Subprogram_Specification (Specification (N));
 
       if ASVAT_Modelling.Is_Model (ASVAT_Model) then
-         Put_Line ("Is a model");
          ASVAT_Modelling.Make_Model (E, ASVAT_Model);
 
       elsif not Has_Completion (E) then

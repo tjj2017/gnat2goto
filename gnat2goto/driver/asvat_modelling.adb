@@ -5,7 +5,6 @@ with Elists;                  use Elists;
 with Nlists;                  use Nlists;
 with Stringt;                 use Stringt;
 with Sinput;                  use Sinput;
-with Treepr;                  use Treepr;
 with Namet;                   use Namet;
 with Tree_Walk;               use Tree_Walk;
 with Einfo;                   use Einfo;
@@ -16,9 +15,11 @@ with GOTO_Utils;              use GOTO_Utils;
 with Ada.Text_IO;             use Ada.Text_IO;
 package body ASVAT_Modelling is
 
+   Print_Message : constant Boolean := False;
+
    function Find_Model (Model : String) return Model_Sorts;
 
---     function Get_Annotation_Model (N : Node_Id) return String;
+   procedure Print_Modelling_Message (Mess : String; Loc : Source_Ptr);
 
    function Replace_Dots (S : String) return String;
 
@@ -173,20 +174,6 @@ package body ASVAT_Modelling is
         (Chars (Expression
                 (First (Pragma_Argument_Associations (N))))));
 
---      --------------------------
---      -- Get_Annotation_Model --
---     ---------------------------
---
---     function Get_Annotation_Model (N : Node_Id) return String is
---        Anno_Value : constant Node_Id := Expression (N);
---        --  The Get_Annotation_Value has a preconditionthat the node N
---        --  is an ASVAT annotation which has at least 2 arguments.
---        --  The second argument will be the model
---        Model : constant Node_Id := Next (First (Expressions (Anno_Value)));
---     begin
---        return Get_Name_String (Chars (Model));
---     end Get_Annotation_Model;
-
    ---------------------------
    -- Get_Import_Convention --
    ---------------------------
@@ -328,11 +315,6 @@ package body ASVAT_Modelling is
               Nkind (Second_Arg) = N_Identifier;
          begin
             if Is_ASVAT then
-               Put_Line ("Is ASVAT");
-               if Has_Model then
-                  Put_Line ("Has_Model");
-               end if;
-
                if Present (Second_Arg) and then
                  Nkind (Second_Arg) /= N_Identifier
                then
@@ -455,54 +437,6 @@ package body ASVAT_Modelling is
       end if;
    end Get_Model_Sort;
 
---     --------------
---     -- Is_Model --
---     --------------
---
---     function Is_Model (E : Entity_Id) return Boolean is
---        Anno   : constant Node_Id := Find_Aspect (E, Aspect_Annotate);
---        Import : constant Node_Id := Import_Pragma (E);
---     begin
---        if Present (Anno) and then Is_ASVAT_Annotation (Anno) then
---           Put_Line  ("Printing Anno Model");
---           Put_Line (Get_Annotation_Model (Anno));
---        else
---           Put_Line ("Anno not present");
---        end if;
---
---        return (Present (Anno) and then
---                Is_ASVAT_Annotation (Anno) and then
---                Find_Model (Get_Annotation_Model (Anno)) /= Not_A_Model)
---                or else
---                (Present (Import) and then
---                Get_Import_Convention (Import) = "ada" and then
---              Find_Model (Get_Import_External_Name (Import)) /= Not_A_Model);
---     end Is_Model;
---
---     -------------------
---     -- Is_Model_Sort --
---     -------------------
---
---   function Is_Model_Sort (E : Entity_Id; Model : Model_Sorts) return Boolean
---     is
---      Obj_Import_Pragma : constant Node_Id := Get_Pragma (E, Pragma_Import);
---        Is_Ada : constant Boolean :=
---          (if Present (Obj_Import_Pragma) then
---                Get_Import_Convention (Obj_Import_Pragma) = "ada"
---           else
---              False);
---        External_Name : constant String :=
---          (if Is_Ada then
---              Get_Import_External_Name (Obj_Import_Pragma)
---           else
---              "");
---     begin
---        return Is_Ada and then Find_Model (External_Name) = Model;
---     end Is_Model_Sort;
---
---     function Is_Model_String (S : String) return Boolean is
---       (Find_Model (S) /= Not_A_Model);
-
    ----------------
    -- Make_Model --
    ----------------
@@ -523,7 +457,6 @@ package body ASVAT_Modelling is
          Type_List : constant Elist_Id := New_Elmt_List;
          Print_Model : constant Boolean := True;
       begin
-         Put_Line ("In make section");
          while Present (Iter) loop
             if Nkind (Node (Iter)) in
               N_Identifier | N_Expanded_Name | N_Defining_Identifier
@@ -535,12 +468,14 @@ package body ASVAT_Modelling is
                      else
                         Entity (Node (Iter)));
 
-                  Given_Type : constant Node_Id := Etype (Curr_Entity);
+                  Given_Type  : constant Node_Id := Etype (Curr_Entity);
+                  Loc_Type_Id : constant Symbol_Id :=
+                    Intern (Unique_Name (Given_Type));
 
                   Loc_Obj_Unique_Name : constant String :=
                     Unique_Name (Curr_Entity);
 
-                  Loc_Obj_id : constant Symbol_Id :=
+                  Loc_Obj_Id : constant Symbol_Id :=
                     Intern (Loc_Obj_Unique_Name);
 
                   Replace_Object : constant Boolean :=
@@ -565,12 +500,17 @@ package body ASVAT_Modelling is
                      else
                         "");
 
+                  Replace_Type : constant Boolean :=
+                    Replace_Object and Optional_Type_Name /= "";
+
                   Type_Name_String : constant String :=
-                    (if Replace_Object and Optional_Type_Name /= ""
-                     then
+                    (if Replace_Type then
                         Optional_Type_Name
                      else
                         Unique_Name (Given_Type));
+
+                  Type_Name_Id : constant Symbol_Id :=
+                    Intern (Type_Name_String);
 
                   Fun_Name : constant String := "Nondet___" &
                     Type_Name_String;
@@ -578,8 +518,6 @@ package body ASVAT_Modelling is
                   Assignment : constant Irep := New_Irep (I_Code_Assign);
 
                   Obj_Sym : constant Irep := New_Irep (I_Symbol_Expr);
-                  Type_Irep  : constant Irep :=
-                    Make_Symbol_Type (Identifier => Type_Name_String);
 
                begin
                   if Replace_Object and then Obj_Name_String = "" then
@@ -592,26 +530,48 @@ package body ASVAT_Modelling is
                   elsif Ekind (Curr_Entity) /= E_Abstract_State then
 
                      if Replace_Object then
-                        Put_Line (Build_Location_String
-                                  (Sloc (Curr_Entity)) &
-                                    " ASVAT modelling: ");
-                        Put_Line ("Replace local object '" &
+                        Print_Modelling_Message
+                          ("Replace local object '" &
                                     Unique_Name (Curr_Entity) &
-                                    "' with " &
+                                    "' with '" &
                                     Obj_Name_String &
                                     " : " &
                                     Type_Name_String &
-                                    "'");
+                                    "'", Sloc (Curr_Entity));
+
+                        if Replace_Type and then not
+                          Global_Symbol_Table.Contains (Type_Name_Id)
+                        then
+                           --  The type declaration has not been processed yet.
+                           --  A premature declaration which exactly matches
+                           --  the actual declaration has to be inserted into
+                           --  the global symbol table.
+                           --  The local type definition has to match the
+                           --  actual declaration so the local type definition
+                           --  can be used.
+                           declare
+                              Local_Type_Sym : constant Symbol :=
+                                Global_Symbol_Table (Loc_Type_Id);
+                              Actual_Type : constant Symbol :=
+                                Make_Type_Symbol
+                                  (Type_Name_Id, Local_Type_Sym.SymType);
+                           begin
+                              Global_Symbol_Table.Insert
+                                (Type_Name_Id, Actual_Type);
+                           end;
+                        end if;
+
+                        pragma Assert (Global_Symbol_Table.Contains
+                                       (Type_Name_Id), "Type not in Table");
+
                         if not Global_Symbol_Table.Contains (Obj_Name_Id)
                         then
                            declare
                               --  The symbol table must contain the local
                               --  object as it has just been declared
                               Loc_Obj_Symbol : constant Symbol :=
-                                Global_Symbol_Table (Loc_Obj_id);
+                                Global_Symbol_Table (Loc_Obj_Id);
                            begin
-                              Put_Line ("About to enter " & Obj_Name_String &
-                                          " into table");
                               New_Object_Symbol_Entry
                                 (Object_Name       => Obj_Name_Id,
                                  Object_Type       => Loc_Obj_Symbol.SymType,
@@ -631,7 +591,9 @@ package body ASVAT_Modelling is
 
                      Set_Source_Location (Obj_Sym, Loc);
                      Set_Identifier      (Obj_Sym, Obj_Name_String);
-                     Set_Type            (Obj_Sym, Type_Irep);
+                     Set_Type            (Obj_Sym,
+                                          Global_Symbol_Table
+                                            (Obj_Name_Id).SymType);
 
                      Set_Source_Location (Assignment, Loc);
                      Set_Lhs             (Assignment, Obj_Sym);
@@ -696,18 +658,17 @@ package body ASVAT_Modelling is
       if not Global_Seen then
          Put_Line
            (Standard_Error,
-            "Global pragma expected for imported ASVAT model.");
+            "Global aspect or pragma expected for ASVAT model.");
          Put_Line
            (Standard_Error,
             "Specify 'Global => null' if the model has no " &
               "global variables");
       end if;
 
-      Put_Line (Build_Location_String (Sloc (E)) &
-                  " ASVAT modelling:");
-      Put_Line ("Adding a " & To_Lower (Model_Sorts'Image (Model)) &
-                  " body for imported subprogram " &
-                  Unique_Name (E));
+      Print_Modelling_Message
+        ("Adding a " & To_Lower (Model_Sorts'Image (Model)) &
+                  " body for modelling subprogram " &
+                  Unique_Name (E), Sloc (E));
 
       Make_Model_Section (Model, Model_Outputs);
    end Make_Model;
@@ -746,10 +707,9 @@ package body ASVAT_Modelling is
             Fun_Symbol : Symbol;
 
          begin
-            Put_Line (Build_Location_String (Loc) &
-                      " ASVAT modelling:");
-            Put_Line ("Making nondet function " & Fun_Name &
-                        " : " & Result_Type);
+            Print_Modelling_Message
+              ("Making nondet function " & Fun_Name &
+                 " : " & Result_Type, Loc);
 
             Set_Return_Type (Ret, Type_Irep);
             Set_Parameters (Ret, Param_List);
@@ -779,7 +739,7 @@ package body ASVAT_Modelling is
             Set_Type (Return_Value, Type_Irep);
 
             if Statements /= Ireps.Empty then
-               Put_Line ("Adding statements");
+               Put_Line ("At the moment statements are not supported");
                null;  --  Todo append the statements
             end if;
 
@@ -794,11 +754,21 @@ package body ASVAT_Modelling is
             Global_Symbol_Table.Replace (Fun_Symbol_Id, Fun_Symbol);
          end;
       else
-         --  Put_Line ("function " & Fun_Name & " : " &
-         --            "Already in symbol table");
          null;  --  The function has already been created previously.
       end if;
    end Make_Nondet_Function;
+
+   -----------------------------
+   -- Print_Modelling_Message --
+   -----------------------------
+
+   procedure Print_Modelling_Message (Mess : String; Loc : Source_Ptr) is
+   begin
+      if Print_Message then
+         Put_Line (Build_Location_String (Loc) & " ASVAT modelling: ");
+         Put_Line (Mess);
+      end if;
+   end Print_Modelling_Message;
 
    -------------------------------
    -- Replace_Local_With_Import --
@@ -832,7 +802,6 @@ package body ASVAT_Modelling is
                Hidden_Obj_Name);
       begin
          if Present (Hidden_Name) then
-            Print_Node_Briefly (Hidden_Name);
             if Nkind (Hidden_Name) = N_String_Literal then
                declare
                   Hidden_Name_Str : constant String_Id :=
@@ -841,8 +810,6 @@ package body ASVAT_Modelling is
                     Natural (String_Length (Hidden_Name_Str));
                begin
                   String_To_Name_Buffer (Hidden_Name_Str);
-                  Put_Line ("The hidden name is " &
-                         To_Lower (Name_Buffer (1 .. Hidden_Name_Length)));
                   return To_Lower (Name_Buffer (1 .. Hidden_Name_Length));
                end;
             else
@@ -873,13 +840,13 @@ package body ASVAT_Modelling is
 
       Import_Object_Desc : constant String :=
         Replace_Dots
-          (if Present (Obj_ASVAT_Anno) then
-                  Get_Object_From_Anno (N => Obj_ASVAT_Anno,
-                                       Want_Type => False)
+          (Trim ((if Present (Obj_ASVAT_Anno) then
+              Get_Object_From_Anno (N => Obj_ASVAT_Anno,
+                                    Want_Type => False)
            elsif Present (Obj_Import_Pragma) then
-                 Get_Import_Link_Name (Obj_Import_Pragma)
+              Get_Import_Link_Name (Obj_Import_Pragma)
            else
-              "");
+              ""), Ada.Strings.Both));
 
       Has_Type_Specified : constant Natural := Index (Import_Object_Desc, ":");
 
@@ -893,24 +860,20 @@ package body ASVAT_Modelling is
         Trim
           (Import_Object_Desc
              (Import_Object_Desc'First .. Obj_Name_End),
-           Ada.Strings.Both);
+                 Ada.Strings.Both);
 
       Replacement_Type_Name : constant String :=
         Trim ((if Present (Obj_ASVAT_Anno) then
-                   Get_Object_From_Anno (N => Obj_ASVAT_Anno,
-                                         Want_Type => True)
-              elsif Has_Type_Specified /= 0 then
-                 Import_Object_Desc
-                (Has_Type_Specified + 1 .. Import_Object_Desc'Last)
-         else
-             ""), Ada.Strings.Both);
+                  Replace_Dots
+                 (Get_Object_From_Anno
+                    (N => Obj_ASVAT_Anno,
+                     Want_Type => True))
+               elsif Has_Type_Specified /= 0 then
+                  Import_Object_Desc
+                 (Has_Type_Specified + 1 .. Import_Object_Desc'Last)
+               else
+                  ""), Ada.Strings.Both);
    begin
-      if Present (Obj_ASVAT_Anno) then
-         Put_Line ("Obj dec has Annotate");
-      else
-         Put_Line ("Obj dec has no Annotate");
-      end if;
-
       return (if Is_Type then
                  Replacement_Type_Name
               else
