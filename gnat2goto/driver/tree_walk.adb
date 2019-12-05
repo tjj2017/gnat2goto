@@ -1664,7 +1664,7 @@ package body Tree_Walk is
 
       --  For now, we only handle "nondet" prefixes here.
 
-      if Nkind (Func_Ent) /= N_Defining_Identifier then
+      if Nkind (Etype (Func_Ent)) /= N_Defining_Identifier then
          return Report_Unhandled_Node_Irep (N, "Do_Function_Call",
                                     "function entity not defining identifier");
       end if;
@@ -5362,11 +5362,37 @@ package body Tree_Walk is
             Report_Unhandled_Node_Empty (N, "Process_Pragma_Declaration",
                                          "Unsupported pragma: Abstract state");
          when Name_Annotate =>
-            --  Annotate is only supported as an aspect
+            --  Annotate ASVAT is only supported as an aspect
             if not From_Aspect_Specification (N) then
-               Report_Unhandled_Node_Empty
-                 (N, "Process_Pragma_Declaration",
-                  "pragma Annotate: Annotate only supported as an aspect");
+               declare
+                  Args : constant List_Id :=
+                    Pragma_Argument_Associations (N);
+                  First_Arg : constant Node_Id :=
+                    (if Present (Args) then
+                          First (Args)
+                     else
+                        Types.Empty);
+                  First_Expr : constant Node_Id :=
+                    (if Present (First_Arg) then
+                          Expression (First_Arg)
+                     else
+                        Types.Empty);
+
+                  Anno_Id : constant String :=
+                    (if Present (First_Expr) and then
+                     Nkind (First_Expr) = N_Identifier
+                     then
+                        Get_Name_String (Chars (First_Expr))
+                     else
+                        "");
+               begin
+                  if Anno_Id = "asvat" then
+                     Report_Unhandled_Node_Empty
+                       (N, "Process_Pragma_Declaration",
+                        "pragma Annotate: " &
+                          "ASVAT Annotation only supported as an aspect");
+                  end if;
+               end;
             end if;
 
          when Name_Assertion_Policy |

@@ -356,8 +356,6 @@ package body ASVAT_Modelling is
         ASVAT_Modelling.Get_Import_Convention (N);
 
       Is_Ada : constant Boolean := Convention = "ada";
-      Is_Intrinsic : constant Boolean :=
-        Convention = "intrinsic";
 
       Model_String  : constant String :=
         (if Is_Ada then
@@ -366,19 +364,14 @@ package body ASVAT_Modelling is
             "");
       Model : constant Model_Sorts := Find_Model (Model_String);
    begin
-      if not (Is_Ada or Is_Intrinsic) then
-         Report_Unhandled_Node_Empty
-           (N, "Process_Pragma_Declaration",
-            "pragma Import: Multi-language analysis unsupported");
-
-      elsif Is_Ada then
+      if Is_Ada then
          if Model_String = "" then
             Report_Unhandled_Node_Empty
-              (N, "Process_Pragma_Declaration",
+              (N, "Get_Model_From_Import",
                "Import convention Ada must have a model sort");
          elsif Model = Not_A_Model then
             Report_Unhandled_Node_Empty
-              (N, "Process_Pragma_Declaration",
+              (N, "Get_Model_From_Import",
                "Import convention Ada but '" &
                  Model_String &
                  "' is not an ASVAT model sort");
@@ -455,7 +448,7 @@ package body ASVAT_Modelling is
                                   then First_Elmt (Outputs)
                                   else No_Elmt);
          Type_List : constant Elist_Id := New_Elmt_List;
-         Print_Model : constant Boolean := True;
+         Print_Model : constant Boolean := False;
       begin
          while Present (Iter) loop
             if Nkind (Node (Iter)) in
