@@ -137,6 +137,10 @@ package body Back_End is
       --     else Opt.SPARK_Switches_File_Name.all);
 
       Opt.Disable_ALI_File := False;
+
+      --  Gnat2goto must allow implicit packing because it is part of the
+      --  Rational profile which is used by the target system.
+      Opt.Implicit_Packing := True;
    end Scan_Compiler_Arguments;
 
 end Back_End;
