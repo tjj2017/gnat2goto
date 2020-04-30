@@ -140,7 +140,10 @@ package body Back_End is
 
       --  Gnat2goto must allow implicit packing because it is part of the
       --  Rational profile which is used by the target system.
-      Opt.Implicit_Packing := True;
+      --  This option is only set by a pragma in a configration file
+      --  gnat2goto seems to ignore pragma Implicit_Packing when it is
+      --  placed at the beginning of a compilation unit.
+      --  Opt.Implicit_Packing := True;
    end Scan_Compiler_Arguments;
 
 end Back_End;
