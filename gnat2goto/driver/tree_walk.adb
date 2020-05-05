@@ -27,6 +27,7 @@ with Ada.Strings;
 with Ada.Strings.Fixed;
 with Ada.Characters.Handling;
 with Sinput;
+with Opt;
 
 package body Tree_Walk is
 
@@ -1370,52 +1371,228 @@ package body Tree_Walk is
                   --  To obtain X'Size the frontend function Esize is used.
                   --  The function can be applied to the object or its subtype.
                   --  It seems that when applied to the object it returns 0 if
-                  --  the object does not have an attribute definition clause
+                  --  the object does not have a representation clause
                   --  specifying its size.
                   --  In such cases gnat2goto uses the default size of the
                   --  object obtained by applying Esize to its subtype.
                   --  Unfortunately, this may also return 0 if the size of
                   --  the subtype is not known by the frontend.
+                  Put_Line ("Attribute size");
                   declare
                      Constant_Type : constant Irep :=
                        Do_Type_Reference (Stand.Universal_Integer);
-                     The_Entity : constant Node_Id := Entity (Prefix (N));
-                     The_Size  : Uint;
+                     The_Prefix    : constant Node_Id := Prefix (N);
+                     Prefix_Etype  : constant Entity_Id :=
+                       Etype (The_Prefix);
+                     The_Size      : Uint;
                   begin
-                     if Is_Object (The_Entity) then
-                        declare
-                           Object_Size : constant Uint := Esize (The_Entity);
-                           Default_Obj_Size : constant Uint :=
-                             Esize (Etype (The_Entity));
-                           The_Size_To_Use : constant Uint :=
-                             (if Integer (UI_To_Int (Object_Size)) /= 0 then
-                                 Object_Size
-                              else
-                                 Default_Obj_Size
-                             );
-                        begin
-                           The_Size := The_Size_To_Use;
-                        end;
-                     elsif Is_Type (The_Entity) then
-                        --  Since the attribute is applied to a subtype,
-                        --  S'Size, RM_Size should be used.
-                        The_Size := RM_Size (The_Entity);
+                     Print_Node_Briefly (The_Prefix);
+                     Print_Node_Briefly (Prefix_Etype);
+                     Put_Line (Boolean'Image
+                                 (Is_Definite_Subtype (Prefix_Etype)));
+                     if not Is_Definite_Subtype (Prefix_Etype) then
+                        Report_Unhandled_Node_Empty
+                          (The_Prefix,
+                           "Do_Expression",
+                           "Size attribute applied to indefinite " &
+                             "type is implementation defined");
+                        Put_Line ("The size " &
+                                    Int'Image
+                                    (UI_To_Int (RM_Size (Prefix_Etype))));
+                        Put_Line ("The Esize " &
+                                    Int'Image
+                                    (UI_To_Int (Esize (Prefix_Etype))));
+                        The_Size := RM_Size (Prefix_Etype);
 
-                        if not Is_Definite_Subtype (The_Entity) then
+                     elsif Opt.Use_VADS_Size then
+                        --  If this option is set, eg. through
+                        --  pragma Profile (Rational) an object, X, X'Size
+                        --  is equivalent to Esize (Etype (The_Profile)).
+                        --  RM_Size.  Therefore, RM_Size can be used.
+                        Put_Line ("VADS size = " &
+                                    Int'Image
+                                    (UI_To_Int (RM_Size (Prefix_Etype))));
+                        Put_Line ("Esize = " &
+                                    Int'Image
+                                    (UI_To_Int (Esize (Prefix_Etype))));
+                        if Nkind (The_Prefix) = N_Slice then
                            Report_Unhandled_Node_Empty
-                             (The_Entity,
+                             (The_Prefix,
                               "Do_Expression",
-                              "Size attribute applied to indefinite type " &
-                                "is implementation defined");
+                              "A Size atribute applied to a slice " &
+                                "may give an inaccurate value");
+                        end if;
+
+                        The_Size := RM_Size (Prefix_Etype);
+
+                        if UI_To_Int (The_Size) = 0 then
+                           Report_Unhandled_Node_Empty
+                             (The_Prefix,
+                              "Do_Expression",
+                              "The size of the composite is not known " &
+                                "by the front-end. " &
+                             "Use pragma Pack or a size represntation clause");
+                        end if;
+
+                     else
+                        Put_Line ("Attribute_Size");
+                        Put_Line ("Has pragma Implicit_Packing = " &
+                                    Boolean'Image (Opt.Implicit_Packing));
+                        Put_Line ("Has pragma Use_VADS_Size = " &
+                                    Boolean'Image (Opt.Use_VADS_Size));
+                        Print_Node_Briefly (The_Prefix);
+
+                        if Nkind (The_Prefix) in
+                          N_Has_Entity | N_Selected_Component
+                        then
+                           Put_Line ("Has Entity");
+                           declare
+                              The_Entity : constant Entity_Id :=
+                                (if Nkind (The_Prefix) =
+                                     N_Selected_Component
+                                 then
+                                    Entity (Selector_Name (The_Prefix))
+                                 else
+                                    Entity (The_Prefix));
+                           begin
+                              if Is_Object (The_Entity) then
+                                 declare
+                                    Object_Size : constant Uint :=
+                                      Esize (The_Entity);
+                                    Default_Obj_Size : constant Uint :=
+                                      Esize (Etype (The_Entity));
+                                    The_Size_To_Use : constant Uint :=
+                                      (if UI_To_Int (Object_Size) /= 0
+                                       then
+                                          Object_Size
+                                       elsif UI_To_Int
+                                         (Default_Obj_Size) /= 0
+                                       then
+                                          Default_Obj_Size
+                                       else
+                                          UI_Mul
+                                         (UI_Add
+                                              (UI_Div
+                                                   (UI_Sub
+                                                      (RM_Size
+                                                         (Etype
+                                                              (The_Entity)),
+                                                       1),
+                                                    8),
+                                               1),
+                                          8)
+                                      );
+                                 begin
+                                    Put_Line ("Object_Size = " &
+                                                Int'Image
+                                                (UI_To_Int (Object_Size)));
+                                    Put_Line ("Default_Size = " &
+                                                Int'Image
+                                                (UI_To_Int
+                                                   (Default_Obj_Size)));
+                                    Put_Line ("The_Size_To_Use = " &
+                                                Int'Image
+                                                (UI_To_Int
+                                                   (The_Size_To_Use)));
+                                    The_Size := The_Size_To_Use;
+                                 end;
+
+                              elsif Is_Type (The_Entity) then
+                                 Put_Line ("Is type");
+                                 --  Since the attribute is applied to
+                                 --  a subtype,
+                                 --  S'Size, RM_Size should be used.
+                                 The_Size := RM_Size (Entity (The_Prefix));
+
+                                 Put_Line ("The size = " &
+                                             Int'Image
+                                             (UI_To_Int (The_Size)));
+                              else
+                                 The_Size := UI_From_Int (0);
+                                 Report_Unhandled_Node_Empty
+                                   (The_Entity,
+                                    "Do_Expression",
+                                    "Size attribute applied to an entity " &
+                                      "which is not a (sub)type or an object");
+                              end if;
+                           end;
+
+                        elsif Nkind (The_Prefix) in
+                          N_Indexed_Component | N_Slice
+                        then
+                           Put_Line ("Is indexed component");
+                           Print_Node_Briefly (Etype (Prefix (The_Prefix)));
+                           declare
+                              Array_Type : constant Entity_Id :=
+                                Etype (Prefix (The_Prefix));
+                              Comp_Size : constant Uint :=
+                                Component_Size (Array_Type);
+                              Default_Comp_Obj_Size : constant Uint :=
+                                Esize (Prefix_Etype);
+                              Comp_Type_Size : constant Uint :=
+                                RM_Size (Prefix_Etype);
+                              The_Size_To_Use : constant Uint :=
+                                (if not Is_Packed_Array (Array_Type) and
+                                     Opt.Implicit_Packing and
+                                       Has_Size_Clause (Array_Type)
+                                 then
+                                    Comp_Type_Size
+                                 elsif UI_To_Int (Comp_Size) /= 0 then
+                                      Comp_Size
+                                 else
+                                    Default_Comp_Obj_Size
+                                );
+                           begin
+                              Print_Node_Briefly (Array_Type);
+                              Put_Line ("Has size clause = "
+                                        & Boolean'Image
+                                          (Has_Size_Clause (Array_Type)));
+                              Put_Line ("Has pragma pack = "
+                                        & Boolean'Image
+                                          (Has_Pragma_Pack (Array_Type)));
+                              Put_Line ("Is packed = " &
+                                          Boolean'Image
+                                          (Is_Packed (Array_Type)));
+                              Put_Line ("Is packed array = " &
+                                          Boolean'Image
+                                          (Is_Packed_Array (Array_Type)));
+                              Put_Line ("Is bit packed = " &
+                                          Boolean'Image
+                                          (Is_Bit_Packed_Array
+                                             (Array_Type)));
+                              Put_Line ("comp type size  " &
+                                          Int'Image (UI_To_Int
+                                          (Comp_Type_Size)));
+                              Put_Line ("Comp_size = " &
+                                          Int'Image (UI_To_Int
+                                          (Comp_Size)));
+                              Put_Line ("Default_Comp_Objsize = " &
+                                          Int'Image (UI_To_Int
+                                          (Default_Comp_Obj_Size)));
+                              Put_Line ("The size to use = " &
+                                          Int'Image (UI_To_Int
+                                          (The_Size_To_Use)));
+
+                              The_Size := The_Size_To_Use;
+                           end;
+                        else
+                           --  Return the default size of the object
+                           Put_Line ("Any other prefix");
+                           Print_Node_Briefly (Etype (The_Prefix));
+                           The_Size := Esize (Prefix_Etype);
+                           Put_Line ("The size = " &
+                                       Int'Image (UI_To_Int (The_Size)));
                         end if;
                      end if;
 
                      return Make_Constant_Expr
                        (Value =>
-                          UI_Image (Input  => The_Size, Format => Decimal),
+                          UI_Image (Input  => The_Size,
+                                    Format => Decimal),
                         I_Type => Constant_Type,
                         Source_Location => Get_Source_Location (N));
                   end;
+
                when others           =>
                   return Report_Unhandled_Node_Irep
                     (N, "Do_Expression",
@@ -5413,59 +5590,14 @@ package body Tree_Walk is
                "Address representation clauses are not currently supported");
             return;
          elsif Attr_Id = "size" or else Attr_Id = "component_size" then
-            declare
-               Target_Name : constant Irep := Do_Identifier (Name (N));
-               Entity_Esize : constant Uint := Esize (Entity (N));
-               Target_Type_Irep : constant Irep :=
-                 Follow_Symbol_Type
-                   (Get_Type (Target_Name), Global_Symbol_Table);
-               Expression_Value : constant Uint := Expr_Value (Expression (N));
-            begin
-               pragma Assert (Kind (Target_Type_Irep) in Class_Type);
-               if Attr_Id = "size" then
-
-                  --  Just check that the front-end already applied this size
-                  --  clause, i .e. that the size of type-irep we already had
-                  --  equals the entity type this clause is applied to (and the
-                  --  size specified in this clause).
-                  if Entity_Esize /=
-                       UI_From_Int (Int (Get_Width (Target_Type_Irep)))
-                    or Entity_Esize /= Expression_Value
-                  then
-                     Report_Unhandled_Node_Empty
-                       (N, "Process_Declaration",
-                        "size clause not applied by the front-end");
-                  end if;
-                  return;
-               elsif Attr_Id = "component_size" then
-                  if not Is_Array_Type (Entity (N)) then
-                     Report_Unhandled_Node_Empty
-                       (N, "Process_Declaration",
-                        "Component size only supported for array types");
-                     return;
-                  end if;
-                  declare
-                     Array_Data : constant Irep :=
-                       Get_Data_Component_From_Type (Target_Type_Irep);
-                     Target_Subtype : constant Irep :=
-                       Follow_Symbol_Type (Get_Subtype (Get_Type (Array_Data)),
-                                           Global_Symbol_Table);
-                     Target_Subtype_Width : constant Uint :=
-                       UI_From_Int (Int (Get_Width (Target_Subtype)));
-                  begin
-                     if Component_Size (Entity (N)) /= Expression_Value or
-                       Target_Subtype_Width /= Expression_Value
-                     then
-                        Report_Unhandled_Node_Empty
-                          (N, "Process_Declaration",
-                           "Having component sizes be different from the "
-                           & "size of their underlying type "
-                           & "is currently not supported");
-                     end if;
-                  end;
-                  return;
-               end if;
-            end;
+            --  ASVAT does not model size directly, it uses mainly the
+            --  Esize of an object which is the recommended default size
+            --  for an object.  It is not necessarily thr actual size.
+            --  A variables's size has to be considered when it is set as
+            --  nondet because its size determines the range of possible
+            --  values that the variable could take.
+            --  Nothing to be done here.
+            return;
          elsif Attr_Id = "alignment" then
             --  ASVAT does not model alignment of objects in memory.
             --  Nothing to be done.
