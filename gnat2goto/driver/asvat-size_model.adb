@@ -8,11 +8,27 @@ with Sem_Util;                use Sem_Util;
 with Sem_Aux;                 use Sem_Aux;
 with Tree_Walk;               use Tree_Walk;
 with GOTO_Utils;              use GOTO_Utils;
-
-with Treepr;                  use Treepr;
-with Text_IO;                 use Text_IO;
+with System;                  use System;
 
 package body ASVAT.Size_Model is
+
+   function Make_Byte_Aligned_Size (S : Uint) return Uint is
+      --  Many objects sizes are rounded up to the nearest byte boundary
+     (if S > Uint_0 then
+         UI_Mul
+        (UI_Add (UI_Div (UI_Sub (S, 1), Storage_Unit), 1), Storage_Unit)
+      else
+         Uint_0);
+
+   procedure Try_Base_Type_Size (E : Entity_Id; The_Size : in out Uint)
+   with Pre => Is_Type (E);
+   --  If the front-end is unable to provide a value for attribute_size,
+   --  try its base-type.  My be the front-end has a attribute_size value
+   --  for the base-type.
+
+   function Do_Vanilla_Size (The_Prefix : Node_Id) return Uint;
+
+   function Do_VADS_Size (The_Prefix : Node_Id) return Uint;
 
    -----------------------
    -- Do_Attribute_Size --
@@ -21,7 +37,7 @@ package body ASVAT.Size_Model is
    function Do_Attribute_Size (N : Node_Id) return Irep
    is
       --  S'Size where S is a scalar subtype is nearly always
-      --  known at compile time, and the front-end substitues a listeral
+      --  known at compile time, and the front-end substitues a literal
       --  into the AST replacing the call to attribute size (and Value_Size).
       --  In such cases, obviously, this function is not called.
       --
@@ -67,15 +83,14 @@ package body ASVAT.Size_Model is
       --  The size of a definite subtype can be specified using a
       --  size representaion clause and then the front-end knows this value.
       --  Etype (and RM_Type) return 0 even if a size representation clause
-      --  is applied to an indefinite type.  The front-end seems to ignore
-      --  such a representation clause and it does not appear in the AST.
-      --  A constrained (definite) subtype of an indefinite subtype van have
+      --  is applied to an indefinite type.
+      --  A constrained (definite) subtype of an indefinite subtype can have
       --  a Value_Size attribute applied and than the front-end knows this
       --  value.
       --
       --  There are still other occasions when the front end returns 0 for one
       --  or other or both RM_Size and Esize, so Do_Attribute_Size tries to
-      --  return a sensible value.
+      --  return a sensible value or generates an unhandled report.
 
       Constant_Type : constant Irep :=
         Do_Type_Reference (Stand.Universal_Integer);
@@ -86,60 +101,32 @@ package body ASVAT.Size_Model is
         Opt.Use_VADS_Size or else
         Get_Attribute_Id (Attribute_Name (N)) = Attribute_VADS_Size;
 
-      --  The result size.
+      --  The size that is to be returned by the attribute_size.
       The_Size      : Uint;
 
    begin
-      --  In such cases gnat2goto uses the default size of the
-      --  object obtained by applying Esize to its subtype.
-      --  Unfortunately, this may also return 0 if the size of
-      --  the subtype is not known by the frontend.
-      Put_Line ("Attribute size");
-      Put_Line ("Implicit_Packing = " &
-                  Boolean'Image (Opt.Implicit_Packing));
-      Put_Line ("Use_VADS_Size = " &
-                  Boolean'Image (Opt.Use_VADS_Size));
-      if ASVAT.Size_Model.Has_Size_Rep_Clause (Prefix_Etype)
-      then
-         Put_Line ("Has size rep clause = " &
-                     Int'Image
-                     (UI_To_Int
-                        (ASVAT.Size_Model.Get_Rep_Size
-                             (Prefix_Etype))));
-      end if;
-
-      Print_Node_Briefly (The_Prefix);
-      Print_Node_Briefly (Prefix_Etype);
-      Put_Line ("Has_Size_Clause Prefix Etype " &
-                  Boolean'Image
-                  (Has_Size_Clause (Prefix_Etype)));
-      Put_Line ("Has_Size_Clause Etype Prefix Etype " &
-                  Boolean'Image
-                  (Has_Size_Clause (Etype (Prefix_Etype))));
-
-      Put_Line (Boolean'Image
-                (Is_Definite_Subtype (Prefix_Etype)));
       if not Is_Definite_Subtype (Prefix_Etype) then
          Report_Unhandled_Node_Empty
            (The_Prefix,
-            "Do_Expression",
+            "Do_Attribute_Size",
             "Size attribute applied to indefinite " &
               "type is implementation defined");
-         Put_Line ("The size " &
-                     Int'Image
-                     (UI_To_Int (RM_Size (Prefix_Etype))));
-         Put_Line ("The Esize " &
-                     Int'Image
-                     (UI_To_Int (Esize (Prefix_Etype))));
-         --  The size returned by the fron-end is almost certainly 0
-         --  when applied to an indefinite type, and there is not really
-         --  anything gnat2goto cand do.
+         --  The size returned by the front-end is almost certainly 0
+         --  when attribute_size is applied to an indefinite type which has
+         --  no size representation clause,
+         --  and there is not really anything gnat2goto cand do.
          --  Ada RM states that the result is implementation dependent
-         --  but tha back-end does put out a sensible value, which of course,
-         --  gnat2goto has  no access to.
+         --  but the back-end does put out a sensible value, which of course,
+         --  gnat2goto has no access to.
          --  Reporting an unhandled node is the best it can do.
          The_Size := RM_Size (Prefix_Etype);
 
+      elsif Nkind (The_Prefix) in N_Has_Entity and then
+      --  First check if a size representation clause has been applied
+      --  directly to this entity
+        ASVAT.Size_Model.Has_Size_Rep_Clause (Entity (The_Prefix))
+      then
+         The_Size := ASVAT.Size_Model.Get_Rep_Size (Entity (The_Prefix));
       elsif Use_VADS_Size then
          --  If this attribute is used or
          --  the option is set by prgma Use_VADS_Size, which is part of
@@ -147,234 +134,10 @@ package body ASVAT.Size_Model is
          --  is equivalent to Value_Size (except for primitive and basic
          --  types which are handled by the front end). Therfore,
          --  RM_Size can be used for both S'Size and X'Size.
-         Put_Line ("VADS size = " &
-                     Int'Image
-                     (UI_To_Int (RM_Size (Prefix_Etype))));
-         Put_Line ("Esize = " &
-                     Int'Image
-                     (UI_To_Int (Esize (Prefix_Etype))));
-         if Nkind (The_Prefix) = N_Slice then
-            --  When 'Size is applied to a slice, Esize returns 0 and
-            --  RM_Size returns the size of the type of the components
-            --  times the number of components in the slice.
-            --  It does not take account of any packing.  The back-end does,
-            --  however , so there could be discrepencies.
-            --  Gnat2goto issues a warning report.
-            Report_Unhandled_Node_Empty
-              (The_Prefix,
-               "Do_Attribute_Size",
-               "A Size atribute applied to a slice " &
-                 "may give an inaccurate value");
-            Print_Node_Briefly (Prefix (The_Prefix));
-            Print_Node_Briefly (Etype (Prefix (The_Prefix)));
-            Put_Line ("Size = " &
-                        Int'Image (UI_To_Int
-                        (Component_Size
-                             (Etype (Prefix (The_Prefix))))));
-         end if;
-
-         The_Size := RM_Size (Prefix_Etype);
-
-         if UI_To_Int (The_Size) = 0 then
-            if Is_Base_Type (Prefix_Etype) then
-               Report_Unhandled_Node_Empty
-                 (The_Prefix,
-                  "Do_Expression",
-                  "The size of the composite is not known " &
-                    "by the front-end. " &
-                    "Use a size represntation clause");
-            else
-               if ASVAT.Size_Model.Has_Size_Rep_Clause
-                 (Implementation_Base_Type (Prefix_Etype))
-               then
-                  Put_Line
-                    ("Base type of subtype has size rep " &
-                       Int'Image
-                       (UI_To_Int
-                            (ASVAT.Size_Model.Get_Rep_Size
-                                 (Implementation_Base_Type
-                                    (Prefix_Etype)))));
-               end if;
-
-               The_Size := RM_Size
-                 (Implementation_Base_Type
-                    (Prefix_Etype));
-               if The_Size = Uint_0 then
-                  if Is_Definite_Subtype
-                    (Implementation_Base_Type (Prefix_Etype))
-                  then
-                     Report_Unhandled_Node_Empty
-                       (The_Prefix,
-                        "Do_Expression",
-                        "The size of the subtype is not known "
-                        &
-                          "by the front-end. " &
-                          "Apply a size representation " &
-                          "to its base type.");
-                  else
-                     Report_Unhandled_Node_Empty
-                       (The_Prefix,
-                        "Do_Expression",
-                        "The base type of the prefix " &
-                          "is indefinite and the result of " &
-                          "S'Size " &
-                          "is implementation defined.");
-                  end if;
-               end if;
-            end if;
-         end if;
-
+         The_Size := Do_VADS_Size (The_Prefix);
       else
-         Put_Line ("Attribute_Size");
-         Put_Line ("Has pragma Implicit_Packing = " &
-                     Boolean'Image (Opt.Implicit_Packing));
-         Put_Line ("Has pragma Use_VADS_Size = " &
-                     Boolean'Image (Opt.Use_VADS_Size));
-         Print_Node_Briefly (The_Prefix);
-
-         if Nkind (The_Prefix) in
-           N_Has_Entity | N_Selected_Component
-         then
-            Put_Line ("Has Entity");
-            declare
-               The_Entity : constant Entity_Id :=
-                 (if Nkind (The_Prefix) =
-                      N_Selected_Component
-                  then
-                     Entity (Selector_Name (The_Prefix))
-                  else
-                     Entity (The_Prefix));
-            begin
-               if Is_Object (The_Entity) then
-                  declare
-                     Object_Size : constant Uint :=
-                       Esize (The_Entity);
-                     Default_Obj_Size : constant Uint :=
-                       Esize (Etype (The_Entity));
-                     The_Size_To_Use : constant Uint :=
-                       (if UI_To_Int (Object_Size) /= 0
-                        then
-                           Object_Size
-                        elsif UI_To_Int
-                          (Default_Obj_Size) /= 0
-                        then
-                           Default_Obj_Size
-                        else
-                           UI_Mul
-                          (UI_Add
-                               (UI_Div
-                                    (UI_Sub
-                                       (RM_Size
-                                          (Etype
-                                               (The_Entity)),
-                                        1),
-                                     8),
-                                1),
-                           8)
-                       );
-                  begin
-                     Put_Line ("Object_Size = " &
-                                 Int'Image
-                                 (UI_To_Int (Object_Size)));
-                     Put_Line ("Default_Size = " &
-                                 Int'Image
-                                 (UI_To_Int
-                                    (Default_Obj_Size)));
-                     Put_Line ("The_Size_To_Use = " &
-                                 Int'Image
-                                 (UI_To_Int
-                                    (The_Size_To_Use)));
-                     The_Size := The_Size_To_Use;
-                  end;
-
-               elsif Is_Type (The_Entity) then
-                  Put_Line ("Is type");
-                  --  Since the attribute is applied to
-                  --  a subtype,
-                  --  S'Size, RM_Size should be used.
-                  The_Size := RM_Size (Entity (The_Prefix));
-
-                  Put_Line ("The size = " &
-                              Int'Image
-                              (UI_To_Int (The_Size)));
-               else
-                  The_Size := UI_From_Int (0);
-                  Report_Unhandled_Node_Empty
-                    (The_Entity,
-                     "Do_Expression",
-                     "Size attribute applied to an entity " &
-                       "which is not a (sub)type or an object");
-               end if;
-            end;
-
-         elsif Nkind (The_Prefix) in
-           N_Indexed_Component | N_Slice
-         then
-            Put_Line ("Is indexed component");
-            Print_Node_Briefly (Etype (Prefix (The_Prefix)));
-            declare
-               Array_Type : constant Entity_Id :=
-                 Etype (Prefix (The_Prefix));
-               Comp_Size : constant Uint :=
-                 Component_Size (Array_Type);
-               Default_Comp_Obj_Size : constant Uint :=
-                 Esize (Prefix_Etype);
-               Comp_Type_Size : constant Uint :=
-                 RM_Size (Prefix_Etype);
-               The_Size_To_Use : constant Uint :=
-                 (if not Is_Packed_Array (Array_Type) and
-                      Opt.Implicit_Packing and
-                        Has_Size_Clause (Array_Type)
-                  then
-                     Comp_Type_Size
-                  elsif UI_To_Int (Comp_Size) /= 0 then
-                       Comp_Size
-                  else
-                     Default_Comp_Obj_Size
-                 );
-            begin
-               Print_Node_Briefly (Array_Type);
-               Put_Line ("Has size clause = "
-                         & Boolean'Image
-                           (Has_Size_Clause (Array_Type)));
-               Put_Line ("Has pragma pack = "
-                         & Boolean'Image
-                           (Has_Pragma_Pack (Array_Type)));
-               Put_Line ("Is packed = " &
-                           Boolean'Image
-                           (Is_Packed (Array_Type)));
-               Put_Line ("Is packed array = " &
-                           Boolean'Image
-                           (Is_Packed_Array (Array_Type)));
-               Put_Line ("Is bit packed = " &
-                           Boolean'Image
-                           (Is_Bit_Packed_Array
-                              (Array_Type)));
-               Put_Line ("comp type size  " &
-                           Int'Image (UI_To_Int
-                           (Comp_Type_Size)));
-               Put_Line ("Comp_size = " &
-                           Int'Image (UI_To_Int
-                           (Comp_Size)));
-               Put_Line ("Default_Comp_Objsize = " &
-                           Int'Image (UI_To_Int
-                           (Default_Comp_Obj_Size)));
-               Put_Line ("The size to use = " &
-                           Int'Image (UI_To_Int
-                           (The_Size_To_Use)));
-
-               The_Size := The_Size_To_Use;
-            end;
-         else
-            --  Return the default size of the object
-            Put_Line ("Any other prefix");
-            Print_Node_Briefly (Etype (The_Prefix));
-            The_Size := Esize (Prefix_Etype);
-            Put_Line ("The size = " &
-                        Int'Image (UI_To_Int (The_Size)));
-         end if;
+         The_Size := Do_Vanilla_Size (The_Prefix);
       end if;
-
       return Make_Constant_Expr
         (Value =>
            UI_Image (Input  => The_Size,
@@ -468,5 +231,225 @@ package body ASVAT.Size_Model is
          Extra_Entity_Info.Insert (Enty_Id, Info);
       end if;
    end Set_Rep_Component_Size;
+
+   -------------------------
+   -- Try_Base_Type_Size  --
+   -------------------------
+
+   procedure Try_Base_Type_Size (E : Entity_Id; The_Size : in out Uint) is
+      Base_T : constant Entity_Id :=
+        Implementation_Base_Type (E);
+      Base_Type_Size : constant Uint := RM_Size (Base_T);
+   begin
+      if not Is_Base_Type (E) then
+         --  If the type of the enitiy is a subtype, check whether the
+         --  size of its base type is known.
+         if Base_Type_Size /= Uint_0 then
+            The_Size := Base_Type_Size;
+         elsif ASVAT.Size_Model.Has_Size_Rep_Clause (Base_T) then
+            The_Size := ASVAT.Size_Model.Get_Rep_Size (Base_T);
+         else
+            Report_Unhandled_Node_Empty
+              (E,
+               "Do_Attribute_Size",
+               "The size of the composite subtype is " &
+                 "not known by the front-end. Use a size " &
+                 "representation clause on the base type " &
+                 "or a Value_Size clause on the subtype " &
+                 "declaration");
+         end if;
+      else
+         Report_Unhandled_Node_Empty
+           (E,
+            "Do_Attribute_Size",
+            "The size of the composite is not known " &
+              "by the front-end. Use a size " &
+              "representation clause on its declaration");
+      end if;
+   end Try_Base_Type_Size;
+
+   -------------------
+   -- Do_VADS_Size  --
+   -------------------
+
+   function Do_VADS_Size (The_Prefix : Node_Id) return Uint is
+      Prefix_Etype  : constant Entity_Id := Etype (The_Prefix);
+      The_Size : Uint;
+   begin
+      if Nkind (The_Prefix) = N_Slice and then
+        (Is_Packed_Array (Etype (Prefix (The_Prefix))) or
+             Has_Size_Clause (Etype (Prefix (The_Prefix))))
+      then
+         --  When 'Size is applied to a slice, Esize returns 0 and
+         --  RM_Size returns the size of the type of the components
+         --  times the number of components in the slice.
+         --  It does not take account of any packing.  The back-end does,
+         --  however , so there could be discrepencies.
+         --  Gnat2goto issues a warning report.
+
+         Report_Unhandled_Node_Empty
+           (The_Prefix,
+            "Do_Attribute_Size",
+            "A Size attribute applied to a slice " &
+              "may give an inaccurate value when the array is packed");
+
+         The_Size := RM_Size (Prefix_Etype);
+
+      elsif Nkind (The_Prefix) = N_Indexed_Component then
+         declare
+            The_Array : constant Node_Id := Prefix (The_Prefix);
+            The_Array_Type : constant Entity_Id := Etype (The_Array);
+            The_Array_Is_Packed : constant Boolean :=
+              (Nkind (The_Array) in N_Has_Entity and then
+                   (Is_Packed_Array (Entity (The_Array)) or else
+                    ASVAT.Size_Model.Has_Size_Rep_Clause
+                      (Entity (The_Array))))
+              or else
+                (Is_Packed_Array (The_Array_Type) or else
+                 ASVAT.Size_Model.Has_Size_Rep_Clause
+                   (The_Array_Type));
+         begin
+            if The_Array_Is_Packed then
+               The_Size := RM_Size (Prefix_Etype);
+            else
+               The_Size := Esize (Prefix_Etype);
+            end if;
+         end;
+      else
+         The_Size := RM_Size (Prefix_Etype);
+      end if;
+
+      if The_Size = Uint_0 then
+         --  The front-end does not give the size of the entity.
+         if Nkind (The_Prefix) in N_Has_Entity and then
+         --  First check if it is an object and the object size can be
+         --  used.
+           Is_Object (Entity (The_Prefix)) and then
+           Esize (Entity (The_Prefix)) /= Uint_0
+         then
+            The_Size := Esize (Entity (The_Prefix));
+         else
+            Try_Base_Type_Size (Prefix_Etype, The_Size);
+         end if;
+      end if;
+
+      return The_Size;
+   end Do_VADS_Size;
+
+   ----------------------
+   -- Do_Vanilla_Size  --
+   ----------------------
+
+   function Do_Vanilla_Size (The_Prefix : Node_Id) return Uint is
+      Prefix_Etype  : constant Entity_Id := Etype (The_Prefix);
+      The_Size : Uint;
+   begin
+      if Nkind (The_Prefix) in
+        N_Has_Entity | N_Selected_Component
+      then
+         declare
+            The_Entity : constant Entity_Id :=
+              (if Nkind (The_Prefix) =
+                   N_Selected_Component
+               then
+                  Entity (Selector_Name (The_Prefix))
+               else
+                  Entity (The_Prefix));
+         begin
+            if Is_Object (The_Entity) then
+               declare
+                  Object_Size : constant Uint :=
+                    Esize (The_Entity);
+                  Default_Obj_Size : constant Uint :=
+                    Esize (Etype (The_Entity));
+                  The_Size_To_Use : constant Uint :=
+                    (if Object_Size > Uint_0 then
+                        Object_Size
+                     elsif Default_Obj_Size > Uint_0 then
+                        Default_Obj_Size
+                     else
+                        Make_Byte_Aligned_Size
+                       (RM_Size (Etype (The_Entity))));
+               begin
+                  The_Size := The_Size_To_Use;
+
+                  if The_Size <= Uint_0 then
+                     Try_Base_Type_Size (Etype (The_Entity), The_Size);
+                     if The_Size > Uint_0 then
+                        The_Size :=
+                          Make_Byte_Aligned_Size (The_Size_To_Use);
+                     end if;
+                  end if;
+               end;
+
+            elsif Is_Type (The_Entity) then
+               --  Since the attribute is applied to
+               --  a subtype,
+               --  S'Size, RM_Size should be used.
+               The_Size := RM_Size (Entity (The_Prefix));
+
+               if The_Size <= Uint_0 then
+                  Try_Base_Type_Size (Etype (The_Entity), The_Size);
+               end if;
+            else
+               The_Size := Uint_0;
+               Report_Unhandled_Node_Empty
+                 (The_Entity,
+                  "Do_Attribute_Size",
+                  "Size attribute applied to an entity " &
+                    "which is not a (sub)type or an object");
+            end if;
+         end;
+
+      elsif Nkind (The_Prefix) in
+        N_Indexed_Component | N_Slice
+      then
+         declare
+            Is_Indexed_Component : constant Boolean :=
+              Nkind (The_Prefix) = N_Indexed_Component;
+            The_Array : constant Node_Id := Prefix (The_Prefix);
+            Array_Type : constant Entity_Id := Etype (The_Array);
+
+            Obj_Size : constant Uint :=
+              (if Is_Indexed_Component then
+                  Component_Size (Array_Type)
+               else
+                  Esize (Prefix_Etype));
+
+            Type_Size : constant Uint :=
+              (if Is_Indexed_Component then
+                  Component_Size (Array_Type)
+               else
+                  RM_Size (Prefix_Etype));
+
+            The_Size_To_Use : constant Uint :=
+              (if Obj_Size /= Uint_0 then
+                  Obj_Size
+               else
+                  Make_Byte_Aligned_Size (Type_Size));
+         begin
+            The_Size := The_Size_To_Use;
+            if The_Size_To_Use <= Uint_0 then
+               Report_Unhandled_Node_Empty
+                 (N        => The_Prefix,
+                  Fun_Name => "Do_Attribute_Size",
+                  Message  => "The Attribute_Size returns a value <= 0");
+            end if;
+         end;
+      else
+         --  Return the default size of the object
+         The_Size := Esize (Prefix_Etype);
+
+         if The_Size <= Uint_0 then
+            Try_Base_Type_Size (Prefix_Etype, The_Size);
+            if The_Size > Uint_0 then
+               The_Size :=
+                 Make_Byte_Aligned_Size (The_Size);
+            end if;
+         end if;
+      end if;
+
+      return The_Size;
+   end Do_Vanilla_Size;
 
 end ASVAT.Size_Model;
