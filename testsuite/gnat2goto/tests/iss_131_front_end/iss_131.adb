@@ -21,8 +21,6 @@ procedure Iss_131 is
    Test : Integer;
 
 begin
-   --  These assertions do not all succeed pending
-   --  improvements to the attribute_size algorithm.
    pragma Assert (Vna'size = 4);
    pragma Assert (neigh_array'size = 4);
    pragma Assert (r'Size = 16);
