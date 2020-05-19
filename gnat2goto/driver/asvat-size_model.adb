@@ -27,9 +27,9 @@ package body ASVAT.Size_Model is
    --  try its base-type.  My be the front-end has a attribute_size value
    --  for the base-type.
 
-   function Do_Vanilla_Size (N : Node_Id) return Uint;
+   function Do_Vanilla_Size (The_Prefix : Node_Id) return Uint;
 
-   function Do_VADS_Size (N : Node_Id) return Uint;
+   function Do_VADS_Size (The_Prefix : Node_Id) return Uint;
 
    -----------------------
    -- Do_Attribute_Size --
@@ -108,7 +108,7 @@ package body ASVAT.Size_Model is
    begin
       if not Is_Definite_Subtype (Prefix_Etype) then
          Report_Unhandled_Node_Empty
-           (N,
+           (The_Prefix,
             "Do_Attribute_Size",
             "Size attribute applied to indefinite " &
               "type is implementation defined");
@@ -135,9 +135,9 @@ package body ASVAT.Size_Model is
          --  is equivalent to Value_Size (except for primitive and basic
          --  types which are handled by the front end). Therfore,
          --  RM_Size can be used for both S'Size and X'Size.
-         The_Size := Do_VADS_Size (N);
+         The_Size := Do_VADS_Size (The_Prefix);
       else
-         The_Size := Do_Vanilla_Size (N);
+         The_Size := Do_Vanilla_Size (The_Prefix);
       end if;
       return Make_Constant_Expr
         (Value =>
@@ -274,8 +274,7 @@ package body ASVAT.Size_Model is
    -- Do_VADS_Size  --
    -------------------
 
-   function Do_VADS_Size (N : Node_Id) return Uint is
-      The_Prefix    : constant Node_Id := Prefix (N);
+   function Do_VADS_Size (The_Prefix : Node_Id) return Uint is
       Prefix_Etype  : constant Entity_Id := Etype (The_Prefix);
       The_Size : Uint;
    begin
@@ -291,7 +290,7 @@ package body ASVAT.Size_Model is
          --  Gnat2goto issues a warning report.
 
          Report_Unhandled_Node_Empty
-           (N,
+           (The_Prefix,
             "Do_Attribute_Size",
             "A Size attribute applied to a slice " &
               "may give an inaccurate value when the array is packed");
@@ -332,7 +331,7 @@ package body ASVAT.Size_Model is
          then
             The_Size := Esize (Entity (The_Prefix));
          else
-            Try_Base_Type_Size (N, Prefix_Etype, The_Size);
+            Try_Base_Type_Size (The_Prefix, Prefix_Etype, The_Size);
          end if;
       end if;
 
@@ -343,8 +342,7 @@ package body ASVAT.Size_Model is
    -- Do_Vanilla_Size  --
    ----------------------
 
-   function Do_Vanilla_Size (N : Node_Id) return Uint is
-      The_Prefix    : constant Node_Id := Prefix (N);
+   function Do_Vanilla_Size (The_Prefix : Node_Id) return Uint is
       Prefix_Etype  : constant Entity_Id := Etype (The_Prefix);
       The_Size : Uint;
    begin
@@ -378,7 +376,8 @@ package body ASVAT.Size_Model is
                   The_Size := The_Size_To_Use;
 
                   if The_Size <= Uint_0 then
-                     Try_Base_Type_Size (N, Etype (The_Entity), The_Size);
+                     Try_Base_Type_Size (The_Prefix,
+                                         Etype (The_Entity), The_Size);
                      if The_Size > Uint_0 then
                         The_Size :=
                           Make_Byte_Aligned_Size (The_Size_To_Use);
@@ -393,12 +392,13 @@ package body ASVAT.Size_Model is
                The_Size := RM_Size (Entity (The_Prefix));
 
                if The_Size <= Uint_0 then
-                  Try_Base_Type_Size (N, Etype (The_Entity), The_Size);
+                  Try_Base_Type_Size (The_Prefix,
+                                      Etype (The_Entity), The_Size);
                end if;
             else
                The_Size := Uint_0;
                Report_Unhandled_Node_Empty
-                 (N,
+                 (The_Prefix,
                   "Do_Attribute_Size",
                   "Size attribute applied to an entity " &
                     "which is not a (sub)type or an object");
@@ -444,7 +444,7 @@ package body ASVAT.Size_Model is
             The_Size := The_Size_To_Use;
             if The_Size_To_Use <= Uint_0 then
                Report_Unhandled_Node_Empty
-                 (N        => N,
+                 (N        => The_Prefix,
                   Fun_Name => "Do_Attribute_Size",
                   Message  => "The Attribute_Size returns a value <= 0");
             end if;
@@ -454,7 +454,7 @@ package body ASVAT.Size_Model is
          The_Size := Esize (Prefix_Etype);
 
          if The_Size <= Uint_0 then
-            Try_Base_Type_Size (N, Prefix_Etype, The_Size);
+            Try_Base_Type_Size (The_Prefix, Prefix_Etype, The_Size);
             if The_Size > Uint_0 then
                The_Size :=
                  Make_Byte_Aligned_Size (The_Size);
