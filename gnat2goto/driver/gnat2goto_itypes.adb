@@ -49,7 +49,7 @@ package body Gnat2goto_Itypes is
    -- Declare_Itype --
    -------------------
 
-   procedure Declare_Itype (Ty : Entity_Id) is
+   procedure Declare_Itype (Ty : Entity_Id; Block : Irep) is
    begin
       if Present (Ty) and then Is_Itype (Ty) then
          declare
@@ -61,7 +61,7 @@ package body Gnat2goto_Itypes is
             Global_Symbol_Table.Insert (Ty_Name, Ty_Symbol, Ty_Cursor, Ty_New);
             if Ty_New then
                declare
-                  New_Type : constant Irep := Do_Itype_Definition (Ty);
+                  New_Type : constant Irep := Do_Itype_Definition (Ty, Block);
                   New_Symbol : constant Symbol :=
                     Make_Type_Symbol (Ty_Name, New_Type);
                begin
@@ -76,7 +76,7 @@ package body Gnat2goto_Itypes is
    -- Do_Itype_Definition --
    -------------------------
 
-   function Do_Itype_Definition (N : Node_Id) return Irep is
+   function Do_Itype_Definition (N : Node_Id; Block : Irep) return Irep is
    begin
       --  Most type-defining functions use the defining statement,
       --  e.g. an N_Constrained_Array_Definition. This on the other
@@ -84,8 +84,8 @@ package body Gnat2goto_Itypes is
       --  Possibly in the long term, since we need this anyhow, it
       --  might become the only way to get a type definition.
       return (case Ekind (N) is
-         when E_Array_Subtype => Do_Itype_Array_Subtype (N),
-         when E_Array_Type => Do_Itype_Array_Type (N),
+         when E_Array_Subtype => Do_Itype_Array_Subtype (N, Block),
+         when E_Array_Type => Do_Itype_Array_Type (N, Block),
          when E_String_Literal_Subtype => Do_Itype_String_Literal_Subtype (N),
          when E_Signed_Integer_Subtype => Do_Itype_Integer_Subtype (N),
          when E_Record_Subtype => Do_Itype_Record_Subtype (N),
@@ -104,13 +104,13 @@ package body Gnat2goto_Itypes is
    -- Do_Itype_Array_Type --
    ----------------------------
 
-   function Do_Itype_Array_Type (E : Entity_Id) return Irep is
+   function Do_Itype_Array_Type (E : Entity_Id; Block : Irep) return Irep is
       Var : constant Node_Id :=
          Object_Definition (Associated_Node_For_Itype (E));
    begin
       case Nkind (Var) is
       when N_Constrained_Array_Definition =>
-         return Do_Constrained_Array_Definition (Var);
+         return Do_Constrained_Array_Definition (Var, Block);
       when N_Unconstrained_Array_Definition =>
          return Do_Unconstrained_Array_Definition (Var);
       when others =>
@@ -124,9 +124,9 @@ package body Gnat2goto_Itypes is
    -- Do_Itype_Array_Subtype --
    ----------------------------
 
-   function Do_Itype_Array_Subtype (N : Node_Id) return Irep is
+   function Do_Itype_Array_Subtype (N : Node_Id; Block : Irep) return Irep is
    begin
-      Declare_Itype (Etype (N));
+      Declare_Itype (Etype (N), Block);
       return Make_Symbol_Type
         (Identifier => Unique_Name (Etype (N)));
    end Do_Itype_Array_Subtype;

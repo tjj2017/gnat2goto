@@ -107,7 +107,8 @@ package body Arrays is
    function Make_Array_Subtype (Declaration    : Node_Id;
                                 Is_Constrained : Boolean;
                                 First_Index    : Node_Id;
-                                Component_Type : Entity_Id) return Irep;
+                                Component_Type : Entity_Id;
+                                Block          : Irep) return Irep;
 
    ------------------------
    -- Add_Array_Friends --
@@ -700,22 +701,22 @@ package body Arrays is
       return Ret;
    end Make_Array_Default_Initialiser;
 
-   ----------------------
-   -- Do_Array_Object --
-   ----------------------
-
-   procedure Do_Array_Object (Object_Node     : Node_Id;
-                              Object_Ada_Type : Entity_Id;
-                              Subtype_Irep    : out Irep)
-   is
-   begin
-      Subtype_Irep :=
-        Make_Array_Subtype
-          (Declaration    => Object_Node,
-           Is_Constrained => True,  -- Object declarations are constrained.
-           First_Index    => First_Index (Object_Ada_Type),
-           Component_Type => Get_Non_Array_Component_Type (Object_Ada_Type));
-   end Do_Array_Object;
+--     ----------------------
+--     -- Do_Array_Object --
+--     ----------------------
+--
+--     procedure Do_Array_Object (Object_Node     : Node_Id;
+--                                Object_Ada_Type : Entity_Id;
+--                                Subtype_Irep    : out Irep)
+--     is
+--     begin
+--        Subtype_Irep :=
+--          Make_Array_Subtype
+--            (Declaration    => Object_Node,
+--             Is_Constrained => True,  -- Object declarations are constrained.
+--             First_Index    => First_Index (Object_Ada_Type),
+--           Component_Type => Get_Non_Array_Component_Type (Object_Ada_Type));
+--     end Do_Array_Object;
 
    ----------------------
    -- Do_Array_Subtype --
@@ -724,19 +725,22 @@ package body Arrays is
    function Do_Array_Subtype (Subtype_Node   : Node_Id;
                               Parent_Type    : Entity_Id;
                               Is_Constrained : Boolean;
-                              First_Index    : Node_Id) return Irep
+                              First_Index    : Node_Id;
+                              Block          : Irep) return Irep
    is
      (Make_Array_Subtype
         (Declaration    => Subtype_Node,
          Is_Constrained => Is_Constrained,
          First_Index    => First_Index,
-         Component_Type => Component_Type (Parent_Type)));
+         Component_Type => Component_Type (Parent_Type),
+         Block          => Block));
 
    -------------------------------------
    -- Do_Constrained_Array_Definition --
    -------------------------------------
 
-   function Do_Constrained_Array_Definition (N    : Node_Id) return Irep is
+   function Do_Constrained_Array_Definition (N     : Node_Id;
+                                             Block : Irep) return Irep is
       --  The array type declaration node is the  parent of the
       --  array_definition node.
      (Make_Array_Subtype
@@ -744,7 +748,8 @@ package body Arrays is
          Is_Constrained => True,
          First_Index    => First (Discrete_Subtype_Definitions (N)),
          Component_Type =>
-           (Component_Type (Defining_Identifier (Parent (N))))));
+           (Component_Type (Defining_Identifier (Parent (N)))),
+        Block           => Block));
 
    ---------------------------------------
    -- Do_Unconstrained_Array_Definition --
@@ -758,7 +763,8 @@ package body Arrays is
          Is_Constrained => False,
          First_Index    => First (Subtype_Marks (N)),
          Component_Type =>
-           (Component_Type (Defining_Identifier (Parent (N))))));
+           (Component_Type (Defining_Identifier (Parent (N)))),
+         Block          => Ireps.Empty));
 
    -------------------------
    -- Do_Array_Assignment --
@@ -1727,7 +1733,8 @@ package body Arrays is
    function Make_Array_Subtype (Declaration    : Node_Id;
                                 Is_Constrained : Boolean;
                                 First_Index    : Node_Id;
-                                Component_Type : Entity_Id) return Irep is
+                                Component_Type : Entity_Id;
+                                Block          : Irep) return Irep is
       Source_Location : constant Irep := Get_Source_Location (First_Index);
    begin
       Put_Line ("Make_Array_Subtype");
@@ -1752,19 +1759,26 @@ package body Arrays is
          Dimension_Number  : Positive := 1;
          Dimension_Iter    : Node_Id := First_Index;
          Dimension_Range   : Node_Id := Get_Range (Dimension_Iter);
-         Array_Size        : Irep := Ireps.Empty;
+         Var_Dim_Bounds    : Irep := Ireps.Empty;
          Static_Array_Size : Uint := Uint_0;
+
       begin
-         Put_Line ("Do the first dimension");
-         --  Do the first dimension.
-         if Is_OK_Static_Range (Dimension_Range) then
+         if Is_OK_Static_Range (Dimension_Range)
+           and then
+           UI_To_Int (Expr_Value (Low_Bound (Dimension_Range)))  /= Int'First
+           and then
+           UI_To_Int (Expr_Value (High_Bound (Dimension_Range)))  /= Int'Last
+         then
+            Put_Line ("Ok static range");
             Static_Array_Size := Calculate_Static_Dimension_Length
               (Dimension_Range);
          else
-            Array_Size := Calculate_Dimension_Length
+            Put_Line ("Variable bounds");
+            Var_Dim_Bounds := Calculate_Dimension_Length
               (Get_Bounds (Dimension_Iter, Is_Constrained));
          end if;
 
+         Put_Line ("Now for multi-dimensional");
          --  Multidimensional arrays are converted into a a single
          --  dimension of an appropriate length.
          --  This needs to be considered when indexing into, or
@@ -1773,18 +1787,25 @@ package body Arrays is
          while Present (Dimension_Iter) loop
             Dimension_Number := Dimension_Number + 1;
             Dimension_Range := Get_Range (Dimension_Iter);
-            if Is_OK_Static_Range (Dimension_Iter) then
+            if Is_OK_Static_Range (Dimension_Range)
+              and then
+                UI_To_Int (Expr_Value (Low_Bound (Dimension_Range)))  /=
+              Int'First
+              and then
+                UI_To_Int (Expr_Value (High_Bound (Dimension_Range)))  /=
+              Int'Last
+            then
                Static_Array_Size := Static_Array_Size *
                  Calculate_Static_Dimension_Length (Dimension_Range);
             else
-               if Array_Size = Ireps.Empty then
-                  Array_Size := Calculate_Dimension_Length
+               if Var_Dim_Bounds = Ireps.Empty then
+                  Var_Dim_Bounds := Calculate_Dimension_Length
                     (Get_Bounds (Dimension_Iter, Is_Constrained));
                else
-                  Array_Size := Make_Op_Mul
+                  Var_Dim_Bounds := Make_Op_Mul
                     (Rhs             => Calculate_Dimension_Length
                        (Get_Bounds (Dimension_Iter, Is_Constrained)),
-                     Lhs             => Array_Size,
+                     Lhs             => Var_Dim_Bounds,
                      Source_Location => Source_Location,
                      Overflow_Check  => False,
                      I_Type          => Int64_T,
@@ -1794,31 +1815,88 @@ package body Arrays is
             Dimension_Iter := Next (Dimension_Iter);
          end loop;
 
-         if Static_Array_Size /= Uint_0 then
-            declare
-               Static_Size : constant Irep :=
-                 Integer_Constant_To_Expr
-                   (Value           => Static_Array_Size,
-                    Expr_Type       => Int64_T,
-                    Source_Location => Source_Location);
-            begin
-               if Array_Size = Ireps.Empty then
-                  Array_Size := Static_Size;
-               else
-                  Array_Size := Make_Op_Mul
-                    (Rhs             => Static_Size,
-                     Lhs             => Array_Size,
-                     Source_Location => Source_Location,
-                     Overflow_Check  => False,
-                     I_Type          => Int64_T,
-                    Range_Check     => False);
-               end if;
-            end;
+         Put_Line ("After loop");
+         if Static_Array_Size = Uint_0 then
+            Put_Line ("Static array size 0");
+         else
+            Put_Line ("Static array size " &
+                        Int'Image (UI_To_Int (Static_Array_Size)));
          end if;
-         Put_Line ("Done Make_Array_Subtype");
-         return Make_Array_Type
-           (I_Subtype => Sub,
-            Size      => Array_Size);
+         declare
+            Static_Size : constant Irep :=
+              (if Static_Array_Size /= Uint_0 then
+                  Integer_Constant_To_Expr
+                 (Value           => Static_Array_Size,
+                  Expr_Type       => Int64_T,
+                  Source_Location => Source_Location)
+               else
+                  Ireps.Empty);
+
+            Array_Size : constant Irep :=
+              (if Var_Dim_Bounds = Ireps.Empty then
+                  Static_Size
+               elsif Static_Array_Size /= Uint_0 then
+                  Make_Op_Mul
+                 (Rhs             => Static_Size,
+                  Lhs             => Var_Dim_Bounds,
+                  Source_Location => Source_Location,
+                  Overflow_Check  => False,
+                  I_Type          => Int64_T,
+                  Range_Check     => False)
+               else
+                  Var_Dim_Bounds);
+         begin
+            if Var_Dim_Bounds /= Ireps.Empty then
+               --  The has at least one dimention which has an Ada variable
+               --  specifying a bound.
+               --  A goto new variable has to be declared and intialised
+               --  to the array size expression to declare the array.
+               declare
+                  Arr_Len : constant String := Fresh_Var_Name ("Arr_Len");
+                  Arr_Len_Id   : constant Symbol_Id := Intern (Arr_Len);
+                  Arr_Len_Irep : constant Irep :=
+                    Make_Symbol_Expr
+                      (Source_Location => Source_Location,
+                       I_Type          => Int64_T,
+                       Range_Check     => False,
+                       Identifier      => Arr_Len);
+                  Decl : constant Irep := Make_Code_Decl
+                    (Symbol => Arr_Len_Irep,
+                     Source_Location => Source_Location);
+               begin
+                  Put_Line ("******** dynamic range");
+                  Put_Line (Arr_Len);
+                  --  Add the new variable to the symbol table
+                  New_Object_Symbol_Entry
+                    (Object_Name       => Arr_Len_Id,
+                     Object_Type       => Int64_T,
+                     Object_Init_Value => Array_Size,
+                     A_Symbol_Table    => Global_Symbol_Table);
+                  Put_Line ("New var added to symbol table");
+                  --  Declare the variable in the goto code
+                  Print_Irep (Block);
+                  Append_Op (Block, Decl);
+                  Put_Line ("Declaration appended to the block");
+                  --  and assign the array length expression.
+                  Append_Op (Block,
+                             Make_Code_Assign
+                               (Rhs             => Array_Size,
+                                Lhs             => Arr_Len_Irep,
+                                Source_Location => Source_Location,
+                                I_Type          => Int64_T,
+                                Range_Check     => False));
+                  Put_Line ("Done Make_Array_Subtype");
+                  --  Now Make the array type
+                  return Make_Array_Type
+                    (I_Subtype => Sub,
+                     Size      => Arr_Len_Irep);
+               end;
+            end if;
+            Put_Line ("Done Make_Array_Subtype");
+            return Make_Array_Type
+              (I_Subtype => Sub,
+               Size      => Array_Size);
+         end;
       end;
    end Make_Array_Subtype;
 
