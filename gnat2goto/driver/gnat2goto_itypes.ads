@@ -9,13 +9,13 @@ package Gnat2goto_Itypes is
    procedure Do_Itype_Reference (N : Node_Id)
      with Pre => Nkind (N) = N_Itype_Reference;
 
-   procedure Declare_Itype (Ty : Entity_Id);
+   procedure Declare_Itype (Ty : Entity_Id; Block : Irep);
 
 private
-   function Do_Itype_Definition (N : Node_Id) return Irep
+   function Do_Itype_Definition (N : Node_Id; Block : Irep) return Irep
      with Pre => Nkind (N) = N_Defining_Identifier;
 
-   function Do_Itype_Array_Subtype (N : Entity_Id) return Irep
+   function Do_Itype_Array_Subtype (N : Entity_Id; Block : Irep) return Irep
      with Pre => Is_Itype (N) and then Ekind (N) = E_Array_Subtype;
 
    function Do_Itype_String_Literal_Subtype (N : Entity_Id) return Irep
@@ -33,7 +33,7 @@ private
    function Do_Modular_Integer_Subtype (N : Entity_Id) return Irep
      with Pre => Is_Itype (N) and then Ekind (N) = E_Modular_Integer_Subtype;
 
-   function Do_Itype_Array_Type (E : Entity_Id) return Irep
+   function Do_Itype_Array_Type (E : Entity_Id; Block : Irep) return Irep
     with Pre => Is_Itype (E) and Ekind (E) = E_Array_Type;
 
 end Gnat2goto_Itypes;

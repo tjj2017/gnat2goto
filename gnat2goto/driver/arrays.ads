@@ -24,26 +24,35 @@ package Arrays is
    function Do_Aggregate_Literal_Array (N : Node_Id) return Irep
      with Pre  => Nkind (N) = N_Aggregate;
 
-   procedure Do_Array_Object (Object_Node     : Node_Id;
-                              Object_Ada_Type : Entity_Id;
-                              Subtype_Irep    : out Irep)
-     with Pre  => Is_Array_Type (Object_Ada_Type),
-          Post => Kind (Subtype_Irep) = I_Array_Type;
-   --  In goto an array is not a type, objects may be arrays.
-   --  An anonymous subtype has to be declared for each
-   --  array object describing its format.
-   --  Do_Array_Object creates an array subtype and the
-   --  anonymous array subtype is returned via the Subtype_Irep parameter.
+--     procedure Do_Array_Object (Object_Node     : Node_Id;
+--                                Object_Ada_Type : Entity_Id;
+--                                Subtype_Irep    : out Irep)
+--       with Pre  => Is_Array_Type (Object_Ada_Type),
+--            Post => Kind (Subtype_Irep) = I_Array_Type;
+--     --  In goto an array is not a type, objects may be arrays.
+--     --  An anonymous subtype has to be declared for each
+--     --  array object describing its format.
+--     --  Do_Array_Object creates an array subtype and the
+--     --  anonymous array subtype is returned via the Subtype_Irep parameter.
 
    function Do_Array_Subtype (Subtype_Node   : Node_Id;
                               Parent_Type    : Entity_Id;
                               Is_Constrained : Boolean;
-                              First_Index    : Node_Id) return Irep
+                              First_Index    : Node_Id;
+                              Block : Irep) return Irep
      with Pre => Is_Array_Type (Parent_Type),
      Post => Kind (Do_Array_Subtype'Result) = I_Array_Type;
-   --  Create an array subtype and its friendly variables.
+   --  Create an array subtype.  If the array subtype is constrained
+   --  but the constraint is not static a new variable is declared
+   --  and intialised to the goto expression representing the length of the
+   --  array.  This is used to specify the array length of the subtype.
+   --  This is required because cbmc does not accept a general expression
+   --  for the array length specifier.
+   --  The declaration and intialisation of the new variable is appended
+   --  to the Block.
 
-   function Do_Constrained_Array_Definition (N : Node_Id) return Irep
+   function Do_Constrained_Array_Definition (N     : Node_Id;
+                                             Block : Irep) return Irep
      with Pre  => Nkind (N) in N_Array_Type_Definition,
      Post => Kind (Do_Constrained_Array_Definition'Result) = I_Array_Type;
 
