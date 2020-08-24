@@ -84,13 +84,9 @@ package body Arrays is
      with Pre => Is_Array_Type (Etype (The_Array)) and not
                  Is_Constrained (The_Array);
 
-   function Get_Bounds (Index : Node_Id; Is_Constrained : Boolean)
-                        return Dimension_Bounds;
+   function Get_Bounds (Index : Node_Id) return Dimension_Bounds;
    --  If the array is constrained, returns the lower and upper bounds of
    --  an index constraint.
-   --  If the array is unconstrained, returns nondet lower and upper bounds.
-   --  The lower (first) and upper (last) bounds are the
-   --  base type of the index.
 
    function Get_Range (Index : Node_Id) return Node_Id is
      (if Nkind (Index) = N_Range
@@ -104,11 +100,14 @@ package body Arrays is
       --  It is a subtype mark
          Scalar_Range (Entity (Index)));
 
-   function Make_Array_Subtype (Declaration    : Node_Id;
-                                Is_Constrained : Boolean;
-                                First_Index    : Node_Id;
-                                Component_Type : Entity_Id;
-                                Block          : Irep) return Irep;
+   function Make_Constrained_Array_Subtype (Declaration    : Node_Id;
+                                            First_Index    : Node_Id;
+                                            Component_Type : Entity_Id;
+                                            Block          : Irep) return Irep;
+
+   function Make_Unconstrained_Array_Subtype (Declaration    : Node_Id;
+                                              Component_Type : Entity_Id)
+                                              return Irep;
 
    ------------------------
    -- Add_Array_Friends --
@@ -142,7 +141,7 @@ package body Arrays is
 
       First_Val : constant Irep :=
         (if Kind (First_Type) /= I_Signedbv_Type or else
-         Get_Width (First_Type) /= 32
+         Get_Width (First_Type) /= 64
          then
             Make_Op_Typecast
            (Op0             => Bounds.Low,
@@ -153,7 +152,7 @@ package body Arrays is
             Bounds.Low);
       Last_Val : constant Irep :=
         (if Kind (Last_Type) /= I_Signedbv_Type or else
-         Get_Width (Last_Type) /= 32
+         Get_Width (Last_Type) /= 64
          then
             Make_Op_Typecast
            (Op0             => Bounds.High,
@@ -728,12 +727,16 @@ package body Arrays is
                               First_Index    : Node_Id;
                               Block          : Irep) return Irep
    is
-     (Make_Array_Subtype
-        (Declaration    => Subtype_Node,
-         Is_Constrained => Is_Constrained,
-         First_Index    => First_Index,
-         Component_Type => Component_Type (Parent_Type),
-         Block          => Block));
+      (if Is_Constrained then
+          Make_Constrained_Array_Subtype
+         (Declaration    => Subtype_Node,
+          First_Index    => First_Index,
+          Component_Type => Component_Type (Parent_Type),
+          Block          => Block)
+       else
+          Make_Unconstrained_Array_Subtype
+         (Declaration    => Subtype_Node,
+          Component_Type => Component_Type (Parent_Type)));
 
    -------------------------------------
    -- Do_Constrained_Array_Definition --
@@ -743,9 +746,8 @@ package body Arrays is
                                              Block : Irep) return Irep is
       --  The array type declaration node is the  parent of the
       --  array_definition node.
-     (Make_Array_Subtype
+     (Make_Constrained_Array_Subtype
         (Declaration    => Parent (N),
-         Is_Constrained => True,
          First_Index    => First (Discrete_Subtype_Definitions (N)),
          Component_Type =>
            (Component_Type (Defining_Identifier (Parent (N)))),
@@ -758,13 +760,10 @@ package body Arrays is
    function Do_Unconstrained_Array_Definition (N     : Node_Id) return Irep is
       --  The array type declaration node is the  parent of the
       --  array_definition node.
-     (Make_Array_Subtype
+     (Make_Unconstrained_Array_Subtype
         (Declaration    => Parent (N),
-         Is_Constrained => False,
-         First_Index    => First (Subtype_Marks (N)),
          Component_Type =>
-           (Component_Type (Defining_Identifier (Parent (N)))),
-         Block          => Ireps.Empty));
+           (Component_Type (Defining_Identifier (Parent (N))))));
 
    -------------------------
    -- Do_Array_Assignment --
@@ -1120,8 +1119,7 @@ package body Arrays is
       Print_Node_Briefly (Dim_Index);
       --  Now get the lower and upper bounds of the dimension
       return
-        Get_Bounds (Index          => Dim_Index,
-                    Is_Constrained => True);
+        Get_Bounds (Dim_Index);
    end Do_Constrained_First_Last;
 
    function Do_Unconstrained_First_Last (The_Array  : Entity_Id;
@@ -1495,8 +1493,7 @@ package body Arrays is
 
          --  Indexed arrays
          Bounds : constant Dimension_Bounds :=
-           Get_Bounds (Index          => First_Index (Array_Type),
-                       Is_Constrained => True);
+           Get_Bounds (First_Index (Array_Type));
 
          Base_Irep         : constant Irep :=
            (if Is_Implicit_Deref then
@@ -1564,36 +1561,17 @@ package body Arrays is
    -- Get_Bounds --
    ---------------
 
-   function Get_Bounds (Index : Node_Id; Is_Constrained : Boolean)
-                        return Dimension_Bounds
+   function Get_Bounds (Index : Node_Id) return Dimension_Bounds
    is
+      Bounds : constant Node_Id := Get_Range (Index);
+      --  The front-end sometimes rewrites nodes giving them a different
+      --  Goto requires the original identifier.
+      Low  : constant Irep :=
+        Do_Expression (Original_Node (Low_Bound (Bounds)));
+      High : constant Irep :=
+        Do_Expression (Original_Node (High_Bound (Bounds)));
    begin
-      if Is_Constrained then
-         declare
-            Bounds : constant Node_Id := Get_Range (Index);
-            --  The front-end sometimes rewrites nodes giving them a different
-            --  Goto requires the original identifier.
-            Low  : constant Irep :=
-               Do_Expression (Original_Node (Low_Bound (Bounds)));
-            High : constant Irep :=
-               Do_Expression (Original_Node (High_Bound (Bounds)));
-
-         begin
-            return (Low => Low, High => High);
-         end;
-      else
-         Put_Line ("======= Get_Bounds");
-         Print_Node_Briefly (Etype (Index));
-         Put_Line ("We are here");
-         Print_Node_Briefly (Base_Type (Etype (Index)));
-         Print_Irep (Do_Type_Reference (Base_Type (Etype (Index))));
-         Print_Irep (Make_Side_Effect_Expr_Nondet
-                     (I_Type => Do_Type_Reference (Base_Type (Etype (Index))),
-                      Source_Location => Get_Source_Location (Index)));
-         return (Low | High =>  Make_Side_Effect_Expr_Nondet
-                     (I_Type => Do_Type_Reference (Base_Type (Etype (Index))),
-                      Source_Location => Get_Source_Location (Index)));
-      end if;
+      return (Low => Low, High => High);
    end Get_Bounds;
 
    function Get_First_Index_Component (Array_Struct : Irep)
@@ -1730,18 +1708,18 @@ package body Arrays is
                           I_Type          => Get_Type (Data_Member));
    end Offset_Array_Data;
 
-   function Make_Array_Subtype (Declaration    : Node_Id;
-                                Is_Constrained : Boolean;
-                                First_Index    : Node_Id;
-                                Component_Type : Entity_Id;
-                                Block          : Irep) return Irep is
+   function Make_Constrained_Array_Subtype (Declaration    : Node_Id;
+                                            First_Index    : Node_Id;
+                                            Component_Type : Entity_Id;
+                                            Block          : Irep)
+                                            return Irep
+   is
       Source_Location : constant Irep := Get_Source_Location (First_Index);
    begin
       Put_Line ("Make_Array_Subtype");
       Print_Node_Briefly (Declaration);
+      Print_Node_Briefly (Defining_Identifier (Declaration));
       Print_Node_Briefly (Component_Type);
-      Put_Line ("Is_Constrained " &
-                  Boolean'Image (Is_Constrained));
       declare
          Sub_Pre : constant Irep :=
            Do_Type_Reference (Component_Type);
@@ -1763,19 +1741,14 @@ package body Arrays is
          Static_Array_Size : Uint := Uint_0;
 
       begin
-         if Is_OK_Static_Range (Dimension_Range)
-           and then
-           UI_To_Int (Expr_Value (Low_Bound (Dimension_Range)))  /= Int'First
-           and then
-           UI_To_Int (Expr_Value (High_Bound (Dimension_Range)))  /= Int'Last
-         then
+         if Is_OK_Static_Range (Dimension_Range) then
             Put_Line ("Ok static range");
             Static_Array_Size := Calculate_Static_Dimension_Length
               (Dimension_Range);
          else
             Put_Line ("Variable bounds");
             Var_Dim_Bounds := Calculate_Dimension_Length
-              (Get_Bounds (Dimension_Iter, Is_Constrained));
+              (Get_Bounds (Dimension_Iter));
          end if;
 
          Put_Line ("Now for multi-dimensional");
@@ -1787,24 +1760,17 @@ package body Arrays is
          while Present (Dimension_Iter) loop
             Dimension_Number := Dimension_Number + 1;
             Dimension_Range := Get_Range (Dimension_Iter);
-            if Is_OK_Static_Range (Dimension_Range)
-              and then
-                UI_To_Int (Expr_Value (Low_Bound (Dimension_Range)))  /=
-              Int'First
-              and then
-                UI_To_Int (Expr_Value (High_Bound (Dimension_Range)))  /=
-              Int'Last
-            then
+            if Is_OK_Static_Range (Dimension_Range) then
                Static_Array_Size := Static_Array_Size *
                  Calculate_Static_Dimension_Length (Dimension_Range);
             else
                if Var_Dim_Bounds = Ireps.Empty then
                   Var_Dim_Bounds := Calculate_Dimension_Length
-                    (Get_Bounds (Dimension_Iter, Is_Constrained));
+                    (Get_Bounds (Dimension_Iter));
                else
                   Var_Dim_Bounds := Make_Op_Mul
                     (Rhs             => Calculate_Dimension_Length
-                       (Get_Bounds (Dimension_Iter, Is_Constrained)),
+                       (Get_Bounds (Dimension_Iter)),
                      Lhs             => Var_Dim_Bounds,
                      Source_Location => Source_Location,
                      Overflow_Check  => False,
@@ -1852,12 +1818,14 @@ package body Arrays is
                --  A goto new variable has to be declared and intialised
                --  to the array size expression to declare the array.
                declare
-                  Arr_Len : constant String := Fresh_Var_Name ("Arr_Len");
+                  Arr_Len : constant String :=
+                    Unique_Name (Defining_Identifier (Declaration)) &
+                    "_$array_size";
                   Arr_Len_Id   : constant Symbol_Id := Intern (Arr_Len);
                   Arr_Len_Irep : constant Irep :=
                     Make_Symbol_Expr
                       (Source_Location => Source_Location,
-                       I_Type          => Int64_T,
+                       I_Type          => Make_Unsignedbv_Type (64),
                        Range_Check     => False,
                        Identifier      => Arr_Len);
                   Decl : constant Irep := Make_Code_Decl
@@ -1869,22 +1837,35 @@ package body Arrays is
                   --  Add the new variable to the symbol table
                   New_Object_Symbol_Entry
                     (Object_Name       => Arr_Len_Id,
-                     Object_Type       => Int64_T,
-                     Object_Init_Value => Array_Size,
+                     Object_Type       => Make_Unsignedbv_Type (64),
+                     Object_Init_Value => Make_Op_Typecast
+                       (Op0             => Array_Size,
+                        Source_Location => Source_Location,
+                        I_Type          =>
+                          Make_Unsignedbv_Type (64),
+                        Range_Check     => False),
                      A_Symbol_Table    => Global_Symbol_Table);
                   Put_Line ("New var added to symbol table");
                   --  Declare the variable in the goto code
                   Print_Irep (Block);
                   Append_Op (Block, Decl);
                   Put_Line ("Declaration appended to the block");
+                  Print_Irep (Block);
                   --  and assign the array length expression.
                   Append_Op (Block,
                              Make_Code_Assign
-                               (Rhs             => Array_Size,
+                               (Rhs             =>
+                                  Make_Op_Typecast
+                                    (Op0             => Array_Size,
+                                     Source_Location => Source_Location,
+                                     I_Type          =>
+                                       Make_Unsignedbv_Type (64),
+                                     Range_Check     => False),
                                 Lhs             => Arr_Len_Irep,
                                 Source_Location => Source_Location,
-                                I_Type          => Int64_T,
+                                I_Type          => Make_Unsignedbv_Type (64),
                                 Range_Check     => False));
+                  Print_Irep (Block);
                   Put_Line ("Done Make_Array_Subtype");
                   --  Now Make the array type
                   return Make_Array_Type
@@ -1898,7 +1879,35 @@ package body Arrays is
                Size      => Array_Size);
          end;
       end;
-   end Make_Array_Subtype;
+   end Make_Constrained_Array_Subtype;
+
+   function Make_Unconstrained_Array_Subtype (Declaration    : Node_Id;
+                                              Component_Type : Entity_Id)
+                                              return Irep
+   is
+      Sub_Pre : constant Irep :=
+        Do_Type_Reference (Component_Type);
+      Sub : constant Irep :=
+        (if Kind (Follow_Symbol_Type (Sub_Pre, Global_Symbol_Table))
+         = I_C_Enum_Type
+         then
+         --  TODO: use ASVAT.Size_Model.Size when Package standard
+         --  is handled
+            Make_Signedbv_Type (32)
+         else
+            Sub_Pre);
+   begin
+      Put_Line ("Make_Constrained_Array_Subtype");
+      Print_Node_Briefly (Declaration);
+      Print_Irep (Sub);
+
+      return Make_Array_Type
+        (I_Subtype => Sub,
+         Size      => Make_Side_Effect_Expr_Nondet
+           (Source_Location => Get_Source_Location (Declaration),
+            I_Type          => Int64_T,
+            Range_Check     => False));
+   end Make_Unconstrained_Array_Subtype;
 
 --        Ret_Components : constant Irep := Make_Struct_Union_Components;
 --        Ret : constant Irep :=
