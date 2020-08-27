@@ -51,6 +51,11 @@ package body Arrays is
 
    function Calculate_Dimension_Length (Bounds : Dimension_Bounds) return Irep;
 
+   function Calculate_Index_Offset (The_Array   : Entity_Id;
+                                    The_Indices : Node_Id) return Irep
+     with Pre => Is_Array_Type (The_Array) and
+                 Nkind (The_Indices) = N_Indexed_Component;
+
    function Calculate_Static_Dimension_Length (Dim_Range : Node_Id)
                                                return Uint
    is
@@ -70,6 +75,10 @@ package body Arrays is
    --  are of the base type of the index type.
    --  Their names of the variables are <Prefix>___first_<Dimension>,
    --  and <Prefix>___last_<imension>.
+
+   function Calculate_Zero_Offset (Given_Index : Node_Id;
+                                   Dim_Bounds  : Dimension_Bounds) return Irep
+     with Pre => Nkind (Given_Index) in N_Subexpr;
 
    function Do_Constrained_First_Last (E         : Entity_Id;
                                        Dimension : Positive)
@@ -189,6 +198,79 @@ package body Arrays is
    begin
       return Length_Val;
    end Calculate_Dimension_Length;
+
+   ----------------------------
+   -- Calculate_Index_Offset --
+   ----------------------------
+
+   function Calculate_Index_Offset (The_Array   : Entity_Id;
+                                    The_Indices : Node_Id) return Irep
+   is
+      Source_Location : constant Irep := Get_Source_Location (The_Indices);
+      No_Of_Dims  : constant Positive :=
+        Positive (Number_Dimensions (The_Array));
+      Index_Iter  : Node_Id := First (Expressions (The_Indices));
+      Dim_Iter    : Node_Id := First_Index (The_Array);
+      Bounds_Iter : Dimension_Bounds := Get_Bounds (Dim_Iter);
+      Offset      : Irep :=
+        Calculate_Zero_Offset (Index_Iter, Bounds_Iter);
+   begin
+      for I in 2 .. No_Of_Dims loop
+         Index_Iter := Next (Index_Iter);
+         Dim_Iter := Next_Index (Dim_Iter);
+         Bounds_Iter := Get_Bounds (Dim_Iter);
+         Offset :=
+           Make_Op_Add
+             (Rhs             => Calculate_Zero_Offset
+                (Index_Iter, Bounds_Iter),
+              Lhs             => Make_Op_Mul
+                (Rhs             => Offset,
+                 Lhs             =>
+                   Typecast_If_Necessary
+                     (Expr           =>
+                          Calculate_Dimension_Length (Bounds_Iter),
+                      New_Type       => Int64_T,
+                      A_Symbol_Table => Global_Symbol_Table),
+                 Source_Location => Source_Location,
+                 Overflow_Check  => False,
+                 I_Type          => Int64_T,
+                 Range_Check     => False),
+              Source_Location => Source_Location,
+              Overflow_Check  => False,
+              I_Type          => Int64_T,
+              Range_Check     => False);
+      end loop;
+      return Offset;
+   end Calculate_Index_Offset;
+
+   ---------------------------
+   -- Calculate_Zero_Offset --
+   ---------------------------
+
+   function Calculate_Zero_Offset (Given_Index : Node_Id;
+                                   Dim_Bounds  : Dimension_Bounds) return Irep
+   is
+      Index_Irep : constant Irep :=
+        Typecast_If_Necessary
+          (Expr           => Do_Expression (Given_Index),
+           New_Type       => Int64_T,
+           A_Symbol_Table => Global_Symbol_Table);
+   begin
+      return
+        Make_Op_Sub
+          (Rhs             => Typecast_If_Necessary
+             (Expr           => Dim_Bounds.Low,
+              New_Type       => Int64_T,
+              A_Symbol_Table => Global_Symbol_Table),
+           Lhs             => Typecast_If_Necessary
+             (Expr           => Index_Irep,
+              New_Type       => Int64_T,
+              A_Symbol_Table => Global_Symbol_Table),
+           Source_Location => Get_Source_Location (Given_Index),
+           Overflow_Check  => False,
+           I_Type          => Int64_T,
+           Range_Check     => False);
+   end Calculate_Zero_Offset;
 
    ----------------------------
    -- Declare_First_And_Last --
@@ -1236,8 +1318,10 @@ package body Arrays is
    -- Do_Slice --
    --------------
 
-   --  A slice is represented by an array which overlays part of the array
-   --  from which is taken.
+   --  A slice overlays an existing array.
+   --  Do_Slice just returns the Irep of the existing, overlaid array and
+   --  the restricted bounds of the slice are handled, where necessary in
+   --  the subprograms which handle the use of slices.
 --     --  The following comments are out of date and to be removed.
 --     --  The following build an expression representing slice
 --     --  orig(start .. end)
@@ -1278,8 +1362,8 @@ package body Arrays is
             Prefix_Etype);
       Base_Type_Irep    : constant Irep :=
         Do_Type_Reference (Base_Array_Type);
-      Base_Comp_Type    : constant Irep :=
-        Do_Type_Reference (Component_Type (Base_Array_Type));
+--        Base_Comp_Type    : constant Irep :=
+--          Do_Type_Reference (Component_Type (Base_Array_Type));
       Base_Irep         : constant Irep :=
         (if Is_Implicit_Deref then
             Make_Dereference_Expr
@@ -1292,77 +1376,77 @@ package body Arrays is
       pragma Assert (Print_Irep_Func (Base_Irep));
       --  Any required implicit dereferencing has now been done.
 
-      --  Obtain the range of the slice from the constrained array subtype
-      --  added the ATree by the font-end.
-      Slice_Range       : constant Node_Id :=
-        Scalar_Range
-          (Etype (First_Index (Etype (N))));
+--        --  Obtain the range of the slice from the constrained array subtype
+--        --  added the ATree by the font-end.
+--        Slice_Range       : constant Node_Id :=
+--          Scalar_Range
+--            (Etype (First_Index (Etype (N))));
 
-      --  Get the low and high bounds of the slice as Irep expressions.
-      --  They may be variable but the slice is always constrained.
-      Slice_First       : constant Irep :=
-        Do_Expression (Low_Bound (Slice_Range));
-      Slice_Last        : constant Irep :=
-        Do_Expression (High_Bound (Slice_Range));
-
-      pragma Assert (Print_Irep_Func (Slice_First));
-      pragma Assert (Print_Irep_Func (Slice_Last));
-
-      --  Now get the low and high bounds of the base array from which
-      --  the slice is taken.
-      --  The Irep expressions may be variable but the base array is
-      --  always constrained.
-      Base_First        : constant Irep :=
-        Do_Expression (Low_Bound (First_Index (Base_Array_Type)));
-      Base_Last         : constant Irep :=
-        Do_Expression (High_Bound (First_Index (Base_Array_Type)));
-
-      pragma Assert (Print_Irep_Func (Base_First));
-      pragma Assert (Print_Irep_Func (Base_Last));
-
-      --  Calculate the off set from the first element of the base array
-      --  to the first element of the slice.  The resulting index is
-      --  the first element of the slice.
-      Slice_Offset : constant Irep :=
-           Make_Op_Sub (Rhs             => Base_First,
-                        Lhs             => Slice_First,
-                        Source_Location => Source_Loc,
-                        Overflow_Check  => False,
-                        I_Type          => Int32_T);
-
-      pragma Assert (Print_Irep_Func (Slice_Offset));
-
-      --  Now index the first element of the slice from the base array.
-      Slice_Index : constant Irep :=
-        Make_Index_Expr
-             (I_Array         => Base_Irep,
-              Index           => Slice_Offset,
-              Source_Location => Source_Loc,
-              I_Type          => Base_Comp_Type,
-              Range_Check     => False);
-
-      pragma Assert (Print_Irep_Func (Slice_Index));
-
-      --  Obtain the address of the first element of the slice as
-      --  this is the address of the start of the slice
-      Slice_Addr : constant Irep :=
-        Make_Address_Of (Slice_Index);
-
-      pragma Assert (Print_Irep_Func (Slice_Addr));
-
-      --  Now convert this address to an array representation of the slice.
-      Slice_Array : constant Irep :=
-        Make_Op_Typecast
-          (Op0             => Slice_Index,
-           Source_Location => Source_Loc,
-           I_Type          =>
-             Make_Array_Type
-               (I_Subtype => Base_Comp_Type,
-                Size      => Calculate_Dimension_Length
-                  ((Slice_First, Slice_Last))),
-           Range_Check     => False);
-
-      pragma Assert (Print_Irep_Func (Slice_Array));
+--        --  Get the low and high bounds of the slice as Irep expressions.
+--        --  They may be variable but the slice is always constrained.
+--        Slice_First       : constant Irep :=
+--          Do_Expression (Low_Bound (Slice_Range));
+--        Slice_Last        : constant Irep :=
+--          Do_Expression (High_Bound (Slice_Range));
+--
+--        pragma Assert (Print_Irep_Func (Slice_First));
+--        pragma Assert (Print_Irep_Func (Slice_Last));
+--
+--        --  Now get the low and high bounds of the base array from which
+--        --  the slice is taken.
+--        --  The Irep expressions may be variable but the base array is
+--        --  always constrained.
+--        Base_First        : constant Irep :=
+--          Do_Expression (Low_Bound (First_Index (Base_Array_Type)));
+--        Base_Last         : constant Irep :=
+--          Do_Expression (High_Bound (First_Index (Base_Array_Type)));
+--
+--        pragma Assert (Print_Irep_Func (Base_First));
+--        pragma Assert (Print_Irep_Func (Base_Last));
+--
+--        --  Calculate the off set from the first element of the base array
+--        --  to the first element of the slice.  The resulting index is
+--        --  the first element of the slice.
+--        Slice_Offset : constant Irep :=
+--             Make_Op_Sub (Rhs             => Base_First,
+--                          Lhs             => Slice_First,
+--                          Source_Location => Source_Loc,
+--                          Overflow_Check  => False,
+--                          I_Type          => Int32_T);
+--
+--        pragma Assert (Print_Irep_Func (Slice_Offset));
+--
+--        --  Now index the first element of the slice from the base array.
+--        Slice_Index : constant Irep :=
+--          Make_Index_Expr
+--               (I_Array         => Base_Irep,
+--                Index           => Slice_Offset,
+--                Source_Location => Source_Loc,
+--                I_Type          => Base_Comp_Type,
+--                Range_Check     => False);
+--
+--        pragma Assert (Print_Irep_Func (Slice_Index));
+--
+--        --  Obtain the address of the first element of the slice as
+--        --  this is the address of the start of the slice
+--        Slice_Addr : constant Irep :=
+--          Make_Address_Of (Slice_Index);
+--
+--        pragma Assert (Print_Irep_Func (Slice_Addr));
+--
+--        --  Now convert this address to an array representation of the slice.
+--        Slice_Array : constant Irep :=
+--          Make_Op_Typecast
+--            (Op0             => Slice_Index,
+--             Source_Location => Source_Loc,
+--             I_Type          =>
+--               Make_Array_Type
+--                 (I_Subtype => Base_Comp_Type,
+--                  Size      => Calculate_Dimension_Length
+--                    ((Slice_First, Slice_Last))),
+--             Range_Check     => False);
+--
+--        pragma Assert (Print_Irep_Func (Slice_Array));
 
 --        Slice_Params : constant Irep := Make_Parameter_List;
 --        Slice_Args : constant Irep := Make_Argument_List;
@@ -1448,7 +1532,8 @@ package body Arrays is
 --        Slice_Id : constant Irep := Base_Irep;
    begin
       Put_Line ("Do_Slice Body Start");
-      return Slice_Array;
+      return Base_Irep;
+--        return Slice_Array;
 --        return Make_Side_Effect_Expr_Function_Call (
 --                                   Arguments       => Slice_Args,
 --                              I_Function      => Symbol_Expr (Func_Symbol),
@@ -1460,16 +1545,28 @@ package body Arrays is
    -- Do_Indexed_Component --
    --------------------------
 
-   --  TODO: multi-dimensional arrays.
    function Do_Indexed_Component (N : Node_Id) return Irep is
+      Pre_Prefix        : constant Node_Id := Prefix (N);
+      --  The prefix may be a slice.  The underlying array needs to be
+      --  indexed and not the slice.
+      The_Prefix        : constant Node_Id :=
+        (if Nkind (Pre_Prefix) = N_Slice then
+              Get_Underlying_Array_From_Slice (Pre_Prefix)
+         else
+            Pre_Prefix);
+      Prefix_Etype      : constant Node_Id := Etype (The_Prefix);
       --  The prefix to an indexed component may be an access to an
       --  array object which must be implicitly dereferenced.
-      The_Prefix        : constant Node_Id := Prefix (N);
-      Prefix_Etype      : constant Node_Id := Etype (The_Prefix);
       Is_Implicit_Deref : constant Boolean := Is_Access_Type (Prefix_Etype);
    begin
       Put_Line ("Do_Indexed_Component");
       Print_Node_Briefly (The_Prefix);
+      if Nkind (The_Prefix) = N_Slice then
+         Put_Line ("A slice");
+         Print_Node_Briefly (Prefix (The_Prefix));
+         Print_Node_Briefly (Etype (Prefix (The_Prefix)));
+      end if;
+
       Print_Node_Briefly (Prefix_Etype);
       if (if Nkind (Prefix_Etype) = N_Defining_Identifier then
              Get_Name_String (Chars (Etype (Etype (Prefix (N)))))
@@ -1489,12 +1586,9 @@ package body Arrays is
                Designated_Type (Prefix_Etype)
             else
                Prefix_Etype);
+
          Prefix_Irep       : constant Irep := Do_Expression (The_Prefix);
          Resolved_Type     : constant Irep := Do_Type_Reference (Array_Type);
-
-         --  Indexed arrays
-         Bounds : constant Dimension_Bounds :=
-           Get_Bounds (First_Index (Array_Type));
 
          Base_Irep         : constant Irep :=
            (if Is_Implicit_Deref then
@@ -1508,34 +1602,16 @@ package body Arrays is
          Element_Type : constant Irep :=
            Do_Type_Reference (Component_Type (Array_Type));
 
-         Idx_Irep : constant Irep :=
-           Typecast_If_Necessary (Do_Expression (First (Expressions (N))),
-                                  Int32_T, Global_Symbol_Table);
-
          Source_Loc : constant Irep := Get_Source_Location (Base_Irep);
-         First_Irep : constant Irep := Bounds.Low;
-
-         Last_Irep : constant Irep := Bounds.High;
-
-         Checked_Index : constant Irep :=
-           Make_Index_Assert_Expr (N           => N,
-                                   Index       => Idx_Irep,
-                                   First_Index => First_Irep,
-                                   Last_Index  => Last_Irep);
-         Zero_Based_Index : constant Irep :=
-           Make_Op_Sub (Rhs             => First_Irep,
-                        Lhs             => Checked_Index,
-                        Source_Location => Source_Loc,
-                        Overflow_Check  => False,
-                        I_Type          => Get_Type (Idx_Irep),
-                        Range_Check     => False);
 
          Indexed_Data : constant Irep :=
            Make_Index_Expr
              (I_Array         => Base_Irep,
               Index           =>
                 Typecast_If_Necessary
-                  (Expr           => Zero_Based_Index,
+                  (Expr           => Calculate_Index_Offset
+                     (The_Array   => Array_Type,
+                      The_Indices => N),
                    New_Type       => Int64_T,
                    A_Symbol_Table => Global_Symbol_Table),
               Source_Location => Source_Loc,
@@ -1543,10 +1619,7 @@ package body Arrays is
               Range_Check     => False);
       begin
          Put_Line ("Do_Indexed_Component_2");
-         Print_Irep (First_Irep);
-         Print_Irep (Last_Irep);
-         Print_Irep (Zero_Based_Index);
-         Print_Irep (Base_Irep);
+         Print_Irep (Calculate_Index_Offset (Array_Type, N));
          Print_Irep (Element_Type);
          Print_Irep (Indexed_Data);
 
@@ -1708,6 +1781,15 @@ package body Arrays is
                           Overflow_Check  => False,
                           I_Type          => Get_Type (Data_Member));
    end Offset_Array_Data;
+
+   function Get_Underlying_Array_From_Slice (N : Node_Id) return Node_Id is
+      Result : Node_Id := N;
+   begin
+      while Nkind (Result) = N_Slice loop
+         Result := Prefix (Result);
+      end loop;
+      return Result;
+   end Get_Underlying_Array_From_Slice;
 
    function Make_Constrained_Array_Subtype (Declaration    : Node_Id;
                                             First_Index    : Node_Id;

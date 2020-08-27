@@ -5527,20 +5527,50 @@ package body Tree_Walk is
    ------------------------
 
    function Do_Type_Conversion (N : Node_Id) return Irep is
-      To_Convert : constant Irep := Do_Expression (Expression (N));
-      New_Type   : constant Irep := Do_Type_Reference (Etype (N));
-      Maybe_Checked_Op : constant Irep :=
-        (if Do_Range_Check (Expression (N))
-         then Make_Range_Assert_Expr
-           (N => N,
-            Value => To_Convert,
-            Bounds_Type => New_Type)
-         else To_Convert);
+      Convert_Expr : constant Node_Id := Expression (N);
    begin
-      return Make_Op_Typecast
-        (Op0 => Maybe_Checked_Op,
-         I_Type => New_Type,
-         Source_Location => Get_Source_Location (N));
+      if Nkind (Convert_Expr) = N_Slice then
+         --  Type conversion of a slice does not currently work if
+         --  the bounds of the target array and the array underlying
+         --  the slice are not identical.
+         --  Hopefully this is not a commonly used feature.
+         --  If it is required it probably wil have to be implemented
+         --  by copying to a temporary array.
+         return Report_Unhandled_Node_Irep
+           (N,
+            "Do_Type_Conversion",
+            "Type conversion of a slice is currently unsupported");
+      end if;
+
+      declare
+         To_Convert : constant Irep := Do_Expression (Convert_Expr);
+         New_Type   : constant Irep := Do_Type_Reference (Etype (N));
+         Maybe_Checked_Op : constant Irep :=
+           (if Do_Range_Check (Expression (N))
+            then Make_Range_Assert_Expr
+              (N => N,
+               Value => To_Convert,
+               Bounds_Type => New_Type)
+            else To_Convert);
+      begin
+         Put_Line ("Do_Type_Conversion");
+         Print_Node_Briefly (N);
+         Print_Node_Briefly (Expression (N));
+         Print_Node_Briefly (Etype (N));
+         Put_Line ("To convert");
+         Print_Irep (To_Convert);
+         Put_Line ("Convert to");
+         Print_Irep (New_Type);
+         Put_Line ("Return value");
+         Print_Irep (Make_Op_Typecast
+                     (Op0 => Maybe_Checked_Op,
+                      I_Type => New_Type,
+                      Source_Location => Get_Source_Location (N)));
+         return Make_Op_Typecast
+           (Op0 => Maybe_Checked_Op,
+            I_Type => New_Type,
+            Source_Location => Get_Source_Location (N));
+      end;
    end Do_Type_Conversion;
 
    -------------------------
