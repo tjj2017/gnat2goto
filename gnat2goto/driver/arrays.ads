@@ -120,6 +120,9 @@ package Arrays is
    --  type of the array until the component type is not an array subtype.
    --  It returns this component type.
 
+   function Get_Underlying_Array_From_Slice (N : Node_Id) return Node_Id
+     with Pre => Nkind (N) = N_Slice;
+
    function Offset_Array_Data (Base : Irep; Offset : Irep) return Irep
      with Pre => (Kind (Base) in Class_Expr
                   and then Kind (Offset) in Class_Expr),
