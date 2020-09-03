@@ -882,7 +882,7 @@ package body Tree_Walk is
                   Put_Line
                     ("Subprogram call with unconstrained array parameter");
                   Put_Line
-                    ("££££££££££££££££££££££££££££££££££££££££££££££££££");
+                    ("????");
                   Print_Node_Briefly (Formal);
                   Print_Node_Briefly (Etype (Formal));
                   Print_Node_Briefly (Actual);

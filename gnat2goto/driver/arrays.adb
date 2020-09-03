@@ -894,7 +894,7 @@ package body Arrays is
       Elem_Type_Ent : constant Entity_Id :=
         Get_Array_Component_Type (LHS_Node);
       Element_Type : constant Irep := Do_Type_Reference (Elem_Type_Ent);
-      --  Unique name giben by Build_Function.
+      --  Unique name given by Build_Function.
       Function_Name : constant String := "concat_assign";
 
       Destination : constant Irep :=
@@ -1810,9 +1810,8 @@ package body Arrays is
            (if Kind (Follow_Symbol_Type (Sub_Pre, Global_Symbol_Table))
             = I_C_Enum_Type
             then
-            --  TODO: use ASVAT.Size_Model.Size when Package standard
-            --  is handled
-               Make_Signedbv_Type (32)
+               Make_Signedbv_Type
+              (ASVAT.Size_Model.Static_Size (Component_Type))
             else
                Sub_Pre);
 
