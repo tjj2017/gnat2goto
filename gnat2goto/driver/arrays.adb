@@ -342,386 +342,595 @@ package body Arrays is
    --------------------------------
 
    function Do_Aggregate_Literal_Array (N : Node_Id) return Irep is
-      Result_Type : constant Irep := Do_Type_Reference (Etype (N));
-
-      function Build_Array_Lit_Func_Body (N : Node_Id) return Irep
-        with Pre => Ekind (Etype (N)) in E_Array_Type | E_Array_Subtype,
-        Post => Kind (Build_Array_Lit_Func_Body'Result) = I_Code_Block;
-
-      function Build_Array_Lit_Func (N : Node_Id) return Symbol
-        with Pre => Ekind (Etype (N)) in E_Array_Type | E_Array_Subtype,
-        Post => not (Build_Array_Lit_Func'Result.Value = Ireps.Empty);
-
-      function Make_No_Args_Func_Call_Expr (Fun_Symbol : Irep;
-                                            Return_Type : Irep;
-                                            Source_Loc : Irep)
-                                            return Irep
-        with Pre => (Kind (Fun_Symbol) = I_Symbol_Expr
-                     and then Kind (Return_Type) in Class_Type),
-        Post => Kind (Make_No_Args_Func_Call_Expr'Result) =
-        I_Side_Effect_Expr_Function_Call;
-
-      -------------------------------
-      -- Build_Array_Lit_Func_Body --
-      -------------------------------
-
-      --  build the following function:
-      --  struct array_struct {int first1; int last1; array_type* data; }
-      --  array_lit() {
-      --    array_type temp_literal[high_bound - low_bound + 1];
-      --    temp_literal = { literal_1, .. literal_n };
-      --    struct arrays_struct { int first1; int last1; array_type *data; }
-      --      temp_array;
-      --    temp_array.first1 = low_bound;
-      --    temp_array.last1 = high_bound;
-      --    temp_array.data = (array_type *)malloc((high_bound-low_bound+1)*
-      --                                           sizeof(array_type));
-      --    temp_lhs = memcpy(temp_array.data,
-      --                      &temp_literal,
-      --                      (high_bound-low_bound+1)*sizeof(array_type)));
-      --    return temp_array;
-      --  }
-      function Build_Array_Lit_Func_Body (N : Node_Id) return Irep is
-
-         Pos_Iter : Node_Id := First (Expressions (N));
-         Source_Loc : constant Irep := Get_Source_Location (N);
-         Bounds : constant Node_Id := Aggregate_Bounds (N);
-         Low_Expr : constant Irep :=
-           Typecast_If_Necessary (Do_Expression (Low_Bound (Bounds)),
-                                  CProver_Size_T, Global_Symbol_Table);
-         High_Expr : constant Irep :=
-           Typecast_If_Necessary (Do_Expression (High_Bound (Bounds)),
-                                  CProver_Size_T, Global_Symbol_Table);
-         Len_Expr : constant Irep :=
-           Build_Array_Size (First      => Low_Expr,
-                             Last       => High_Expr);
-         Element_Type_Ent : constant Entity_Id := Get_Array_Component_Type (N);
-         Element_Type_Pre : constant Irep :=
-           Do_Type_Reference (Element_Type_Ent);
-
-         Element_Type : constant Irep :=
-           (if Kind (Follow_Symbol_Type (Element_Type_Pre,
-            Global_Symbol_Table)) = I_C_Enum_Type
-            then
-               Make_Signedbv_Type
-              (ASVAT.Size_Model.Static_Size (Element_Type_Ent))
-            else
-               Element_Type_Pre);
-         Element_Size : constant Uint :=
-           (if Kind (Element_Type) in Class_Bitvector_Type
-            then
-               UI_From_Int (Int (Get_Width (Element_Type)))
-            else
-               Esize (Element_Type_Ent));
-         Literal_Temp : constant Irep :=
-           Fresh_Var_Symbol_Expr (Make_Pointer_Type (Element_Type),
-                                  "array_literal");
-         Array_Temp : constant Irep :=
-           Fresh_Var_Symbol_Expr (Result_Type, "temp_array");
-         Lhs_Temp : constant Irep :=
-           Fresh_Var_Symbol_Expr (Make_Pointer_Type (Element_Type),
-                                  "temp_lhs");
-         Result_Block : constant Irep :=
-           Make_Code_Block (Source_Loc, CProver_Nil_T);
-         Pos_Number : Natural := 0;
-
-         --  NB: Component number seem to be ignored by CBMC
-         --  We represent arrays as a structure of 3 members:
-         --  0: first index
-         --  1: last index
-         --  2: data pointer
-         Data_Mem_Expr : constant Irep := Get_Data_Member (Array_Temp,
-                                                          Global_Symbol_Table);
-         Array_Temp_Struct : constant Irep :=
-           Make_Struct_Expr (Source_Location => Source_Loc,
-                             I_Type          => Result_Type);
-         Raw_Malloc_Call : constant Irep :=
-           Make_Malloc_Function_Call_Expr (Num_Elem          => Len_Expr,
-                                           Element_Type_Size => Element_Size,
-                                           Source_Loc        => Source_Loc);
-         Malloc_Call_Expr : constant Irep :=
-           Typecast_If_Necessary (Raw_Malloc_Call,
-                                  Make_Pointer_Type (Element_Type),
-                                  Global_Symbol_Table);
-         Literal_Address : constant Irep :=
-           Typecast_If_Necessary (Literal_Temp,
-                                  Make_Pointer_Type (Element_Type),
-                                  Global_Symbol_Table);
-         Memcpy_Call_Expr : constant Irep :=
-           Make_Memcpy_Function_Call_Expr (Destination       => Data_Mem_Expr,
-                                         Source            => Literal_Address,
-                                         Num_Elem          => Len_Expr,
-                                         Element_Type_Size => Element_Size,
-                                           Source_Loc        => Source_Loc);
-
-         PElement_Type : constant Irep := Make_Pointer_Type (Element_Type);
-
-         procedure Initialize_Array;
-         procedure Initialize_Array is
-            Raw_Malloc_Call : constant Irep :=
-              Make_Malloc_Function_Call_Expr (Num_Elem          => Len_Expr,
-                                              Element_Type_Size =>
-                                                Element_Size,
-                                              Source_Loc        => Source_Loc);
-            Malloc_Call_Expr : constant Irep :=
-              Typecast_If_Necessary (Raw_Malloc_Call,
-                                     Make_Pointer_Type (Element_Type),
-                                     Global_Symbol_Table);
-            Others_Expression : Irep;
-
-            Loop_Iter_Var : constant Irep :=
-              Fresh_Var_Symbol_Expr (CProver_Size_T, "i");
-            Loop_Cond : constant Irep :=
-              Make_Op_Gt (Rhs             => Loop_Iter_Var,
-                          Lhs             => Len_Expr,
-                          Source_Location => Source_Loc,
-                          Overflow_Check  => False,
-                          I_Type          => Make_Bool_Type);
-            Size_T_Zero : constant Irep :=
-              Build_Index_Constant (Value      => 0,
-                                    Source_Loc => Source_Loc);
-            Size_T_One : constant Irep :=
-              Build_Index_Constant (Value      => 1,
-                                    Source_Loc => Source_Loc);
-            Increment_I : constant Irep :=
-              Make_Op_Add (Rhs             => Size_T_One,
-                           Lhs             => Loop_Iter_Var,
-                           Source_Location => Source_Loc,
-                           Overflow_Check  => False,
-                           I_Type          => CProver_Size_T);
-            Loop_Iter : constant Irep :=
-              Make_Code_Assign (Rhs             => Increment_I,
-                                Lhs             => Loop_Iter_Var,
-                                Source_Location => Source_Loc,
-                                I_Type          => Make_Nil_Type);
-            Loop_Body : constant Irep :=
-              Make_Code_Block (Source_Location => Source_Loc,
-                               I_Type          => Make_Nil_Type);
-
-            Array_As_Pointer : constant Irep :=
-              Typecast_If_Necessary (Literal_Temp, PElement_Type,
-                                     Global_Symbol_Table);
-            Lhs_Ptr : constant Irep :=
-              Make_Op_Add (Rhs             => Loop_Iter_Var,
-                           Lhs             => Array_As_Pointer,
-                           Source_Location => Source_Loc,
-                           Overflow_Check  => False,
-                           I_Type          => PElement_Type);
-            Lhs_Irep : constant Irep :=
-              Make_Dereference_Expr (Object          => Lhs_Ptr,
-                                     Source_Location => Source_Loc,
-                                     I_Type          => Element_Type);
-         begin
-            Append_Declare_And_Init (Symbol     => Literal_Temp,
-                                     Value      => Malloc_Call_Expr,
-                                     Block      => Result_Block,
-                                     Source_Loc => Source_Loc);
-
-            --  Handle an "others" splat expression if present:
-            if Present (Component_Associations (N)) then
-               declare
-                  Maybe_Others_Node : constant Node_Id :=
-                    Last (Component_Associations (N));
-                  Maybe_Others_Choices : constant List_Id :=
-                    Choices (Maybe_Others_Node);
-               begin
-                  pragma Assert (List_Length (Maybe_Others_Choices) = 1);
-
-                  --  this association does not end with others -> bail
-                  if Nkind (First (Maybe_Others_Choices)) /= N_Others_Choice
-                  then
-                     return;
-                  end if;
-
-                  Others_Expression :=
-                    Do_Expression (Expression (Maybe_Others_Node));
-               end;
-            else
-               return;
-            end if;
-
-            --  iterate over elements and assing others-value to them
-            Append_Op (Loop_Body,
-                       Make_Code_Assign (Rhs             => Others_Expression,
-                                         Lhs             => Lhs_Irep,
-                                         Source_Location => Source_Loc,
-                                         I_Type          => Make_Nil_Type));
-            Append_Op (Loop_Body, Loop_Iter);
-
-            Append_Op (Result_Block,
-                       Make_Code_Assign (Rhs             => Size_T_Zero,
-                                         Lhs             => Loop_Iter_Var,
-                                         Source_Location => Source_Loc,
-                                         I_Type          => Make_Nil_Type));
-            Append_Op (Result_Block,
-                       Make_Code_While (Loop_Body       => Loop_Body,
-                                        Cond            => Loop_Cond,
-                                        Source_Location => Source_Loc,
-                                        I_Type          => Make_Nil_Type));
-         end Initialize_Array;
-
-      begin
-         Initialize_Array;
-
-         while Present (Pos_Iter) loop
-            declare
-               Expr : constant Irep := Do_Expression (Pos_Iter);
-               Pos_Constant : constant Irep :=
-                 Build_Index_Constant (Value      => Int (Pos_Number),
-                                       Source_Loc => Source_Loc);
-               Array_As_Pointer : constant Irep :=
-                 Typecast_If_Necessary (Literal_Temp, PElement_Type,
-                                        Global_Symbol_Table);
-               Lhs_Ptr : constant Irep :=
-                 Make_Op_Add (Rhs             => Pos_Constant,
-                              Lhs             => Array_As_Pointer,
-                              Source_Location => Source_Loc,
-                              Overflow_Check  => False,
-                              I_Type          => PElement_Type);
-               Lhs_Irep : constant Irep :=
-                 Make_Dereference_Expr (Object          => Lhs_Ptr,
-                                        Source_Location => Source_Loc,
-                                        I_Type          => Element_Type);
-            begin
-               Append_Op (Result_Block,
-                          Make_Code_Assign (Rhs             =>
-               Typecast_If_Necessary (Expr, Element_Type, Global_Symbol_Table),
-                                            Lhs             => Lhs_Irep,
-                                            Source_Location => Source_Loc,
-                                            I_Type          => Element_Type));
-            end;
-            Next (Pos_Iter);
-            Pos_Number := Pos_Number + 1;
-         end loop;
-
-         Append_Struct_Member (Array_Temp_Struct, Low_Expr);
-         Append_Struct_Member (Array_Temp_Struct, High_Expr);
-         Append_Struct_Member (Array_Temp_Struct, Malloc_Call_Expr);
-
-         if Present (Component_Associations (N)) and then
-           List_Length (Component_Associations (N)) /= 1
+      Source_Location   : constant Irep := Get_Source_Location (N);
+      Positional_Assoc  : constant Boolean := Present (Expressions (N));
+      Has_Static_Bounds : constant Boolean :=
+        Is_OK_Static_Range (Aggregate_Bounds (N));
+      Aggregate_Subtype : constant Entity_Id := Etype (N);
+      Aggregate_Name    : constant String := Unique_Name (Aggregate_Subtype);
+      Aggregate_Sym_Id  : constant Symbol_Id := Intern (Aggregate_Name);
+      New_Name          : constant String := Fresh_Var_Name ("aggregate_");
+      Aggregate_Obj     : constant String := New_Name & "_obj";
+      Aggregate_Func    : constant String := New_Name & "_fun";
+--        Aggregate_Loop    : constant String := New_Name & "_loop";
+      Subtype_Irep      : constant Irep :=
+        Do_Type_Reference (Aggregate_Subtype);
+      Component_Pre     : constant Irep :=
+        Do_Type_Reference (Component_Type (Aggregate_Subtype));
+      Component_Irep    : constant Irep :=
+        (if Kind (Follow_Symbol_Type (Component_Pre,
+         Global_Symbol_Table)) = I_C_Enum_Type
          then
-            declare
-               Components : constant List_Id := Component_Associations (N);
-               Component_Node : Node_Id := First (Components);
-            begin
-               if List_Length (Choices (Component_Node)) /= 1 then
-                  return Report_Unhandled_Node_Irep (N,
-                                     "Do_Aggregate_Literal_Array",
-                                     "More than one choice in component node");
-               end if;
-               while Present (Component_Node) loop
-                  declare
-                     Expr : constant Irep :=
-                       Do_Expression (Expression (Component_Node));
-                     Choice_Id : constant Irep :=
-                       Do_Expression (First (Choices (Component_Node)));
-                     Component_Index : constant Irep :=
-                       Typecast_If_Necessary (Choice_Id, CProver_Size_T,
-                                              Global_Symbol_Table);
-                     Zero_Based_Index : constant Irep :=
-                       Make_Op_Sub (Rhs             => Low_Expr,
-                                    Lhs             => Component_Index,
-                                    Source_Location => Source_Loc,
-                                    Overflow_Check  => False,
-                                    I_Type          => CProver_Size_T);
-                     Array_As_Pointer : constant Irep :=
-                       Typecast_If_Necessary (Literal_Temp, PElement_Type,
-                                              Global_Symbol_Table);
-                     Lhs_Ptr : constant Irep :=
-                       Make_Op_Add (Rhs             => Zero_Based_Index,
-                                    Lhs             => Array_As_Pointer,
-                                    Source_Location => Source_Loc,
-                                    Overflow_Check  => False,
-                                    I_Type          => PElement_Type);
-                     Lhs_Irep : constant Irep :=
-                       Make_Dereference_Expr (Object          => Lhs_Ptr,
-                                              Source_Location => Source_Loc,
-                                              I_Type          => Element_Type);
-                  begin
-                     Append_Op (Result_Block,
-                                Make_Code_Assign (Rhs             =>
-               Typecast_If_Necessary (Expr, Element_Type, Global_Symbol_Table),
-                                            Lhs             => Lhs_Irep,
-                                            Source_Location => Source_Loc,
-                                            I_Type          => Element_Type));
-                  end;
-                  Component_Node := Next (Component_Node);
-               end loop;
-            end;
-         end if;
+            Make_Unsignedbv_Type
+           (ASVAT.Size_Model.Static_Size (Component_Type (Aggregate_Subtype)))
+         else
+            Component_Pre);
+      Obj_Irep          : constant Irep := Make_Symbol_Expr
+        (Source_Location => Source_Location,
+         I_Type          => Subtype_Irep,
+         Range_Check     => False,
+         Identifier      => Aggregate_Obj);
+      Func_Irep         : constant Irep :=
+        Make_Code_Type (Parameters  => Make_Parameter_List,  -- No parameters.
+                        Ellipsis    => False,
+                        Return_Type => Subtype_Irep,
+                        Inlined     => False,
+                        Knr         => False);
+      Result_Block      : constant Irep := Make_Code_Block (Source_Location);
+      Obj_Dec           : constant Irep := Make_Code_Decl
+        (Symbol          => Obj_Irep,
+         Source_Location => Source_Location,
+         I_Type          => Subtype_Irep,
+         Range_Check     => False);
 
-         --  As long as symex is field-insensitive we need to initialise the
-         --  array structure with the information about allocated size.
-         --  I.e. Create a temporary struct and assign it in one swoop to
-         --  Array_Temp - so that Symex does not see the struct as having been
-         --  changed after its creation and can therefore see it as constant -
-         --  which means that the struct member that refers to "allocated size"
-         --  remains visible/accessible.
-         Append_Declare_And_Init (Symbol     => Array_Temp,
-                                  Value      => Array_Temp_Struct,
-                                  Block      => Result_Block,
-                                  Source_Loc => Source_Loc);
-         Append_Op (Result_Block,
-                    Make_Code_Assign (Rhs             => Memcpy_Call_Expr,
-                                      Lhs             => Lhs_Temp,
-                                      Source_Location => Source_Loc));
-         Append_Op (Result_Block,
-                    Make_Code_Return (Return_Value    => Array_Temp,
-                                      Source_Location => Source_Loc));
-
-         return Result_Block;
-      end Build_Array_Lit_Func_Body;
-
-      --------------------------
-      -- Build_Array_Lit_Func --
-      --------------------------
-
-      function Build_Array_Lit_Func (N : Node_Id) return Symbol is
-         Func_Name : constant String := Fresh_Var_Name ("array_lit");
-         Func_Params : constant Irep := Make_Parameter_List;
-         Func_Type : constant Irep :=
-           Make_Code_Type (Parameters  => Func_Params,
-                           Ellipsis    => False,
-                           Return_Type => Do_Type_Reference (Etype (N)),
-                           Inlined     => False,
-                           Knr         => False);
-      begin
-         return New_Function_Symbol_Entry (Name        => Func_Name,
-                                           Symbol_Type => Func_Type,
-                                           Value       =>
-                                             Build_Array_Lit_Func_Body (N),
-                                           A_Symbol_Table =>
-                                             Global_Symbol_Table);
-      end Build_Array_Lit_Func;
-
-      -----------------------------------
-      -- Make_Array_Lit_Func_Call_Expr --
-      -----------------------------------
-
-      function Make_No_Args_Func_Call_Expr (Fun_Symbol : Irep;
-                                            Return_Type : Irep;
-                                            Source_Loc : Irep)
-                                            return Irep is
-         Call_Args  : constant Irep := Make_Argument_List;
-         Fun_Call : constant Irep :=
-           Make_Side_Effect_Expr_Function_Call (
-                                              Arguments       => Call_Args,
-                                              I_Function      => Fun_Symbol,
-                                              Source_Location => Source_Loc,
-                                              I_Type          => Return_Type);
-      begin
-         return Fun_Call;
-      end Make_No_Args_Func_Call_Expr;
-
-      Func_Symbol : constant Symbol := Build_Array_Lit_Func (N);
    begin
-      return Make_No_Args_Func_Call_Expr
-        (Fun_Symbol  =>
-           Symbol_Expr (Func_Symbol),
-         Return_Type => Result_Type,
-         Source_Loc  => Get_Source_Location (N));
+      --  First add the aggregate array object to the symbol table.
+      New_Object_Symbol_Entry
+        (Object_Name       => Intern (Aggregate_Obj),
+               Object_Type       => Subtype_Irep,
+               Object_Init_Value => Ireps.Empty,
+               A_Symbol_Table    => Global_Symbol_Table);
+
+      --  Make the body of the function that builds the aggregate
+      --  First the declaration of the aggregate array;
+      Append_Op (Result_Block, Obj_Dec);
+
+      if Has_Static_Bounds then
+         declare
+            Low  : constant Integer :=
+              Integer (UI_To_Int
+                       (Expr_Value (Low_Bound (Aggregate_Bounds (N)))));
+            High : constant Integer :=
+              Integer (UI_To_Int
+                       (Expr_Value (High_Bound (Aggregate_Bounds (N)))));
+         begin
+            if Positional_Assoc then
+               --  The aggregate has positional association and its bounds
+               --  are known by the front-end.  A simple Ada loop can iterate
+               --  through the expressions in the aggregate and assign them to
+               --  the appropriate element of the array.
+               declare
+                  --  A positional associated aggregate may have an others =>
+                  --  as the last entry in the aggregate.
+                  Others_Expr : constant Irep :=
+                    (if Present (Component_Associations (N)) and then
+                     Present (Expression (First (Component_Associations (N))))
+                     then
+                        Do_Expression
+                       (Expression (First (Component_Associations (N))))
+                     else
+                     --  If others is followed by <> then all other
+                     --  elements of the array are unchanged.
+                        Ireps.Empty);
+
+                  Next_Expr   : Node_Id := First (Expressions (N));
+               begin
+                  Put_Line ("High " & Integer'Image (High));
+                  Put_Line ("Low " & Integer'Image (Low));
+                  --  All goto arrays are indexed from 0
+                  for I in 0 .. High - Low loop
+                     declare
+                        Expr_To_Use : constant Irep :=
+                          (if Present (Next_Expr) then
+                                Do_Expression (Next_Expr)
+                           else
+                              Others_Expr);
+                     begin
+                        Put_Line ("Iter " & Integer'Image (I));
+                        Print_Irep (Expr_To_Use);
+                        --  If the expression to use is Ireps.Empty an
+                        --  others <> has been reached in the aggregate list.
+                        --  There is no more to be done!
+                        --  This will change if default values for array
+                        --  elements are implemented.  The remaining
+                        --  elements would be set to the default value.
+                        --  Currently they could be set to nondet but that
+                        --  is probably not necessary.
+                        exit when Expr_To_Use = Ireps.Empty;
+
+                        --  Otherwise assign the expression to the i'th
+                        --  element of the aggregate array object.
+                        Append_Op
+                          (Result_Block,
+                           Make_Code_Assign
+                             (Rhs             => Expr_To_Use,
+                              Lhs             =>
+                                Make_Index_Expr
+                                  (I_Array         => Obj_Irep,
+                                   Index           =>
+                                     Integer_Constant_To_Expr
+                                       (Value           =>
+                                              UI_From_Int (Int (I)),
+                                        Expr_Type       => Int64_T,
+                                        Source_Location => Source_Location),
+                                   Source_Location => Source_Location,
+                                   I_Type          => Component_Irep,
+                                   Range_Check     => False),
+                              Source_Location => Source_Location,
+                              I_Type          => Component_Irep,
+                              Range_Check     => False));
+
+                        --  If others => is present in the aggregate the
+                        --  loop will proceed beyond the last expression.
+                        if Present (Next_Expr) then
+                           Next_Expr := Next (Next_Expr);
+                        end if;
+                     end;
+                  end loop;
+               end;
+            end if;
+         end;
+         --  Now add the return statement.
+         Append_Op (Result_Block,
+                    Make_Code_Return (Return_Value    => Obj_Irep,
+                                      Source_Location => Source_Location));
+         declare
+            Aggregate_Func_Symbol : constant Symbol :=
+              New_Function_Symbol_Entry
+                (Name           => Aggregate_Func,
+                 Symbol_Type    => Func_Irep,
+                 Value          => Result_Block,
+                 A_Symbol_Table => Global_Symbol_Table);
+            Func_Call : constant Irep :=
+              Make_Side_Effect_Expr_Function_Call
+                (Arguments       => Make_Argument_List,  -- Null arg list.
+                 I_Function      => Symbol_Expr (Aggregate_Func_Symbol),
+                 Source_Location => Source_Location,
+                 I_Type          => Subtype_Irep,
+                 Range_Check     => False);
+         begin
+            Print_Irep (Func_Call);
+            return Func_Call;
+         end;
+      end if;
+
+      if Present (Expressions (N)) then
+         Put_Line ("Positional association");
+      else
+         Put_Line ("Named association");
+      end if;
+
+      if Is_OK_Static_Range (Aggregate_Bounds (N)) then
+         Put_Line ("Static aggregate bounds");
+      else
+         Put_Line ("Dynamic aggregate bounds");
+      end if;
+      Put_Line ("Do_Aggregate_Literal_Array");
+      Print_Irep (Func_Irep);
+      Print_Irep (Result_Block);
+      Put_Line (Aggregate_Obj);
+      Put_Line (Aggregate_Func);
+      Print_Node_Briefly (Aggregate_Subtype);
+      Put_Line ("Is_Array_Subtype " & Boolean'Image
+                (Ekind (Aggregate_Subtype) = E_Array_Subtype));
+      Put_Line ("In symbol table " & Boolean'Image
+                (Global_Symbol_Table.Contains (Aggregate_Sym_Id)));
+      Put_Line (Aggregate_Name);
+
+      Put_Line ("Is_Array_Type " & Boolean'Image
+                (Ekind (Etype (Etype (N))) = E_Array_Type));
+      Put_Line ("In symbol table " & Boolean'Image
+                (Global_Symbol_Table.Contains
+                   (Intern (Unique_Name (Etype (Etype (N)))))));
+
+      Put_Line ("Component_Type");
+      Print_Node_Briefly (Component_Type (Etype (Etype (N))));
+
+      Put_Line ("Parent (N)");
+      Print_Node_Briefly (Parent (N));
+      Print_Node_Briefly (Defining_Identifier (Parent (N)));
+      Put_Line ("In symbol table " & Boolean'Image
+                (Global_Symbol_Table.Contains
+                   (Intern (Unique_Name
+                      (Defining_Identifier (Parent (N)))))));
+
+      return Report_Unhandled_Node_Irep
+        (N        => N,
+         Fun_Name => "Do_Aggregate_Literal_Array",
+         Message  => "Observing");
    end Do_Aggregate_Literal_Array;
+
+--     function Do_Aggregate_Literal_Array (N : Node_Id) return Irep is
+--        Result_Type : constant Irep := Do_Type_Reference (Etype (N));
+--
+--        function Build_Array_Lit_Func_Body (N : Node_Id) return Irep
+--          with Pre => Ekind (Etype (N)) in E_Array_Type | E_Array_Subtype,
+--          Post => Kind (Build_Array_Lit_Func_Body'Result) = I_Code_Block;
+--
+--        function Build_Array_Lit_Func (N : Node_Id) return Symbol
+--          with Pre => Ekind (Etype (N)) in E_Array_Type | E_Array_Subtype,
+--          Post => not (Build_Array_Lit_Func'Result.Value = Ireps.Empty);
+--
+--        function Make_No_Args_Func_Call_Expr (Fun_Symbol : Irep;
+--                                              Return_Type : Irep;
+--                                              Source_Loc : Irep)
+--                                              return Irep
+--          with Pre => (Kind (Fun_Symbol) = I_Symbol_Expr
+--                       and then Kind (Return_Type) in Class_Type),
+--          Post => Kind (Make_No_Args_Func_Call_Expr'Result) =
+--          I_Side_Effect_Expr_Function_Call;
+--
+--        -------------------------------
+--        -- Build_Array_Lit_Func_Body --
+--        -------------------------------
+--
+--        --  build the following function:
+--        --  struct array_struct {int first1; int last1; array_type* data; }
+--        --  array_lit() {
+--        --    array_type temp_literal[high_bound - low_bound + 1];
+--        --    temp_literal = { literal_1, .. literal_n };
+--     --    struct arrays_struct { int first1; int last1; array_type *data; }
+--        --      temp_array;
+--        --    temp_array.first1 = low_bound;
+--        --    temp_array.last1 = high_bound;
+--      --    temp_array.data = (array_type *)malloc((high_bound-low_bound+1)*
+--        --                                           sizeof(array_type));
+--        --    temp_lhs = memcpy(temp_array.data,
+--        --                      &temp_literal,
+--      --                      (high_bound-low_bound+1)*sizeof(array_type)));
+--        --    return temp_array;
+--        --  }
+--        function Build_Array_Lit_Func_Body (N : Node_Id) return Irep is
+--
+--           Pos_Iter : Node_Id := First (Expressions (N));
+--           Source_Loc : constant Irep := Get_Source_Location (N);
+--           Bounds : constant Node_Id := Aggregate_Bounds (N);
+--           Low_Expr : constant Irep :=
+--             Typecast_If_Necessary (Do_Expression (Low_Bound (Bounds)),
+--                                    CProver_Size_T, Global_Symbol_Table);
+--           High_Expr : constant Irep :=
+--             Typecast_If_Necessary (Do_Expression (High_Bound (Bounds)),
+--                                    CProver_Size_T, Global_Symbol_Table);
+--           Len_Expr : constant Irep :=
+--             Build_Array_Size (First      => Low_Expr,
+--                               Last       => High_Expr);
+--       Element_Type_Ent : constant Entity_Id := Get_Array_Component_Type (N);
+--           Element_Type_Pre : constant Irep :=
+--             Do_Type_Reference (Element_Type_Ent);
+--
+--           Element_Type : constant Irep :=
+--             (if Kind (Follow_Symbol_Type (Element_Type_Pre,
+--              Global_Symbol_Table)) = I_C_Enum_Type
+--              then
+--                 Make_Unsignedbv_Type
+--                (ASVAT.Size_Model.Static_Size (Element_Type_Ent))
+--              else
+--                 Element_Type_Pre);
+--           Element_Size : constant Uint :=
+--             (if Kind (Element_Type) in Class_Bitvector_Type
+--              then
+--                 UI_From_Int (Int (Get_Width (Element_Type)))
+--              else
+--                 Esize (Element_Type_Ent));
+--           Literal_Temp : constant Irep :=
+--             Fresh_Var_Symbol_Expr (Make_Pointer_Type (Element_Type),
+--                                    "array_literal");
+--           Array_Temp : constant Irep :=
+--             Fresh_Var_Symbol_Expr (Result_Type, "temp_array");
+--           Lhs_Temp : constant Irep :=
+--             Fresh_Var_Symbol_Expr (Make_Pointer_Type (Element_Type),
+--                                    "temp_lhs");
+--           Result_Block : constant Irep :=
+--             Make_Code_Block (Source_Loc, CProver_Nil_T);
+--           Pos_Number : Natural := 0;
+--
+--           --  NB: Component number seem to be ignored by CBMC
+--           --  We represent arrays as a structure of 3 members:
+--           --  0: first index
+--           --  1: last index
+--           --  2: data pointer
+--           Data_Mem_Expr : constant Irep := Get_Data_Member (Array_Temp,
+--                                                        Global_Symbol_Table);
+--           Array_Temp_Struct : constant Irep :=
+--             Make_Struct_Expr (Source_Location => Source_Loc,
+--                               I_Type          => Result_Type);
+--           Raw_Malloc_Call : constant Irep :=
+--             Make_Malloc_Function_Call_Expr (Num_Elem          => Len_Expr,
+--                                         Element_Type_Size => Element_Size,
+--                                          Source_Loc        => Source_Loc);
+--           Malloc_Call_Expr : constant Irep :=
+--             Typecast_If_Necessary (Raw_Malloc_Call,
+--                                    Make_Pointer_Type (Element_Type),
+--                                    Global_Symbol_Table);
+--           Literal_Address : constant Irep :=
+--             Typecast_If_Necessary (Literal_Temp,
+--                                    Make_Pointer_Type (Element_Type),
+--                                    Global_Symbol_Table);
+--           Memcpy_Call_Expr : constant Irep :=
+--         Make_Memcpy_Function_Call_Expr (Destination       => Data_Mem_Expr,
+--                                       Source            => Literal_Address,
+--                                           Num_Elem          => Len_Expr,
+--                                           Element_Type_Size => Element_Size,
+--                                          Source_Loc        => Source_Loc);
+--
+--           PElement_Type : constant Irep := Make_Pointer_Type (Element_Type);
+--
+--           procedure Initialize_Array;
+--           procedure Initialize_Array is
+--              Raw_Malloc_Call : constant Irep :=
+--             Make_Malloc_Function_Call_Expr (Num_Elem          => Len_Expr,
+--                                                Element_Type_Size =>
+--                                                  Element_Size,
+--                                           Source_Loc        => Source_Loc);
+--              Malloc_Call_Expr : constant Irep :=
+--                Typecast_If_Necessary (Raw_Malloc_Call,
+--                                       Make_Pointer_Type (Element_Type),
+--                                       Global_Symbol_Table);
+--              Others_Expression : Irep;
+--
+--              Loop_Iter_Var : constant Irep :=
+--                Fresh_Var_Symbol_Expr (CProver_Size_T, "i");
+--              Loop_Cond : constant Irep :=
+--                Make_Op_Gt (Rhs             => Loop_Iter_Var,
+--                            Lhs             => Len_Expr,
+--                            Source_Location => Source_Loc,
+--                            Overflow_Check  => False,
+--                            I_Type          => Make_Bool_Type);
+--              Size_T_Zero : constant Irep :=
+--                Build_Index_Constant (Value      => 0,
+--                                      Source_Loc => Source_Loc);
+--              Size_T_One : constant Irep :=
+--                Build_Index_Constant (Value      => 1,
+--                                      Source_Loc => Source_Loc);
+--              Increment_I : constant Irep :=
+--                Make_Op_Add (Rhs             => Size_T_One,
+--                             Lhs             => Loop_Iter_Var,
+--                             Source_Location => Source_Loc,
+--                             Overflow_Check  => False,
+--                             I_Type          => CProver_Size_T);
+--              Loop_Iter : constant Irep :=
+--                Make_Code_Assign (Rhs             => Increment_I,
+--                                  Lhs             => Loop_Iter_Var,
+--                                  Source_Location => Source_Loc,
+--                                  I_Type          => Make_Nil_Type);
+--              Loop_Body : constant Irep :=
+--                Make_Code_Block (Source_Location => Source_Loc,
+--                                 I_Type          => Make_Nil_Type);
+--
+--              Array_As_Pointer : constant Irep :=
+--                Typecast_If_Necessary (Literal_Temp, PElement_Type,
+--                                       Global_Symbol_Table);
+--              Lhs_Ptr : constant Irep :=
+--                Make_Op_Add (Rhs             => Loop_Iter_Var,
+--                             Lhs             => Array_As_Pointer,
+--                             Source_Location => Source_Loc,
+--                             Overflow_Check  => False,
+--                             I_Type          => PElement_Type);
+--              Lhs_Irep : constant Irep :=
+--                Make_Dereference_Expr (Object          => Lhs_Ptr,
+--                                       Source_Location => Source_Loc,
+--                                       I_Type          => Element_Type);
+--           begin
+--              Append_Declare_And_Init (Symbol     => Literal_Temp,
+--                                       Value      => Malloc_Call_Expr,
+--                                       Block      => Result_Block,
+--                                       Source_Loc => Source_Loc);
+--
+--              --  Handle an "others" splat expression if present:
+--              if Present (Component_Associations (N)) then
+--                 declare
+--                    Maybe_Others_Node : constant Node_Id :=
+--                      Last (Component_Associations (N));
+--                    Maybe_Others_Choices : constant List_Id :=
+--                      Choices (Maybe_Others_Node);
+--                 begin
+--                    pragma Assert (List_Length (Maybe_Others_Choices) = 1);
+--
+--                    --  this association does not end with others -> bail
+--                if Nkind (First (Maybe_Others_Choices)) /= N_Others_Choice
+--                    then
+--                       return;
+--                    end if;
+--
+--                    Others_Expression :=
+--                      Do_Expression (Expression (Maybe_Others_Node));
+--                 end;
+--              else
+--                 return;
+--              end if;
+--
+--              --  iterate over elements and assing others-value to them
+--              Append_Op (Loop_Body,
+--                    Make_Code_Assign (Rhs             => Others_Expression,
+--                                           Lhs             => Lhs_Irep,
+--                                           Source_Location => Source_Loc,
+--                                        I_Type          => Make_Nil_Type));
+--              Append_Op (Loop_Body, Loop_Iter);
+--
+--              Append_Op (Result_Block,
+--                         Make_Code_Assign (Rhs             => Size_T_Zero,
+--                                           Lhs             => Loop_Iter_Var,
+--                                           Source_Location => Source_Loc,
+--                                        I_Type          => Make_Nil_Type));
+--              Append_Op (Result_Block,
+--                         Make_Code_While (Loop_Body       => Loop_Body,
+--                                          Cond            => Loop_Cond,
+--                                          Source_Location => Source_Loc,
+--                                          I_Type          => Make_Nil_Type));
+--           end Initialize_Array;
+--
+--        begin
+--           Initialize_Array;
+--
+--           while Present (Pos_Iter) loop
+--              declare
+--                 Expr : constant Irep := Do_Expression (Pos_Iter);
+--                 Pos_Constant : constant Irep :=
+--                   Build_Index_Constant (Value      => Int (Pos_Number),
+--                                         Source_Loc => Source_Loc);
+--                 Array_As_Pointer : constant Irep :=
+--                   Typecast_If_Necessary (Literal_Temp, PElement_Type,
+--                                          Global_Symbol_Table);
+--                 Lhs_Ptr : constant Irep :=
+--                   Make_Op_Add (Rhs             => Pos_Constant,
+--                                Lhs             => Array_As_Pointer,
+--                                Source_Location => Source_Loc,
+--                                Overflow_Check  => False,
+--                                I_Type          => PElement_Type);
+--                 Lhs_Irep : constant Irep :=
+--                   Make_Dereference_Expr (Object          => Lhs_Ptr,
+--                                          Source_Location => Source_Loc,
+--                                          I_Type          => Element_Type);
+--              begin
+--                 Append_Op (Result_Block,
+--                            Make_Code_Assign (Rhs             =>
+--           Typecast_If_Necessary (Expr, Element_Type, Global_Symbol_Table),
+--                                              Lhs             => Lhs_Irep,
+--                                              Source_Location => Source_Loc,
+--                                        I_Type          => Element_Type));
+--              end;
+--              Next (Pos_Iter);
+--              Pos_Number := Pos_Number + 1;
+--           end loop;
+--
+--           Append_Struct_Member (Array_Temp_Struct, Low_Expr);
+--           Append_Struct_Member (Array_Temp_Struct, High_Expr);
+--           Append_Struct_Member (Array_Temp_Struct, Malloc_Call_Expr);
+--
+--           if Present (Component_Associations (N)) and then
+--             List_Length (Component_Associations (N)) /= 1
+--           then
+--              declare
+--                 Components : constant List_Id := Component_Associations (N);
+--                 Component_Node : Node_Id := First (Components);
+--              begin
+--                 if List_Length (Choices (Component_Node)) /= 1 then
+--                    return Report_Unhandled_Node_Irep (N,
+--                                       "Do_Aggregate_Literal_Array",
+--                                   "More than one choice in component node");
+--                 end if;
+--                 while Present (Component_Node) loop
+--                    declare
+--                       Expr : constant Irep :=
+--                         Do_Expression (Expression (Component_Node));
+--                       Choice_Id : constant Irep :=
+--                         Do_Expression (First (Choices (Component_Node)));
+--                       Component_Index : constant Irep :=
+--                         Typecast_If_Necessary (Choice_Id, CProver_Size_T,
+--                                                Global_Symbol_Table);
+--                       Zero_Based_Index : constant Irep :=
+--                         Make_Op_Sub (Rhs             => Low_Expr,
+--                                      Lhs             => Component_Index,
+--                                      Source_Location => Source_Loc,
+--                                      Overflow_Check  => False,
+--                                      I_Type          => CProver_Size_T);
+--                       Array_As_Pointer : constant Irep :=
+--                         Typecast_If_Necessary (Literal_Temp, PElement_Type,
+--                                                Global_Symbol_Table);
+--                       Lhs_Ptr : constant Irep :=
+--                         Make_Op_Add (Rhs             => Zero_Based_Index,
+--                                      Lhs             => Array_As_Pointer,
+--                                      Source_Location => Source_Loc,
+--                                      Overflow_Check  => False,
+--                                      I_Type          => PElement_Type);
+--                       Lhs_Irep : constant Irep :=
+--                         Make_Dereference_Expr (Object          => Lhs_Ptr,
+--                                            Source_Location => Source_Loc,
+--                                           I_Type          => Element_Type);
+--                    begin
+--                       Append_Op (Result_Block,
+--                                  Make_Code_Assign (Rhs             =>
+--            Typecast_If_Necessary (Expr, Element_Type, Global_Symbol_Table),
+--                                              Lhs             => Lhs_Irep,
+--                                              Source_Location => Source_Loc,
+--                                           I_Type          => Element_Type));
+--                    end;
+--                    Component_Node := Next (Component_Node);
+--                 end loop;
+--              end;
+--           end if;
+--
+--         --  As long as symex is field-insensitive we need to initialise the
+--         --  array structure with the information about allocated size.
+--         --  I.e. Create a temporary struct and assign it in one swoop to
+--      --  Array_Temp - so that Symex does not see the struct as having been
+--       --  changed after its creation and can therefore see it as constant -
+--      --  which means that the struct member that refers to "allocated size"
+--         --  remains visible/accessible.
+--           Append_Declare_And_Init (Symbol     => Array_Temp,
+--                                    Value      => Array_Temp_Struct,
+--                                    Block      => Result_Block,
+--                                    Source_Loc => Source_Loc);
+--           Append_Op (Result_Block,
+--                      Make_Code_Assign (Rhs             => Memcpy_Call_Expr,
+--                                        Lhs             => Lhs_Temp,
+--                                        Source_Location => Source_Loc));
+--           Append_Op (Result_Block,
+--                      Make_Code_Return (Return_Value    => Array_Temp,
+--                                        Source_Location => Source_Loc));
+--
+--           return Result_Block;
+--        end Build_Array_Lit_Func_Body;
+--
+--        --------------------------
+--        -- Build_Array_Lit_Func --
+--        --------------------------
+--
+--        function Build_Array_Lit_Func (N : Node_Id) return Symbol is
+--           Func_Name : constant String := Fresh_Var_Name ("array_lit");
+--           Func_Params : constant Irep := Make_Parameter_List;
+--           Func_Type : constant Irep :=
+--             Make_Code_Type (Parameters  => Func_Params,
+--                             Ellipsis    => False,
+--                             Return_Type => Do_Type_Reference (Etype (N)),
+--                             Inlined     => False,
+--                             Knr         => False);
+--        begin
+--           return New_Function_Symbol_Entry (Name        => Func_Name,
+--                                             Symbol_Type => Func_Type,
+--                                             Value       =>
+--                                               Build_Array_Lit_Func_Body (N),
+--                                             A_Symbol_Table =>
+--                                               Global_Symbol_Table);
+--        end Build_Array_Lit_Func;
+--
+--        -----------------------------------
+--        -- Make_Array_Lit_Func_Call_Expr --
+--        -----------------------------------
+--
+--        function Make_No_Args_Func_Call_Expr (Fun_Symbol : Irep;
+--                                              Return_Type : Irep;
+--                                              Source_Loc : Irep)
+--                                              return Irep is
+--           Call_Args  : constant Irep := Make_Argument_List;
+--           Fun_Call : constant Irep :=
+--             Make_Side_Effect_Expr_Function_Call (
+--                                                Arguments       => Call_Args,
+--                                              I_Function      => Fun_Symbol,
+--                                              Source_Location => Source_Loc,
+--                                             I_Type          => Return_Type);
+--        begin
+--           return Fun_Call;
+--        end Make_No_Args_Func_Call_Expr;
+--
+--        Func_Symbol : constant Symbol := Build_Array_Lit_Func (N);
+--     begin
+--        return Make_No_Args_Func_Call_Expr
+--          (Fun_Symbol  =>
+--             Symbol_Expr (Func_Symbol),
+--           Return_Type => Result_Type,
+--           Source_Loc  => Get_Source_Location (N));
+--     end Do_Aggregate_Literal_Array;
 
    ------------------------------------
    -- Make_Array_Default_Initialiser --
@@ -1335,7 +1544,7 @@ package body Arrays is
    ----------------------------------------------------------------------------
    function Do_Slice (N : Node_Id) return Irep is
       pragma Assert (Print_Msg ("Do_Slice Start"));
-      pragma Assert (Print_Node (N, True));
+      pragma Assert (Print_Node (N));
       pragma Assert (Print_Node (Etype (N)));
       pragma Assert (Print_Node (First_Index (Etype (N))));
       pragma Assert (Print_Node (Etype (First_Index (Etype (N)))));
@@ -1798,10 +2007,12 @@ package body Arrays is
                                             return Irep
    is
       Source_Location : constant Irep := Get_Source_Location (First_Index);
+      Array_Entity    : constant Entity_Id :=
+        Defining_Identifier (Declaration);
    begin
       Put_Line ("Make_Array_Subtype");
       Print_Node_Briefly (Declaration);
-      Print_Node_Briefly (Defining_Identifier (Declaration));
+      Print_Node_Briefly (Array_Entity);
       Print_Node_Briefly (Component_Type);
       declare
          Sub_Pre : constant Irep :=
@@ -1810,7 +2021,7 @@ package body Arrays is
            (if Kind (Follow_Symbol_Type (Sub_Pre, Global_Symbol_Table))
             = I_C_Enum_Type
             then
-               Make_Signedbv_Type
+               Make_Unsignedbv_Type
               (ASVAT.Size_Model.Static_Size (Component_Type))
             else
                Sub_Pre);
@@ -1837,7 +2048,7 @@ package body Arrays is
          --  Multidimensional arrays are converted into a a single
          --  dimension of an appropriate length.
          --  This needs to be considered when indexing into, or
-         --  assigning aggrgates to a multidimensional array.
+         --  assigning aggregates to a multidimensional array.
          Dimension_Iter := Next (Dimension_Iter);
          while Present (Dimension_Iter) loop
             Dimension_Number := Dimension_Number + 1;
@@ -1893,15 +2104,28 @@ package body Arrays is
                   Range_Check     => False)
                else
                   Var_Dim_Bounds);
+
+            Array_Model_Size : constant Irep :=
+              Make_Op_Mul
+                (Rhs             => Typecast_If_Necessary
+                   (Expr           =>
+                          ASVAT.Size_Model.Computed_Size (Component_Type),
+                    New_Type       => Int64_T,
+                    A_Symbol_Table => Global_Symbol_Table),
+                 Lhs             => Array_Size,
+                 Source_Location => Source_Location,
+                 Overflow_Check  => False,
+                 I_Type          => Int64_T,
+                 Range_Check     => False);
          begin
             if Var_Dim_Bounds /= Ireps.Empty then
-               --  The has at least one dimention which has an Ada variable
-               --  specifying a bound.
-               --  A goto new variable has to be declared and intialised
+               --  The array has at least one dimension which has an
+               --  Ada variable specifying a bound.
+               --  A new goto variable has to be declared and intialised
                --  to the array size expression to declare the array.
                declare
                   Arr_Len : constant String :=
-                    Unique_Name (Defining_Identifier (Declaration)) &
+                    Unique_Name (Array_Entity) &
                     "_$array_size";
                   Arr_Len_Id   : constant Symbol_Id := Intern (Arr_Len);
                   Arr_Len_Irep : constant Irep :=
@@ -1956,6 +2180,9 @@ package body Arrays is
                end;
             end if;
             Put_Line ("Done Make_Array_Subtype");
+            --  Set the ASVAT.Size_Model size for the array.
+            ASVAT.Size_Model.Set_Computed_Size
+              (Array_Entity, Array_Model_Size);
             return Make_Array_Type
               (I_Subtype => Sub,
                Size      => Array_Size);
@@ -1973,22 +2200,26 @@ package body Arrays is
         (if Kind (Follow_Symbol_Type (Sub_Pre, Global_Symbol_Table))
          = I_C_Enum_Type
          then
-         --  TODO: use ASVAT.Size_Model.Size when Package standard
-         --  is handled
-            Make_Signedbv_Type (32)
+            Make_Unsignedbv_Type
+           (ASVAT.Size_Model.Static_Size (Component_Type))
          else
             Sub_Pre);
+      Nondet_Expr : constant Irep := Make_Side_Effect_Expr_Nondet
+        (Source_Location => Get_Source_Location (Declaration),
+         I_Type          => Int64_T,
+         Range_Check     => False);
    begin
-      Put_Line ("Make_Constrained_Array_Subtype");
+      Put_Line ("Make_Unconstrained_Array_Subtype");
       Print_Node_Briefly (Declaration);
       Print_Irep (Sub);
-
+      --  Set the ASVAT.Size_Model size for the unconstrained array to
+      --  a nondet value.
+      ASVAT.Size_Model.Set_Computed_Size
+        (Defining_Identifier (Declaration), Nondet_Expr);
+      Put_Line ("Computed_Size set");
       return Make_Array_Type
         (I_Subtype => Sub,
-         Size      => Make_Side_Effect_Expr_Nondet
-           (Source_Location => Get_Source_Location (Declaration),
-            I_Type          => Int64_T,
-            Range_Check     => False));
+         Size      => Nondet_Expr);
    end Make_Unconstrained_Array_Subtype;
 
 --        Ret_Components : constant Irep := Make_Struct_Union_Components;
