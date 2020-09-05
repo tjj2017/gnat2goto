@@ -566,6 +566,8 @@ package body Tree_Walk is
       N_Type : constant Entity_Id := Etype (N);
       --  TOCHECK: Parent type may be more than one step away?
    begin
+      Put_Line ("Do_Aggregate_Literal");
+      Print_Node_Briefly (N);
       case Ekind (N_Type) is
          when E_Array_Type =>
             return Do_Aggregate_Literal_Array (N);
