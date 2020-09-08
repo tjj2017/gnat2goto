@@ -2,6 +2,7 @@ with Nlists;                use Nlists;
 with Uintp;                 use Uintp;
 with Namet;                 use Namet;
 with Tree_Walk;             use Tree_Walk;
+with Aggregates;            use Aggregates;
 with Follow;                use Follow;
 with Range_Check;           use Range_Check;
 with ASVAT.Size_Model;
@@ -347,8 +348,6 @@ package body Arrays is
       Has_Static_Bounds : constant Boolean :=
         Is_OK_Static_Range (Aggregate_Bounds (N));
       Aggregate_Subtype : constant Entity_Id := Etype (N);
-      Aggregate_Name    : constant String := Unique_Name (Aggregate_Subtype);
-      Aggregate_Sym_Id  : constant Symbol_Id := Intern (Aggregate_Name);
       New_Name          : constant String := Fresh_Var_Name ("aggregate_");
       Aggregate_Obj     : constant String := New_Name & "_obj";
       Aggregate_Func    : constant String := New_Name & "_fun";
@@ -401,345 +400,65 @@ package body Arrays is
               Expr_Value (Low_Bound  (Aggregate_Bounds (N)));
             High_Expr : constant Uint :=
               Expr_Value (High_Bound (Aggregate_Bounds (N)));
-            Low  : constant Integer :=
-              Integer (UI_To_Int (Low_Expr));
-            High : constant Integer :=
-              Integer (UI_To_Int (High_Expr));
+            Low  : constant Int := UI_To_Int (Low_Expr);
+            High : constant Int := UI_To_Int (High_Expr);
          begin
             if Positional_Assoc then
-               --  The aggregate has positional association and its bounds
-               --  are known by the front-end.  A simple Ada loop can iterate
-               --  through the expressions in the aggregate and assign them to
-               --  the appropriate element of the array.
-               declare
-                  --  A positional associated aggregate may have an others =>
-                  --  as the last entry in the aggregate.
-                  Others_Expr : constant Irep :=
-                    (if Present (Component_Associations (N)) and then
-                     Present (Expression (First (Component_Associations (N))))
-                     then
-                        Do_Expression
-                       (Expression (First (Component_Associations (N))))
-                     else
-                     --  If others is followed by <> then all other
-                     --  elements of the array are unchanged.
-                        Ireps.Empty);
-
-                  Next_Expr   : Node_Id := First (Expressions (N));
-               begin
-                  Put_Line ("High " & Integer'Image (High));
-                  Put_Line ("Low " & Integer'Image (Low));
-                  --  All goto arrays are indexed from 0
-                  for I in 0 .. High - Low loop
-                     declare
-                        Expr_To_Use : constant Irep :=
-                          (if Present (Next_Expr) then
-                                Do_Expression (Next_Expr)
-                           else
-                              Others_Expr);
-                     begin
-                        Put_Line ("Iter " & Integer'Image (I));
-                        Print_Irep (Expr_To_Use);
-                        --  If the expression to use is Ireps.Empty an
-                        --  others <> has been reached in the aggregate list.
-                        --  There is no more to be done!
-                        --  This will change if default values for array
-                        --  elements are implemented.  The remaining
-                        --  elements would be set to the default value.
-                        --  Currently they could be set to nondet but that
-                        --  is probably not necessary.
-                        exit when Expr_To_Use = Ireps.Empty;
-
-                        --  Otherwise assign the expression to the i'th
-                        --  element of the aggregate array object.
-                        Append_Op
-                          (Result_Block,
-                           Make_Code_Assign
-                             (Rhs             => Expr_To_Use,
-                              Lhs             =>
-                                Make_Index_Expr
-                                  (I_Array         => Obj_Irep,
-                                   Index           =>
-                                     Integer_Constant_To_Expr
-                                       (Value           =>
-                                              UI_From_Int (Int (I)),
-                                        Expr_Type       => Int64_T,
-                                        Source_Location => Source_Location),
-                                   Source_Location => Source_Location,
-                                   I_Type          => Component_Irep,
-                                   Range_Check     => False),
-                              Source_Location => Source_Location,
-                              I_Type          => Component_Irep,
-                              Range_Check     => False));
-
-                        --  If others => is present in the aggregate the
-                        --  loop will proceed beyond the last expression.
-                        if Present (Next_Expr) then
-                           Next_Expr := Next (Next_Expr);
-                        end if;
-                     end;
-                  end loop;
-               end;
+               Array_Static_Positional_Body
+                 (Block      => Result_Block,
+                  Low_Bound  => Low,
+                  High_Bound => High,
+                  N          => N,
+                  Aggr_Obj   => Obj_Irep,
+                  Comp_Type  => Component_Irep);
             elsif Present (Component_Associations (N)) then
-               Put_Line ("Named Associations");
-               --  Named association.
-               --  Check if there is an others => choice.
-               --  It will always be the last choice.
-               declare
-                  Last_Choice_Node : constant Node_Id :=
-                    Last (Component_Associations (N));
-                  Has_Others_Choice : constant Boolean :=
-                    Nkind (First (Choices (Last_Choice_Node)))
-                    = N_Others_Choice;
-                  Others_Expr : constant Irep :=
-                    (if Has_Others_Choice and then
-                     Present (Expression (Last_Choice_Node)) then
-                        Do_Expression (Expression (Last_Choice_Node))
-                     else
-                        Ireps.Empty);
-               begin
-                  Put_Line ("Begin named assoc");
-                  if Has_Others_Choice then
-                     if Others_Expr /= Ireps.Empty then
-                        Put_Line ("doing others");
-                        --  It is complex to compute which elements are
-                        --  set by name association so first all elements of
-                        --  the array are set to the others => expression
-                        for I in 0 .. High - Low loop
-                           Append_Op
-                             (Result_Block,
-                              Make_Code_Assign
-                                (Rhs             => Others_Expr,
-                                 Lhs             =>
-                                   Make_Index_Expr
-                                     (I_Array         => Obj_Irep,
-                                      Index           =>
-                                        Integer_Constant_To_Expr
-                                          (Value           =>
-                                                 UI_From_Int (Int (I)),
-                                           Expr_Type       => Int64_T,
-                                           Source_Location => Source_Location),
-                                      Source_Location => Source_Location,
-                                      I_Type          => Component_Irep,
-                                      Range_Check     => False),
-                                 Source_Location => Source_Location,
-                                 I_Type          => Component_Irep,
-                                 Range_Check     => False));
-                        end loop;
-                        Put_Line ("Others done");
-                     else
-                        --  others => <>.
-                        --  For the moment there is nothing to be done.
-                        --  If the aspect Default_Component_Value is
-                        --  supported in the future and is applied to the array
-                        --  all of the elements of the array should first be
-                        --  initialised to the default value.
-                        null;
-                     end if;
-                  end if;
-               end;
-
-               --  Now assign the expressions for each choice list.
-               declare
-                  Low_Irep : constant Irep :=
-                    Integer_Constant_To_Expr
-                      (Value           => Low_Expr,
-                       Expr_Type       => Int64_T,
-                       Source_Location => Source_Location);
-
-                  Next_Comp_Assoc : Node_Id :=
-                    First (Component_Associations (N));
-               begin
-                  Put_Line ("work through components");
-                  while Present (Next_Comp_Assoc) loop
-                     Put_Line ("Next choices list");
-                     declare
-                        pragma Assert (Print_Node
-                                       (Expression (Next_Comp_Assoc)));
-                        Assoc_Expr : constant Irep :=
-                          Do_Expression (Expression (Next_Comp_Assoc));
-                        pragma Assert (Print_Irep_Func (Assoc_Expr));
-                        Next_Choice : Node_Id :=
-                          First (Choices (Next_Comp_Assoc));
-                        pragma Assert (Print_Node (Next_Choice));
-                     begin
-                        Put_Line ("Start coices list");
-                        while Present (Next_Choice) and then
-                          Nkind (Next_Choice) /= N_Others_Choice
-                        loop
-                           Put_Line ("Next choice");
-                           Print_Node_Briefly (Next_Choice);
-                           if Nkind (Next_Choice) in
-                             N_Range | N_Subtype_Indication or else
-                             (Nkind (Next_Choice) = N_Identifier and then
-                              Is_Type (Entity (Next_Choice)))
-                           then
-                              if Is_OK_Static_Range (Get_Range (Next_Choice))
-                              then
-                                 declare
-                                    The_Range : constant Node_Id :=
-                                      Get_Range (Next_Choice);
-                                    Start : constant Integer :=
-                                      Integer (UI_To_Int
-                                               (Expr_Value
-                                                  (Low_Bound (The_Range))));
-                                    Finish : constant Integer :=
-                                      Integer (UI_To_Int
-                                               (Expr_Value
-                                                  (High_Bound (The_Range))));
-                                 begin
-                                    for I in Start - Low .. Finish - Low loop
-                                       Put_Line ("Choice range " &
-                                                   Integer'Image (I));
-                                       Append_Op
-                                         (Result_Block,
-                                          Make_Code_Assign
-                                            (Rhs             =>
-                                                 Assoc_Expr,
-                                             Lhs             =>
-                                               Make_Index_Expr
-                                                 (I_Array         =>
-                                                      Obj_Irep,
-                                                  Index           =>
-                                                    Integer_Constant_To_Expr
-                                                      (Value           =>
-                                                 UI_From_Int (Int (I)),
-                                                       Expr_Type       =>
-                                                         Int64_T,
-                                                       Source_Location =>
-                                                         Source_Location),
-                                                  I_Type          =>
-                                                    Component_Irep,
-                                                  Source_Location =>
-                                                    Source_Location),
-                                             Source_Location =>
-                                               Source_Location,
-                                             Range_Check     => False));
-                                    end loop;
-                                 end;
-                              else
-                                 Report_Unhandled_Node_Empty
-                                   (N,
-                                    "Do_Aggregate_Literal",
-                                    "Non-static bounds unsupported");
-                              end if;
-                           else
-                              Put_Line ("Index " &
-                                          Int'Image (UI_To_Int
-                                          (Expr_Value (Next_Choice))));
-                              declare
-                                 Index : constant Irep :=
-                                   Make_Op_Sub
-                                     (Rhs             => Low_Irep,
-                                      Lhs             =>
-                                        Typecast_If_Necessary
-                                          (Expr           =>
-                                                 Do_Expression
-                                             (Next_Choice),
-                                           New_Type       => Int64_T,
-                                           A_Symbol_Table =>
-                                             Global_Symbol_Table),
-                                      Source_Location => Source_Location,
-                                      Overflow_Check  => False,
-                                      I_Type          => Int64_T,
-                                      Range_Check     => False);
-                              begin
-
-                                 Append_Op
-                                   (Result_Block,
-                                    Make_Code_Assign
-                                      (Rhs             => Assoc_Expr,
-                                       Lhs             =>
-                                         Make_Index_Expr
-                                           (I_Array         => Obj_Irep,
-                                            Index           => Index,
-                                            I_Type          => Component_Irep,
-                                            Source_Location =>
-                                              Source_Location),
-                                       Source_Location => Source_Location,
-                                       Range_Check     => False));
-                              end;
-                           end if;
-
-                           Next_Choice := Next (Next_Choice);
-                           Put_Line ("Choice done");
-                        end loop;
-                     end;
-                     Next_Comp_Assoc := Next (Next_Comp_Assoc);
-                     Put_Line ("Choice list done");
-                  end loop;
-               end;
+               --  Named associations.
+               Array_Static_Named_Assoc_Body
+                 (Block      => Result_Block,
+                  Low_Bound  => Low,
+                  High_Bound => High,
+                  N          => N,
+                  Aggr_Obj   => Obj_Irep,
+                  Comp_Type  => Component_Irep);
+            else
+               Report_Unhandled_Node_Empty
+                 (N        => N,
+                  Fun_Name => "Do_Aggregate_Array_Literal",
+                  Message  =>
+                 "Aggregate has neither Positional or Named arguments");
             end if;
          end;
-         --  Now add the return statement.
-         Append_Op (Result_Block,
-                    Make_Code_Return (Return_Value    => Obj_Irep,
-                                      Source_Location => Source_Location));
-         Print_Irep (Result_Block);
-         declare
-            Aggregate_Func_Symbol : constant Symbol :=
-              New_Function_Symbol_Entry
-                (Name           => Aggregate_Func,
-                 Symbol_Type    => Func_Irep,
-                 Value          => Result_Block,
-                 A_Symbol_Table => Global_Symbol_Table);
-            Func_Call : constant Irep :=
-              Make_Side_Effect_Expr_Function_Call
-                (Arguments       => Make_Argument_List,  -- Null arg list.
-                 I_Function      => Symbol_Expr (Aggregate_Func_Symbol),
-                 Source_Location => Source_Location,
-                 I_Type          => Subtype_Irep,
-                 Range_Check     => False);
-         begin
-            Print_Irep (Func_Call);
-            return Func_Call;
-         end;
-      end if;
-
-      if Present (Expressions (N)) then
-         Put_Line ("Positional association");
       else
-         Put_Line ("Named association");
+         Report_Unhandled_Node_Empty
+           (N        => N,
+            Fun_Name => "Do_Aggregate_Array_Literal",
+            Message  =>
+              "Aggregates with dynamic bounds are unsupported");
       end if;
 
-      if Is_OK_Static_Range (Aggregate_Bounds (N)) then
-         Put_Line ("Static aggregate bounds");
-      else
-         Put_Line ("Dynamic aggregate bounds");
-      end if;
-      Put_Line ("Do_Aggregate_Literal_Array");
-      Print_Irep (Func_Irep);
-      Print_Irep (Result_Block);
-      Put_Line (Aggregate_Obj);
-      Put_Line (Aggregate_Func);
-      Print_Node_Briefly (Aggregate_Subtype);
-      Put_Line ("Is_Array_Subtype " & Boolean'Image
-                (Ekind (Aggregate_Subtype) = E_Array_Subtype));
-      Put_Line ("In symbol table " & Boolean'Image
-                (Global_Symbol_Table.Contains (Aggregate_Sym_Id)));
-      Put_Line (Aggregate_Name);
-
-      Put_Line ("Is_Array_Type " & Boolean'Image
-                (Ekind (Etype (Etype (N))) = E_Array_Type));
-      Put_Line ("In symbol table " & Boolean'Image
-                (Global_Symbol_Table.Contains
-                   (Intern (Unique_Name (Etype (Etype (N)))))));
-
-      Put_Line ("Component_Type");
-      Print_Node_Briefly (Component_Type (Etype (Etype (N))));
-
-      Put_Line ("Parent (N)");
-      Print_Node_Briefly (Parent (N));
-      Print_Node_Briefly (Defining_Identifier (Parent (N)));
-      Put_Line ("In symbol table " & Boolean'Image
-                (Global_Symbol_Table.Contains
-                   (Intern (Unique_Name
-                      (Defining_Identifier (Parent (N)))))));
-
-      return Report_Unhandled_Node_Irep
-        (N        => N,
-         Fun_Name => "Do_Aggregate_Literal_Array",
-         Message  => "Observing");
+      --  Now add the return statement.
+      Append_Op (Result_Block,
+                 Make_Code_Return (Return_Value    => Obj_Irep,
+                                   Source_Location => Source_Location));
+      --  Create the aggregate function from the body
+      --  and return a call to the function.
+      declare
+         Aggregate_Func_Symbol : constant Symbol :=
+           New_Function_Symbol_Entry
+             (Name           => Aggregate_Func,
+              Symbol_Type    => Func_Irep,
+              Value          => Result_Block,
+              A_Symbol_Table => Global_Symbol_Table);
+         Func_Call : constant Irep :=
+           Make_Side_Effect_Expr_Function_Call
+             (Arguments       => Make_Argument_List,  -- Null arg list.
+              I_Function      => Symbol_Expr (Aggregate_Func_Symbol),
+              Source_Location => Source_Location,
+              I_Type          => Subtype_Irep,
+              Range_Check     => False);
+      begin
+         return Func_Call;
+      end;
    end Do_Aggregate_Literal_Array;
 
 --     function Do_Aggregate_Literal_Array (N : Node_Id) return Irep is
