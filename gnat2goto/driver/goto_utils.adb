@@ -894,6 +894,15 @@ package body GOTO_Utils is
          Source_Location => Internal_Source_Location);
    end Get_Int32_T_Zero;
 
+   function Get_Int64_T_Zero return Irep
+   is
+   begin
+      return Integer_Constant_To_Expr
+        (Value           => Uint_0,
+         Expr_Type       => Int64_T,
+         Source_Location => Internal_Source_Location);
+   end Get_Int64_T_Zero;
+
    function Get_Ada_Check_Symbol (Name : String;
                                   A_Symbol_Table : in out Symbol_Table;
                                   Source_Loc : Irep)

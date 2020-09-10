@@ -4,7 +4,122 @@ with Einfo;             use Einfo;
 with GOTO_Utils;        use GOTO_Utils;
 with Tree_Walk;         use Tree_Walk;
 with Arrays.Low_Level;  use Arrays.Low_Level;
+with Ada.Text_IO; use Ada.Text_IO;
+with Treepr;            use Treepr;
 package body Aggregates is
+
+   -----------------------------------
+   -- Array_Dynamic_Positional_Body --
+   -----------------------------------
+
+   procedure Array_Dynamic_Positional_Body (Block      : Irep;
+                                            Low_Bound  : Irep;
+                                            High_Bound : Irep;
+                                            N          : Node_Id;
+                                            Aggr_Obj   : Irep;
+                                            Comp_Type  : Irep)
+   is
+      --  The aggregate has positional association and its bounds
+      --  are not known by the front-end.  A goto loop has to be used to
+      --  iterate through the expressions in the aggregate and assign them to
+      --  the appropriate element of the array.
+      Source_Location : constant Irep := Get_Source_Location (N);
+      --  A positional associated aggregate may have an others =>
+      --  as the last entry in the aggregate.
+      Others_Present : constant Boolean :=
+        Present (Component_Associations (N));
+      Others_Expr : constant Irep :=
+        (if Others_Present and then
+         Present (Expression (First (Component_Associations (N))))
+         then
+            Do_Expression
+           (Expression (First (Component_Associations (N))))
+         else
+         --  If others is followed by <> then all other
+         --  elements of the array are unchanged.
+            Ireps.Empty);
+
+      Low_Bound_Int64_T  : constant Irep :=
+        Make_Op_Typecast
+          (Op0             => Low_Bound,
+           Source_Location => Internal_Source_Location,
+           I_Type          => Int64_T,
+           Range_Check     => False);
+
+      High_Bound_Int64_T : constant Irep :=
+        Make_Op_Typecast
+          (Op0             => High_Bound,
+           Source_Location => Internal_Source_Location,
+           I_Type          => Int64_T,
+           Range_Check     => False);
+
+      --  Iterator for expressions in the aggregate
+      Next_Expr   : Node_Id := First (Expressions (N));
+
+      --  All goto arrays are indexed from 0
+      I : Int := 0;
+   begin
+      Put_Line ("Dyn_Pos");
+      Print_Node_Briefly (N);
+      --  First do the positional arguments.
+      while Present (Next_Expr) loop
+         Print_Irep (Integer_Constant_To_Expr
+                (Value           => UI_From_Int (I),
+                 Expr_Type       => Int64_T,
+                 Source_Location => Source_Location));
+         Print_Irep (Do_Expression (Next_Expr));
+         Assign_To_Array_Component
+           (Block      => Block,
+            The_Array  => Aggr_Obj,
+            Zero_Index =>
+              Integer_Constant_To_Expr
+                (Value           => UI_From_Int (I),
+                 Expr_Type       => Int64_T,
+                 Source_Location => Source_Location),
+            Value_Expr => Do_Expression (Next_Expr),
+            I_Type     => Comp_Type,
+            Location   => Source_Location);
+         I := I + 1;
+         Next_Expr := Next (Next_Expr);
+      end loop;
+
+      --  Now check for an others => expression.
+      if Others_Present then
+         if Others_Expr /= Ireps.Empty then
+            --  Set the remaining elements (if any) to the others expression.
+            declare
+               First_Idx : constant Irep :=
+                 Integer_Constant_To_Expr
+                   (Value           => UI_From_Int (I),
+                    Expr_Type       => Int64_T,
+                    Source_Location => Source_Location);
+               Last_Idx  : constant Irep :=
+                 Make_Zero_Index
+                   (Index    => High_Bound_Int64_T,
+                    First    => Low_Bound_Int64_T,
+                    Location => Source_Location);
+            begin
+               Assign_Value_To_Dynamic_Array_Components
+                 (Block            => Block,
+                  The_Array        => Aggr_Obj,
+                  Zero_Based_First => First_Idx,
+                  Zero_Based_Last  => Last_Idx,
+                  Value_Expr       => Others_Expr,
+                  I_Type           => Comp_Type,
+                  Location         => Source_Location);
+            end;
+         else
+            --  others => <> present
+            --  Currently nothing to be done but if default component
+            --  values are supported in the future the remaining aggregate
+            --  array elements should be set to the default value if it
+            --  is specified.
+            null;
+         end if;
+      end if;
+
+      Print_Irep (Block);
+   end Array_Dynamic_Positional_Body;
 
    -----------------------------------
    -- Array_Static_Named_Assoc_Body --
@@ -43,19 +158,14 @@ package body Aggregates is
             --  Those elements indexed by named association will be
             --  overwritten with the value associated with the index.
             --  Goto arrays are inexded from 0.
-            for I in 0 .. High_Bound - Low_Bound loop
-               Assign_To_Array_Component
-                 (Block      => Block,
-                  The_Array  => Aggr_Obj,
-                  Zero_Index =>
-                    Integer_Constant_To_Expr
-                      (Value           => UI_From_Int (I),
-                       Expr_Type       => Int64_T,
-                       Source_Location => Source_Location),
-                  Value_Expr => Others_Expr,
-                  I_Type     => Comp_Type,
-                  Location   => Source_Location);
-            end loop;
+            Assign_Value_To_Static_Array_Components
+              (Block            => Block,
+               The_Array        => Aggr_Obj,
+               Zero_Based_First => 0,
+               Zero_Based_Last  => High_Bound - Low_Bound,
+               Value_Expr       => Others_Expr,
+               I_Type           => Comp_Type,
+               Location         => Source_Location);
          else
             --  others => <>.
             --  For the moment there is nothing to be done.
@@ -101,25 +211,37 @@ package body Aggregates is
                             (Expr_Value
                                (Sinfo.High_Bound (The_Range)));
                      begin
-                        for I in Start - Low_Bound .. Finish - Low_Bound loop
-                           Assign_To_Array_Component
-                             (Block      => Block,
-                              The_Array  => Aggr_Obj,
-                              Zero_Index =>
-                                Integer_Constant_To_Expr
-                                  (Value           => UI_From_Int (I),
-                                   Expr_Type       => Int64_T,
-                                   Source_Location => Source_Location),
-                              Value_Expr => Assoc_Expr,
-                              I_Type     => Comp_Type,
-                              Location   => Source_Location);
-                        end loop;
+                        Assign_Value_To_Static_Array_Components
+                          (Block            => Block,
+                           The_Array        => Aggr_Obj,
+                           Zero_Based_First => Start - Low_Bound,
+                           Zero_Based_Last  => Finish - Low_Bound,
+                           Value_Expr       => Assoc_Expr,
+                           I_Type           => Comp_Type,
+                           Location         => Source_Location);
                      end;
                   else
-                     Report_Unhandled_Node_Empty
-                       (N,
-                        "Do_Aggregate_Literal",
-                        "Non-static bounds unsupported");
+                     declare
+                        Bounds : constant Dimension_Bounds :=
+                          Get_Bounds (Next_Choice);
+                     begin
+                        Assign_Value_To_Dynamic_Array_Components
+                          (Block            => Block,
+                           The_Array        => Aggr_Obj,
+                           Zero_Based_First =>
+                             Make_Zero_Index
+                               (Index    => Bounds.Low,
+                                First    => Low_Bound,
+                                Location => Source_Location),
+                           Zero_Based_Last =>
+                             Make_Zero_Index
+                               (Index    => Bounds.High,
+                                First    => Low_Bound,
+                                Location => Source_Location),
+                          Value_Expr      => Assoc_Expr,
+                           I_Type          => Comp_Type,
+                           Location        => Source_Location);
+                     end;
                   end if;
                else
                   --  Assign expression to the indexed element.
@@ -172,28 +294,43 @@ package body Aggregates is
          --  elements of the array are unchanged.
             Ireps.Empty);
 
-      --  Iterotor for expressions in the aggregate
+      Last_Idx : constant Int := High_Bound - Low_Bound;
+
+      --  Iterator for expressions in the aggregate
       Next_Expr   : Node_Id := First (Expressions (N));
    begin
       --  All goto arrays are indexed from 0
-      for I in 0 .. High_Bound - Low_Bound loop
-         declare
-            Expr_To_Use : constant Irep :=
-              (if Present (Next_Expr) then
-                    Do_Expression (Next_Expr)
-               else
-                  Others_Expr);
-         begin
-            --  If the expression to use is Ireps.Empty an
-            --  others <> has been reached in the aggregate list.
-            --  There is no more to be done!
-            --  This will change if default values for array
-            --  elements are implemented.  The remaining
-            --  elements would be set to the default value.
-            --  Currently they could be set to nondet but that
-            --  is probably not necessary.
-            exit when Expr_To_Use = Ireps.Empty;
-            --  Otherwise assign the expression to the i'th
+      for I in 0 .. Last_Idx loop
+         --  If the list of expressions becomes exhuasted before the
+         --  the loop index reaches the value of the zero-based last index
+         --  there must be an others => as the last entry in the aggregate.
+         if not Present (Next_Expr) then
+            --  if the others=> expression is non empty,
+            --  fill the remainder of the array with the others expression.
+            if Others_Expr /= Ireps.Empty then
+               Assign_Value_To_Static_Array_Components
+                 (Block            => Block,
+                  The_Array        => Aggr_Obj,
+                  Zero_Based_First => I,
+                  Zero_Based_Last  => Last_Idx,
+                  Value_Expr       => Others_Expr,
+                  I_Type           => Comp_Type,
+                  Location         => Source_Location);
+            else
+               --  If the others expression is Ireps.Empty an
+               --  others <> has been reached in the aggregate list.
+               --  There is no more to be done!
+               --  This will change if default values for array
+               --  elements are implemented.  The remaining
+               --  elements would be set to the default value.
+               --  Currently they could be set to nondet but that
+               --  is probably not necessary.
+               null;
+            end if;
+
+            exit;
+         else
+            --  Otherwise assign the next expression to the i'th
             --  element of the aggregate array object.
             Print_Irep (Aggr_Obj);
             Assign_To_Array_Component
@@ -204,16 +341,12 @@ package body Aggregates is
                    (Value           => UI_From_Int (I),
                     Expr_Type       => Int64_T,
                     Source_Location => Source_Location),
-               Value_Expr => Expr_To_Use,
+               Value_Expr => Do_Expression (Next_Expr),
                I_Type     => Comp_Type,
                Location   => Source_Location);
 
-            --  If others => is present in the aggregate the
-            --  loop will proceed beyond the last expression.
-            if Present (Next_Expr) then
-               Next_Expr := Next (Next_Expr);
-            end if;
-         end;
+            Next_Expr := Next (Next_Expr);
+         end if;
       end loop;
    end Array_Static_Positional_Body;
 

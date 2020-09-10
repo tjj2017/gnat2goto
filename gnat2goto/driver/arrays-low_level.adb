@@ -1,6 +1,7 @@
 with Nlists;                  use Nlists;
 with Sem_Eval;                use Sem_Eval;
 with Tree_Walk;               use Tree_Walk;
+with Ada.Text_IO; use Ada.Text_IO;
 package body Arrays.Low_Level is
 
    -------------------------------
@@ -35,43 +36,69 @@ package body Arrays.Low_Level is
    -- Assign_Value_To_Dynamic_Array_Components --
    ----------------------------------------------
 
---     procedure Assign_Value_To_Dynamic_Array_Components
---       (Block            : Irep;
---        The_Array        : Irep;
---        Zero_Based_First : Irep;
---        Zero_Based_Last  : Irep;
---        Value_Expr       : Irep;
---        I_Type           : Irep;
---        Location         : Irep)
---     is
---        Loop_Iter_Var : constant Irep :=
---          Fresh_Var_Symbol_Expr (Int64_T, "i");
---        Loop_Cond : constant Irep :=
---          Make_Op_Gt (Rhs             => Loop_Iter_Var,
---                      Lhs             => Zero_Based_Last,
---                      Source_Location => Location,
---                      Overflow_Check  => False,
---                      I_Type          => Make_Bool_Type);
---              Size_T_Zero : constant Irep :=
---                Build_Index_Constant (Value      => 0,
---                                      Source_Loc => Source_Loc);
---              Size_T_One : constant Irep :=
---                Build_Index_Constant (Value      => 1,
---                                      Source_Loc => Source_Loc);
---              Increment_I : constant Irep :=
---                Make_Op_Add (Rhs             => Size_T_One,
---                             Lhs             => Loop_Iter_Var,
---                             Source_Location => Source_Loc,
---                             Overflow_Check  => False,
---                             I_Type          => CProver_Size_T);
---              Loop_Iter : constant Irep :=
---                Make_Code_Assign (Rhs             => Increment_I,
---                                  Lhs             => Loop_Iter_Var,
---                                  Source_Location => Source_Loc,
---                                  I_Type          => Make_Nil_Type);
---              Loop_Body : constant Irep :=
---                Make_Code_Block (Source_Location => Source_Loc,
---                                 I_Type          => Make_Nil_Type);
+   procedure Assign_Value_To_Dynamic_Array_Components
+     (Block            : Irep;
+      The_Array        : Irep;
+      Zero_Based_First : Irep;
+      Zero_Based_Last  : Irep;
+      Value_Expr       : Irep;
+      I_Type           : Irep;
+      Location         : Irep)
+   is
+      Loop_Var : constant Irep :=
+        Fresh_Var_Symbol_Expr (Int64_T, "loop_var");
+      Loop_Body : constant Irep :=
+        Make_Code_Block (Source_Location => Location);
+   begin
+      --  The body of the loop is just the assignment of the value expression
+      --  to the indexed component.
+      Assign_To_Array_Component
+        (Block      => Loop_Body,
+         The_Array  => The_Array,
+         Zero_Index => Loop_Var,
+         Value_Expr => Value_Expr,
+         I_Type     => I_Type,
+         Location   => Location);
+      --  Now the loop can be constructed.
+      Append_Op (Block,
+                 Make_Simple_For_Loop
+                   (Loop_Var        => Loop_Var,
+                    First           => Zero_Based_First,
+                    Last            => Zero_Based_Last,
+                    Loop_Body       => Loop_Body,
+                    Source_Location => Location));
+      Put_Line ("Assign_To_Dyn");
+      Print_Irep (Block);
+   end Assign_Value_To_Dynamic_Array_Components;
+
+   ---------------------------------------------
+   -- Assign_Value_To_Static_Array_Components --
+   ---------------------------------------------
+
+   procedure Assign_Value_To_Static_Array_Components
+     (Block            : Irep;
+      The_Array        : Irep;
+      Zero_Based_First : Int;
+      Zero_Based_Last  : Int;
+      Value_Expr       : Irep;
+      I_Type           : Irep;
+      Location         : Irep)
+   is
+   begin
+      for I in Zero_Based_First .. Zero_Based_Last loop
+         Assign_To_Array_Component
+           (Block      => Block,
+            The_Array  => The_Array,
+            Zero_Index =>
+              Integer_Constant_To_Expr
+                (Value           => UI_From_Int (I),
+                 Expr_Type       => Int64_T,
+                 Source_Location => Location),
+            Value_Expr => Value_Expr,
+            I_Type     => I_Type,
+            Location   => Location);
+      end loop;
+   end Assign_Value_To_Static_Array_Components;
 
    --------------------------------
    -- Calculate_Dimension_Length --
@@ -248,6 +275,35 @@ package body Arrays.Low_Level is
       else
       --  It is a subtype mark
          Scalar_Range (Entity (Index)));
+
+   --------------------------
+   -- Make_Simple_For_Loop --
+   --------------------------
+
+   function Make_Simple_For_Loop (Loop_Var,  --  The loop variable
+                                  First,     --  The initial value of loop var
+                                  Last,      --  The final value of loop var
+                                  Loop_Body, --  The body, using loop var
+                                  Source_Location : Irep) return Irep
+   is
+      Loop_Cond : constant Irep :=
+        Make_Op_Geq (Rhs             => Loop_Var,
+                     Lhs             => Last,
+                     Source_Location => Source_Location,
+                     Overflow_Check  => False,
+                     I_Type          => Make_Bool_Type);
+   begin
+      return Make_Code_For
+        (Loop_Body       => Loop_Body,
+         Cond            => Loop_Cond,
+         Init            => First,
+         Iter            =>
+           Integer_Constant_To_Expr
+             (Value           => Uint_1,
+              Expr_Type       => Int64_T,
+              Source_Location => Source_Location),
+         Source_Location => Source_Location);
+   end Make_Simple_For_Loop;
 
    ---------------------
    -- Make_Zero_Index --

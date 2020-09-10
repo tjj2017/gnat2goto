@@ -4,6 +4,14 @@ with Sinfo;             use Sinfo;
 with Sem_Eval;          use Sem_Eval;
 with Ireps;             use Ireps;
 package Aggregates is
+   procedure Array_Dynamic_Positional_Body (Block      : Irep;
+                                            Low_Bound  : Irep;
+                                            High_Bound : Irep;
+                                            N          : Node_Id;
+                                            Aggr_Obj   : Irep;
+                                            Comp_Type  : Irep)
+     with Pre => Nkind (N) = N_Aggregate;
+
    procedure Array_Static_Positional_Body (Block      : Irep;
                                           Low_Bound  : Int;
                                           High_Bound : Int;
