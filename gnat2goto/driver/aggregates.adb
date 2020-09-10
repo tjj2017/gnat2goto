@@ -3,67 +3,8 @@ with Nlists;            use Nlists;
 with Einfo;             use Einfo;
 with GOTO_Utils;        use GOTO_Utils;
 with Tree_Walk;         use Tree_Walk;
-with Arrays;            use Arrays;
+with Arrays.Low_Level;  use Arrays.Low_Level;
 package body Aggregates is
-
-   procedure Assign_To_Array_Component (Block      : Irep;
-                                        The_Array  : Irep;
-                                        Zero_Index : Irep;
-                                        Value_Expr : Irep;
-                                        I_Type     : Irep;
-                                        Location   : Irep);
-
-   function Make_Zero_Index (Index, First, Location : Irep) return Irep is
-     (Make_Op_Sub
-        (Rhs             => First,
-         Lhs             =>
-            Typecast_If_Necessary
-           (Expr           => Index,
-            New_Type       => Int64_T,
-            A_Symbol_Table =>
-               Global_Symbol_Table),
-         Source_Location => Location,
-         Overflow_Check  => False,
-         I_Type          => Int64_T,
-         Range_Check     => False));
-
-   function Make_Zero_Index (Index : Irep; First : Int; Location : Irep)
-                             return Irep is
-     (Make_Zero_Index
-        (Index    => Index,
-         First    => Integer_Constant_To_Expr
-           (Value           => UI_From_Int (First),
-            Expr_Type       => Int64_T,
-            Source_Location => Location),
-         Location => Location));
-
-   -------------------------------
-   -- Assign_To_Array_Component --
-   -------------------------------
-
-   procedure Assign_To_Array_Component (Block      : Irep;
-                                        The_Array  : Irep;
-                                        Zero_Index : Irep;
-                                        Value_Expr : Irep;
-                                        I_Type     : Irep;
-                                        Location   : Irep)
-   is
-   begin
-      Append_Op
-        (Block,
-         Make_Code_Assign
-           (Rhs             => Value_Expr,
-            Lhs             =>
-              Make_Index_Expr
-                (I_Array         => The_Array,
-                 Index           => Zero_Index,
-                 Source_Location => Location,
-                 I_Type          => I_Type,
-                 Range_Check     => False),
-            Source_Location => Location,
-            I_Type          => I_Type,
-            Range_Check     => False));
-   end Assign_To_Array_Component;
 
    -----------------------------------
    -- Array_Static_Named_Assoc_Body --
