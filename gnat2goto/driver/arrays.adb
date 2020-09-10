@@ -258,11 +258,33 @@ package body Arrays is
             end if;
          end;
       else
-         Report_Unhandled_Node_Empty
-           (N        => N,
-            Fun_Name => "Do_Aggregate_Array_Literal",
-            Message  =>
-              "Aggregates with dynamic bounds are unsupported");
+         if Positional_Assoc then
+            Report_Unhandled_Node_Empty
+              (N        => N,
+               Fun_Name => "Do_Aggregate_Array_Literal",
+               Message  =>
+                 "Positional Aggregates with dynamic bounds are unsupported");
+            declare
+               Bounds : constant Dimension_Bounds :=
+                 Get_Bounds (Aggregate_Bounds (N));
+            begin
+               Array_Dynamic_Positional_Body
+                 (Block      => Result_Block,
+                  Low_Bound  => Bounds.Low,
+                  High_Bound => Bounds.High,
+                  N          => N,
+                  Aggr_Obj   => Obj_Irep,
+                  Comp_Type  => Component_Irep);
+            end;
+
+         else
+            Report_Unhandled_Node_Empty
+              (N        => N,
+               Fun_Name => "Do_Aggregate_Array_Literal",
+               Message  =>
+                 "Named associatin Aggregates with dynamic bounds " &
+                 "are unsupported");
+         end if;
       end if;
 
       --  Now add the return statement.

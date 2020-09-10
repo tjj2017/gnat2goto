@@ -21,14 +21,28 @@ package Arrays.Low_Level is
    --  Assigns a value (Value_Expr, to an array element specified by the
    --  zero based index (Zero_Index).
 
---     procedure Assign_Value_To_Dynamic_Array_Components
---       (Block            : Irep;
---        The_Array        : Irep;
---        Zero_Based_First : Irep;
---        Zero_Based_Last  : Irep;
---        Value_Expr       : Irep;
---        I_Type           : Irep;
---        Location         : Irep);
+   procedure Assign_Value_To_Dynamic_Array_Components
+     (Block            : Irep;
+      The_Array        : Irep;
+      Zero_Based_First : Irep;
+      Zero_Based_Last  : Irep;
+      Value_Expr       : Irep;
+      I_Type           : Irep;
+      Location         : Irep);
+   --  Assigns a single value to a contiguous set of elements of the array
+   --  specified by the Zero_Based_First and Last values represented by Ireps.
+
+   procedure Assign_Value_To_Static_Array_Components
+     (Block            : Irep;
+      The_Array        : Irep;
+      Zero_Based_First : Int;
+      Zero_Based_Last  : Int;
+      Value_Expr       : Irep;
+      I_Type           : Irep;
+      Location         : Irep);
+   --  Assigns a single value to a contiguous set of elements of the array
+   --  specified by the statically determinable Zero_Based_First and Last
+   --  Int values.
 
    function Calculate_Dimension_Length (Bounds : Dimension_Bounds) return Irep;
 
@@ -55,6 +69,12 @@ package Arrays.Low_Level is
    --  the index constraint.
 
    function Get_Range (Index : Node_Id) return Node_Id;
+
+   function Make_Simple_For_Loop (Loop_Var,  --  The loop variable
+                                  First,     --  The initial value of loop var
+                                  Last,      --  The final value of loop var
+                                  Loop_Body, --  The body, using loop var
+                                  Source_Location : Irep) return Irep;
 
    function Make_Zero_Index (Index, First, Location : Irep) return Irep;
    --  Calculate a zero offset index from variables represented as Ireps.
