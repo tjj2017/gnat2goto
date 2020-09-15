@@ -3243,6 +3243,7 @@ package body Tree_Walk is
      (N : Node_Id; Block : Irep) is
       Defined : constant Entity_Id := Defining_Identifier (N);
       Defined_Type : constant Entity_Id := Etype (Defined);
+
       Id   : constant Irep := Do_Defining_Identifier (Defined);
       Decl : constant Irep := Make_Code_Decl
         (Symbol => Id,
@@ -3536,25 +3537,28 @@ package body Tree_Walk is
       Print_Node_Briefly (N);
       Print_Node_Briefly (Defined);
       Print_Node_Briefly (Defined_Type);
+      Put_Line ("********* Is_An_Array_Type " &
+                  Boolean'Image (Is_Array_Type (Defined_Type)));
 
-      if Has_Init_Expression (N) or Present (Expression (N)) then
-         Init_Expr := Do_Expression (Expression (N));
-      elsif Needs_Default_Initialisation (Defined_Type) or
-        (Present (Object_Definition (N)) and then
-         Nkind (Object_Definition (N)) = N_Subtype_Indication)
-      then
-         declare
-            Defn : constant Node_Id := Object_Definition (N);
-            Discriminant_Constraint : constant Node_Id :=
-              (if Nkind (Defn) = N_Subtype_Indication
-                 then Constraint (Defn) else Types.Empty);
-         begin
-            Init_Expr :=
-              Make_Default_Initialiser (Defined_Type,
-                                        Discriminant_Constraint);
-         end;
+      if not Is_Array_Type (Defined_Type) then
+         if Has_Init_Expression (N) or Present (Expression (N)) then
+            Init_Expr := Do_Expression (Expression (N));
+         elsif Needs_Default_Initialisation (Defined_Type) or
+           (Present (Object_Definition (N)) and then
+            Nkind (Object_Definition (N)) = N_Subtype_Indication)
+         then
+            declare
+               Defn : constant Node_Id := Object_Definition (N);
+               Discriminant_Constraint : constant Node_Id :=
+                 (if Nkind (Defn) = N_Subtype_Indication
+                  then Constraint (Defn) else Types.Empty);
+            begin
+               Init_Expr :=
+                 Make_Default_Initialiser (Defined_Type,
+                                           Discriminant_Constraint);
+            end;
+         end if;
       end if;
-
       pragma Assert (Get_Identifier (Id) = Obj_Name);
       if not Global_Symbol_Table.Contains (Obj_Id) then
          declare
@@ -3580,6 +3584,16 @@ package body Tree_Walk is
                                               Global_Symbol_Table),
                                              Source_Location =>
                                                Get_Source_Location (N)));
+      elsif Is_Array_Type (Defined_Type) and then Has_Init_Expression (N) then
+         --  We have to copy one element at a time;
+         Put_Line ("??????? Array object has initialisation");
+         Print_Node_Briefly (Defined);
+         Print_Irep (Id);
+         Initialse_Array_Object
+           (Block,
+            Defined_Type,
+            Expression (N),
+            Id);
       end if;
    end Do_Object_Declaration_Full;
 

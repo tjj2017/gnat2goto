@@ -46,6 +46,9 @@ package body Arrays is
    end Debug_Help;
    use Debug_Help;
 
+   function All_Dimensions_Static (The_Array : Entity_Id) return Boolean
+     with Pre => Is_Array_Type (The_Array);
+
    procedure Declare_First_Last (Prefix         : String;
                                  Dimension      : Positive;
                                  Index          : Node_Id;
@@ -80,6 +83,104 @@ package body Arrays is
    function Make_Unconstrained_Array_Subtype (Declaration    : Node_Id;
                                               Component_Type : Entity_Id)
                                               return Irep;
+
+   procedure Initialse_Array_Object
+           (Block       : Irep;
+            Array_Type  : Entity_Id;
+            Init_Expr   : Node_Id;
+            Array_Irep  : Irep)
+   is
+      Source_Location : constant Irep := Get_Source_Location (Init_Expr);
+   begin
+      if Nkind (Init_Expr) = N_Aggregate then
+         --  Initialise_Array_From_Aggregate ...
+         Initialse_Array_From_Aggregate
+           (Block      => Block,
+            Array_Type => Array_Type,
+            Agg        => Init_Expr,
+            Array_Irep => Array_Irep);
+      elsif Nkind (Init_Expr) = N_Slice then
+         null;
+      elsif Nkind (Init_Expr) = N_Op_Concat then
+         null;
+      elsif Nkind (Init_Expr) = N_Function_Call then
+         null;
+      elsif All_Dimensions_Static (Array_Type) and then
+        All_Dimensions_Static (Etype (Init_Expr))
+      then
+         Put_Line ("<<<<<<<<< Simple assgnment");
+         Print_Node_Briefly (Array_Type);
+         Print_Node_Briefly (Init_Expr);
+         Append_Op (Block,
+                    Make_Code_Assign
+                      (Rhs             => Do_Expression (Init_Expr),
+                       Lhs             => Array_Irep,
+                       Source_Location => Source_Location,
+                       I_Type          => Get_Type (Array_Irep),
+                       Range_Check     => False));
+         null;
+      else
+         --  We have to copy one element at a time
+         --  or use memcpy
+         Put_Line ("++++++++= One at a time ?");
+         if All_Dimensions_Static (Array_Type) then
+            Put_Line ("LHS is static array");
+            declare
+               Bounds : constant Node_Id :=
+                 Get_Range (First_Index (Array_Type));
+               First  : constant Int := UI_To_Int
+                 (Expr_Value (Low_Bound (Bounds)));
+               Last   : constant Int := UI_To_Int
+                 (Expr_Value (High_Bound (Bounds)));
+               Source : constant Irep := Do_Expression (Init_Expr);
+            begin
+               for I in 0 .. Last - First loop
+                  Assign_To_Array_Component
+                    (Block      => Block,
+                     The_Array  => Array_Irep,
+                     Zero_Index =>
+                       Integer_Constant_To_Expr
+                         (Value           => UI_From_Int (I),
+                          Expr_Type       => Int64_T,
+                          Source_Location => Internal_Source_Location),
+                     Value_Expr =>
+                       Make_Index_Expr
+                         (I_Array         => Source,
+                          Index           =>
+                            Integer_Constant_To_Expr
+                              (Value           => UI_From_Int (I),
+                               Expr_Type       => Int64_T,
+                               Source_Location => Internal_Source_Location),
+                          Source_Location => Internal_Source_Location,
+                          I_Type          => Get_Type (Source),
+                          Range_Check     => False),
+                     I_Type     => Get_Type (Array_Irep),
+                     Location   => Source_Location);
+               end loop;
+            end;
+
+            null;
+         end if;
+      end if;
+   end Initialse_Array_Object;
+
+   ---------------------------
+   -- All_Dimensions_Static --
+   ---------------------------
+
+   function All_Dimensions_Static (The_Array : Entity_Id) return Boolean is
+      Next_Dim : Node_Id := First_Index (The_Array);
+      Result : Boolean := True;
+   begin
+      while Present (Next_Dim) loop
+         if not Is_OK_Static_Range (Get_Range (Next_Dim)) then
+            Result := False;
+            exit;
+         end if;
+         Next_Dim := Next_Index (Next_Dim);
+      end loop;
+      return Result;
+   end All_Dimensions_Static;
 
    ------------------------
    -- Add_Array_Friends --
@@ -233,21 +334,21 @@ package body Arrays is
             High : constant Int := UI_To_Int (High_Expr);
          begin
             if Positional_Assoc then
-               Array_Static_Positional_Body
+               Array_Static_Positional
                  (Block      => Result_Block,
                   Low_Bound  => Low,
                   High_Bound => High,
                   N          => N,
-                  Aggr_Obj   => Obj_Irep,
+                  Target     => Obj_Irep,
                   Comp_Type  => Component_Irep);
             elsif Present (Component_Associations (N)) then
                --  Named associations.
-               Array_Static_Named_Assoc_Body
+               Array_Static_Named_Assoc
                  (Block      => Result_Block,
                   Low_Bound  => Low,
                   High_Bound => High,
                   N          => N,
-                  Aggr_Obj   => Obj_Irep,
+                  Target     => Obj_Irep,
                   Comp_Type  => Component_Irep);
             else
                Report_Unhandled_Node_Empty
@@ -268,12 +369,12 @@ package body Arrays is
                Bounds : constant Dimension_Bounds :=
                  Get_Bounds (Aggregate_Bounds (N));
             begin
-               Array_Dynamic_Positional_Body
+               Array_Dynamic_Positional
                  (Block      => Result_Block,
                   Low_Bound  => Bounds.Low,
                   High_Bound => Bounds.High,
                   N          => N,
-                  Aggr_Obj   => Obj_Irep,
+                  Target     => Obj_Irep,
                   Comp_Type  => Component_Irep);
             end;
 

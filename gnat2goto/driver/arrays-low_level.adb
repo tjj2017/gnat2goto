@@ -59,6 +59,20 @@ package body Arrays.Low_Level is
          Value_Expr => Value_Expr,
          I_Type     => I_Type,
          Location   => Location);
+
+      Put_Line ("££££££££££££ Making Loop");
+      Print_Irep (Zero_Based_First);
+      Print_Irep (Zero_Based_Last);
+      Print_Irep (Value_Expr);
+      Print_Irep (Loop_Body);
+      Print_Irep (Block);
+      Print_Irep (Make_Simple_For_Loop
+                   (Loop_Var        => Loop_Var,
+                    First           => Zero_Based_First,
+                    Last            => Zero_Based_Last,
+                    Loop_Body       => Loop_Body,
+                    Source_Location => Location));
+
       --  Now the loop can be constructed.
       Append_Op (Block,
                  Make_Simple_For_Loop
@@ -286,22 +300,44 @@ package body Arrays.Low_Level is
                                   Loop_Body, --  The body, using loop var
                                   Source_Location : Irep) return Irep
    is
+      Loop_Init : constant Irep := Make_Code_Assign
+        (Lhs => Loop_Var,
+         Rhs => Typecast_If_Necessary
+           (First,
+            Get_Type (Loop_Var),
+            Global_Symbol_Table),
+         Source_Location => Source_Location);
+
       Loop_Cond : constant Irep :=
         Make_Op_Geq (Rhs             => Loop_Var,
                      Lhs             => Last,
                      Source_Location => Source_Location,
                      Overflow_Check  => False,
                      I_Type          => Make_Bool_Type);
+
+      Loop_Inc : constant Irep :=
+        Make_Op_Add
+          (Lhs => Loop_Var,
+           Rhs =>  Integer_Constant_To_Expr
+             (Value           => Uint_1,
+              Expr_Type       => Int64_T,
+              Source_Location => Internal_Source_Location),
+           I_Type => Get_Type (Loop_Var),
+           Source_Location => Internal_Source_Location);
+
+      Loop_Post : constant Irep :=
+        Make_Side_Effect_Expr_Assign
+          (Lhs => Loop_Var,
+           Rhs => Loop_Inc,
+           Source_Location => Internal_Source_Location,
+           I_Type => Get_Type (Loop_Var));
+
    begin
       return Make_Code_For
         (Loop_Body       => Loop_Body,
          Cond            => Loop_Cond,
-         Init            => First,
-         Iter            =>
-           Integer_Constant_To_Expr
-             (Value           => Uint_1,
-              Expr_Type       => Int64_T,
-              Source_Location => Source_Location),
+         Init            => Loop_Init,
+         Iter            => Loop_Post,
          Source_Location => Source_Location);
    end Make_Simple_For_Loop;
 
@@ -311,7 +347,11 @@ package body Arrays.Low_Level is
 
    function Make_Zero_Index (Index, First, Location : Irep) return Irep is
      (Make_Op_Sub
-        (Rhs             => First,
+        (Rhs             =>
+              Typecast_If_Necessary
+           (Expr           => First,
+            New_Type       => Int64_T,
+            A_Symbol_Table => Global_Symbol_Table),
          Lhs             =>
             Typecast_If_Necessary
            (Expr           => Index,

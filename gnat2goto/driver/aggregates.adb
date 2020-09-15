@@ -1,23 +1,161 @@
-with Uintp;             use Uintp;
-with Nlists;            use Nlists;
-with Einfo;             use Einfo;
-with GOTO_Utils;        use GOTO_Utils;
-with Tree_Walk;         use Tree_Walk;
-with Arrays.Low_Level;  use Arrays.Low_Level;
+with Uintp;               use Uintp;
+with Nlists;              use Nlists;
+with GOTO_Utils;          use GOTO_Utils;
+with Tree_Walk;           use Tree_Walk;
+with Follow;              use Follow;
+with Arrays.Low_Level;    use Arrays.Low_Level;
+with ASVAT.Size_Model;    use ASVAT.Size_Model;
 with Ada.Text_IO; use Ada.Text_IO;
 with Treepr;            use Treepr;
 package body Aggregates is
 
-   -----------------------------------
-   -- Array_Dynamic_Positional_Body --
-   -----------------------------------
+   -------------------------------
+   -- Array_Dynamic_Named_Assoc --
+   -------------------------------
 
-   procedure Array_Dynamic_Positional_Body (Block      : Irep;
-                                            Low_Bound  : Irep;
-                                            High_Bound : Irep;
-                                            N          : Node_Id;
-                                            Aggr_Obj   : Irep;
-                                            Comp_Type  : Irep)
+   procedure Array_Dynamic_Named_Assoc (Block      : Irep;
+                                        Low_Bound  : Irep;
+                                        High_Bound : Irep;
+                                        N          : Node_Id;
+                                        Target     : Irep;
+                                       Comp_Type  : Irep)
+   is
+      Source_Location : constant Irep := Get_Source_Location (N);
+      --  An aggregate with named association may have an others choice
+      --  but it will be the last choice.
+      Last_Choice_Node : constant Node_Id :=
+        Last (Component_Associations (N));
+      Has_Others_Choice : constant Boolean :=
+        Nkind (First (Choices (Last_Choice_Node))) = N_Others_Choice;
+      Others_Expr : constant Irep :=
+        (if Has_Others_Choice and then
+         Present (Expression (Last_Choice_Node)) then
+            Do_Expression (Expression (Last_Choice_Node))
+         else
+            Ireps.Empty);
+
+      Next_Comp_Assoc : Node_Id :=
+        First (Component_Associations (N));
+   begin
+      if Has_Others_Choice then
+         if Others_Expr /= Ireps.Empty then
+            --  It is complex to compute which elements are
+            --  set by name association so, if there is an others =>
+            --  choice which is not <>, all elements of
+            --  the array are set to the others => expression.
+            --  Those elements indexed by named association will be
+            --  overwritten with the value associated with the index.
+            --  Goto arrays are inexded from 0.
+            declare
+               First_Idx : constant Irep := Get_Int64_T_Zero;
+               Last_Idx  : constant Irep :=
+                 Make_Zero_Index
+                   (Index    => Typecast_If_Necessary
+                      (Expr           => High_Bound,
+                       New_Type       => Int64_T,
+                       A_Symbol_Table => Global_Symbol_Table),
+                    First    => Typecast_If_Necessary
+                      (Expr           => Low_Bound,
+                       New_Type       => Int64_T,
+                       A_Symbol_Table => Global_Symbol_Table),
+                    Location => Source_Location);
+            begin
+               Assign_Value_To_Dynamic_Array_Components
+                 (Block            => Block,
+                  The_Array        => Target,
+                  Zero_Based_First => First_Idx,
+                  Zero_Based_Last  => Last_Idx,
+                  Value_Expr       => Others_Expr,
+                  I_Type           => Comp_Type,
+                  Location         => Source_Location);
+            end;
+         else
+            --  others => <>.
+            --  For the moment there is nothing to be done.
+            --  If the aspect Default_Component_Value is
+            --  supported in the future and is applied to the array
+            --  all of the elements of the array should first be
+            --  initialised to the default value.
+            null;
+         end if;
+      end if;
+      --  Now assign the expressions for each choice list.
+      --  Iterate through the component associations.
+      while Present (Next_Comp_Assoc) loop
+         --  Get the associated expression and iterate through the choices
+         --  specifying this expression.
+         declare
+            Assoc_Expr : constant Irep :=
+              Do_Expression (Expression (Next_Comp_Assoc));
+            Next_Choice : Node_Id :=
+              First (Choices (Next_Comp_Assoc));
+         begin
+            --  The others => choice has already been handled.
+            while Present (Next_Choice) and then
+              Nkind (Next_Choice) /= N_Others_Choice
+            loop
+               --  A choice may be a range of indices.
+               if Nkind (Next_Choice) in
+                 N_Range | N_Subtype_Indication or else
+                 (Nkind (Next_Choice) = N_Identifier and then
+                  Is_Type (Entity (Next_Choice)))
+               then
+                  declare
+                     Bounds : constant Dimension_Bounds :=
+                       Get_Bounds (Next_Choice);
+                  begin
+                     Put_Line ("Dynamic choices");
+                     Print_Irep (Bounds.Low);
+                     Print_Irep (Bounds.High);
+                     Assign_Value_To_Dynamic_Array_Components
+                       (Block            => Block,
+                        The_Array        => Target,
+                        Zero_Based_First =>
+                          Make_Zero_Index
+                            (Index    => Bounds.Low,
+                             First    => Low_Bound,
+                             Location => Source_Location),
+                        Zero_Based_Last =>
+                          Make_Zero_Index
+                            (Index    => Bounds.High,
+                             First    => Low_Bound,
+                             Location => Source_Location),
+                        Value_Expr      => Assoc_Expr,
+                        I_Type          => Comp_Type,
+                        Location        => Source_Location);
+                  end;
+               else
+                  --  Assign expression to the indexed element.
+                  Assign_To_Array_Component
+                    (Block      => Block,
+                     The_Array  => Target,
+                     Zero_Index => Make_Zero_Index
+                       (Index    => Do_Expression (Next_Choice),
+                        First    => Low_Bound,
+                        Location => Source_Location),
+                     Value_Expr => Assoc_Expr,
+                     I_Type     => Comp_Type,
+                     Location   => Source_Location);
+               end if;
+               --  Get the next choice.
+               Next_Choice := Next (Next_Choice);
+            end loop;
+         end;
+         --  Get the next component association.
+         Next_Comp_Assoc := Next (Next_Comp_Assoc);
+      end loop;
+   end Array_Dynamic_Named_Assoc;
+
+   ------------------------------
+   -- Array_Dynamic_Positional --
+   ------------------------------
+
+   procedure Array_Dynamic_Positional (Block      : Irep;
+                                       Low_Bound  : Irep;
+                                       High_Bound : Irep;
+                                       N          : Node_Id;
+                                       Target     : Irep;
+                                       Comp_Type  : Irep)
    is
       --  The aggregate has positional association and its bounds
       --  are not known by the front-end.  A goto loop has to be used to
@@ -70,7 +208,7 @@ package body Aggregates is
          Print_Irep (Do_Expression (Next_Expr));
          Assign_To_Array_Component
            (Block      => Block,
-            The_Array  => Aggr_Obj,
+            The_Array  => Target,
             Zero_Index =>
               Integer_Constant_To_Expr
                 (Value           => UI_From_Int (I),
@@ -85,6 +223,8 @@ package body Aggregates is
 
       --  Now check for an others => expression.
       if Others_Present then
+         Put_Line ("$$$$$$$$$$$ others present");
+         Print_Irep (Others_Expr);
          if Others_Expr /= Ireps.Empty then
             --  Set the remaining elements (if any) to the others expression.
             declare
@@ -101,7 +241,7 @@ package body Aggregates is
             begin
                Assign_Value_To_Dynamic_Array_Components
                  (Block            => Block,
-                  The_Array        => Aggr_Obj,
+                  The_Array        => Target,
                   Zero_Based_First => First_Idx,
                   Zero_Based_Last  => Last_Idx,
                   Value_Expr       => Others_Expr,
@@ -119,18 +259,18 @@ package body Aggregates is
       end if;
 
       Print_Irep (Block);
-   end Array_Dynamic_Positional_Body;
+   end Array_Dynamic_Positional;
 
-   -----------------------------------
-   -- Array_Static_Named_Assoc_Body --
-   -----------------------------------
+   ------------------------------
+   -- Array_Static_Named_Assoc --
+   ------------------------------
 
-   procedure Array_Static_Named_Assoc_Body (Block      : Irep;
-                                            Low_Bound  : Int;
-                                            High_Bound : Int;
-                                            N          : Node_Id;
-                                            Aggr_Obj   : Irep;
-                                            Comp_Type  : Irep)
+   procedure Array_Static_Named_Assoc (Block      : Irep;
+                                       Low_Bound  : Int;
+                                       High_Bound : Int;
+                                       N          : Node_Id;
+                                       Target     : Irep;
+                                       Comp_Type  : Irep)
    is
       Source_Location : constant Irep := Get_Source_Location (N);
       --  An aggregate with named association may have an others choice
@@ -160,7 +300,7 @@ package body Aggregates is
             --  Goto arrays are inexded from 0.
             Assign_Value_To_Static_Array_Components
               (Block            => Block,
-               The_Array        => Aggr_Obj,
+               The_Array        => Target,
                Zero_Based_First => 0,
                Zero_Based_Last  => High_Bound - Low_Bound,
                Value_Expr       => Others_Expr,
@@ -213,7 +353,7 @@ package body Aggregates is
                      begin
                         Assign_Value_To_Static_Array_Components
                           (Block            => Block,
-                           The_Array        => Aggr_Obj,
+                           The_Array        => Target,
                            Zero_Based_First => Start - Low_Bound,
                            Zero_Based_Last  => Finish - Low_Bound,
                            Value_Expr       => Assoc_Expr,
@@ -227,7 +367,7 @@ package body Aggregates is
                      begin
                         Assign_Value_To_Dynamic_Array_Components
                           (Block            => Block,
-                           The_Array        => Aggr_Obj,
+                           The_Array        => Target,
                            Zero_Based_First =>
                              Make_Zero_Index
                                (Index    => Bounds.Low,
@@ -247,7 +387,7 @@ package body Aggregates is
                   --  Assign expression to the indexed element.
                   Assign_To_Array_Component
                     (Block      => Block,
-                     The_Array  => Aggr_Obj,
+                     The_Array  => Target,
                      Zero_Index => Make_Zero_Index
                        (Index    => Do_Expression (Next_Choice),
                         First    => Low_Bound,
@@ -263,23 +403,23 @@ package body Aggregates is
          --  Get the next component association.
          Next_Comp_Assoc := Next (Next_Comp_Assoc);
       end loop;
-   end Array_Static_Named_Assoc_Body;
+   end Array_Static_Named_Assoc;
 
-   ---------------------------------
-   -- Array_Static_Positional_Body --
-   ---------------------------------
+   -----------------------------
+   -- Array_Static_Positional --
+   -----------------------------
 
-   procedure Array_Static_Positional_Body (Block      : Irep;
-                                          Low_Bound  : Int;
-                                          High_Bound : Int;
-                                          N          : Node_Id;
-                                          Aggr_Obj   : Irep;
-                                          Comp_Type  : Irep)
+   procedure Array_Static_Positional (Block      : Irep;
+                                      Low_Bound  : Int;
+                                      High_Bound : Int;
+                                      N          : Node_Id;
+                                      Target     : Irep;
+                                      Comp_Type  : Irep)
    is
       --  The aggregate has positional association and its bounds
       --  are known by the front-end.  A simple Ada loop can iterate
       --  through the expressions in the aggregate and assign them to
-      --  the appropriate element of the array.
+      --  the appropriate element of the target array.
       Source_Location : constant Irep := Get_Source_Location (N);
       --  A positional associated aggregate may have an others =>
       --  as the last entry in the aggregate.
@@ -310,7 +450,7 @@ package body Aggregates is
             if Others_Expr /= Ireps.Empty then
                Assign_Value_To_Static_Array_Components
                  (Block            => Block,
-                  The_Array        => Aggr_Obj,
+                  The_Array        => Target,
                   Zero_Based_First => I,
                   Zero_Based_Last  => Last_Idx,
                   Value_Expr       => Others_Expr,
@@ -332,10 +472,10 @@ package body Aggregates is
          else
             --  Otherwise assign the next expression to the i'th
             --  element of the aggregate array object.
-            Print_Irep (Aggr_Obj);
+            Print_Irep (Target);
             Assign_To_Array_Component
               (Block      => Block,
-               The_Array  => Aggr_Obj,
+               The_Array  => Target,
                Zero_Index =>
                  Integer_Constant_To_Expr
                    (Value           => UI_From_Int (I),
@@ -348,6 +488,95 @@ package body Aggregates is
             Next_Expr := Next (Next_Expr);
          end if;
       end loop;
-   end Array_Static_Positional_Body;
+   end Array_Static_Positional;
+
+   procedure Initialse_Array_From_Aggregate
+           (Block       : Irep;
+            Array_Type  : Entity_Id;
+            Agg         : Node_Id;
+            Array_Irep  : Irep)
+   is
+      Positional_Assoc : constant Boolean := Present (Expressions (Agg));
+      Aggregate_Subtype : constant Entity_Id := Etype (Agg);
+      Component_Pre     : constant Irep :=
+        Do_Type_Reference (Component_Type (Aggregate_Subtype));
+      Component_Irep    : constant Irep :=
+        (if Kind (Follow_Symbol_Type (Component_Pre,
+         Global_Symbol_Table)) = I_C_Enum_Type
+         then
+            Make_Unsignedbv_Type
+           (ASVAT.Size_Model.Static_Size (Component_Type (Aggregate_Subtype)))
+         else
+            Component_Pre);
+   begin
+      if Number_Dimensions (Array_Type) > 1 then
+         Report_Unhandled_Node_Empty
+           (Agg,
+            "Initialise_Array_From_Aggregate",
+            "Multi-demensional aggregates unsupported");
+      elsif Is_OK_Static_Range (Aggregate_Bounds (Agg)) then
+         --  The aggregate has static bounds.
+         declare
+            Low_Expr  : constant Uint :=
+              Expr_Value (Low_Bound  (Aggregate_Bounds (Agg)));
+            High_Expr : constant Uint :=
+              Expr_Value (High_Bound (Aggregate_Bounds (Agg)));
+            Low  : constant Int := UI_To_Int (Low_Expr);
+            High : constant Int := UI_To_Int (High_Expr);
+         begin
+            if Positional_Assoc then
+               Put_Line ("Positional static");
+               Array_Static_Positional
+                 (Block      => Block,
+                  Low_Bound  => Low,
+                  High_Bound => High,
+                  N          => Agg,
+                  Target     => Array_Irep,
+                  Comp_Type  => Component_Irep);
+            elsif Present (Component_Associations (Agg)) then
+               Put_Line ("Named static");
+               --  Named associations.
+               Array_Static_Named_Assoc
+                 (Block      => Block,
+                  Low_Bound  => Low,
+                  High_Bound => High,
+                  N          => Agg,
+                  Target     => Array_Irep,
+                  Comp_Type  => Component_Irep);
+            else
+               Report_Unhandled_Node_Empty
+                 (N        => Agg,
+                  Fun_Name => "Initialse_Array_From_Aggregate",
+                  Message  =>
+                 "Aggregate has neither Positional or Named arguments");
+            end if;
+         end;
+      else
+         declare
+            Bounds : constant Dimension_Bounds :=
+              Get_Bounds (Aggregate_Bounds (Agg));
+         begin
+            if Positional_Assoc then
+               Put_Line ("Positional dynamic");
+               Array_Dynamic_Positional
+                 (Block      => Block,
+                  Low_Bound  => Bounds.Low,
+                  High_Bound => Bounds.High,
+                  N          => Agg,
+                  Target     => Array_Irep,
+                  Comp_Type  => Component_Irep);
+            else
+               Put_Line ("Named dynamic");
+               Array_Dynamic_Named_Assoc
+                 (Block      => Block,
+                  Low_Bound  => Bounds.Low,
+                  High_Bound => Bounds.High,
+                  N          => Agg,
+                  Target     => Array_Irep,
+                  Comp_Type  => Component_Irep);
+            end if;
+         end;
+      end if;
+   end Initialse_Array_From_Aggregate;
 
 end Aggregates;
