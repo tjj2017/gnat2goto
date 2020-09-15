@@ -128,6 +128,12 @@ package Arrays is
                   and then Kind (Offset) in Class_Expr),
      Post => Kind (Offset_Array_Data'Result) in Class_Expr;
 
+   procedure Initialse_Array_Object (Block       : Irep;
+                                     Array_Type  : Entity_Id;
+                                     Init_Expr   : Node_Id;
+                                     Array_Irep  : Irep)
+     with Pre => Is_Array_Type (Array_Type);
+
    function Make_Array_Default_Initialiser (E : Entity_Id) return Irep;
 
    procedure Pass_Array_Friends (Actual_Array : Entity_Id;  Args : Irep)
