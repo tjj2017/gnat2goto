@@ -100,67 +100,221 @@ package body Arrays is
             Agg        => Init_Expr,
             Array_Irep => Array_Irep);
       elsif Nkind (Init_Expr) = N_Slice then
-         null;
+         Put_Line ("RHS is a slice");
+         Print_Node_Briefly (Init_Expr);
+         declare
+            Dest_Range : constant Node_Id :=
+              Get_Range (First_Index (Array_Type));
+            Underlying_Array_Type : constant Entity_Id :=
+              Etype (Prefix (Init_Expr));
+            Underlying_Range : constant Node_Id :=
+              Get_Range (First_Index (Underlying_Array_Type));
+            Slice_Range : constant Node_Id :=
+              Get_Range (Discrete_Range (Init_Expr));
+            --  Do expression of a slice returns the array from which the
+            --  slice is taken.
+            Underlying_Array : constant Irep :=
+              Do_Expression (Init_Expr);
+         begin
+            if All_Dimensions_Static (Array_Type) and then
+              All_Dimensions_Static (Etype (Prefix (Init_Expr))) and then
+              Is_OK_Static_Range (Slice_Range)
+            then
+               Put_Line ("Destination Underlying and Slice have static range");
+               declare
+                  Underlying_Low : constant Int :=
+                    UI_To_Int (Expr_Value (Low_Bound (Underlying_Range)));
+                  Slice_Low   : constant Int :=
+                    UI_To_Int (Expr_Value (Low_Bound (Slice_Range)));
+                  Slice_High  : constant Int :=
+                    UI_To_Int (Expr_Value (High_Bound (Slice_Range)));
+                  Source_Low  : constant Int := Slice_Low - Underlying_Low;
+                  Source_High : constant Int := Slice_High - Underlying_Low;
+
+                  --  Goto arrays are indexed from 0.
+                  Dest_Low    : constant Int := 0;
+                  Dest_High   : constant Int :=
+                    UI_To_Int (Expr_Value (High_Bound (Dest_Range))) -
+                    UI_To_Int (Expr_Value (Low_Bound (Dest_Range)));
+               begin
+                  --  As all the bounds are static, but the front-end does
+                  --  not check the slice and destination are the same length.
+                  --  TODO - ASVAT check to be inserted here.
+                  --  A call to Copy_Array_With_Offset can be used.
+                  Put_Line ("Dest_Low = " & Int'Image (Dest_Low));
+                  Put_Line ("Dest_High = " & Int'Image (Dest_High));
+                  Put_Line ("Src_Low = " & Int'Image (Source_Low));
+                  Put_Line ("Src_High = " & Int'Image (Source_High));
+                  Put_Line ("Dest_Len = " &
+                              Int'Image (Dest_High - Dest_Low + 1));
+                  Put_Line ("Src_Len = " &
+                              Int'Image (Source_High - Source_Low + 1));
+                  Print_Irep (Array_Irep);
+                  Print_Irep (Underlying_Array);
+                  Copy_Array_With_Offset_Static
+                    (Block            => Block,
+                     Destination_Type => Array_Type,
+                     Source_Type      => Underlying_Array_Type,
+                     Dest_Low         => Dest_Low,
+                     Dest_High        => Dest_High,
+                     Source_Low       => Source_Low,
+                     Source_High      => Source_High,
+                     Dest_Irep        => Array_Irep,
+                     Source_Irep      => Underlying_Array);
+               end;
+            else
+               --  Need to copy dynamically using
+               --  Copy_Array_With_Offset_Dynamic.
+               declare
+                  Dest_Bounds : constant Dimension_Bounds :=
+                    Get_Bounds (Dest_Range);
+                  Underlying_Bounds : constant Dimension_Bounds :=
+                    Get_Bounds (Underlying_Range);
+                  Slice_Bounds : constant Dimension_Bounds :=
+                    Get_Bounds (Slice_Range);
+
+                  Dest_First : constant Irep := Get_Int64_T_Zero;
+                  Dest_Last  : constant Irep :=
+                    Make_Zero_Index
+                      (Index    => Dest_Bounds.High,
+                       First    => Dest_Bounds.Low,
+                       Location => Source_Location);
+
+                  Source_First : constant Irep :=
+                    Make_Zero_Index
+                      (Index    => Slice_Bounds.Low,
+                       First    => Underlying_Bounds.Low,
+                       Location => Source_Location);
+                  Source_Last  : constant Irep :=
+                    Make_Zero_Index
+                      (Index    => Slice_Bounds.High,
+                       First    => Underlying_Bounds.Low,
+                       Location => Source_Location);
+               begin
+                  Copy_Array_With_Offset_Dynamic
+                    (Block            => Block,
+                     Destination_Type => Array_Type,
+                     Source_Type      => Underlying_Array_Type,
+                     Dest_Low         => Dest_First,
+                     Dest_High        => Dest_Last,
+                     Source_Low       => Source_First,
+                     Source_High      => Source_Last,
+                     Dest_Irep        => Array_Irep,
+                     Source_Irep      => Underlying_Array);
+               end;
+            end if;
+         end;
       elsif Nkind (Init_Expr) = N_Op_Concat then
          null;
       elsif Nkind (Init_Expr) = N_Function_Call then
          null;
-      elsif All_Dimensions_Static (Array_Type) and then
-        All_Dimensions_Static (Etype (Init_Expr))
-      then
-         Put_Line ("<<<<<<<<< Simple assgnment");
-         Print_Node_Briefly (Array_Type);
-         Print_Node_Briefly (Init_Expr);
-         Append_Op (Block,
-                    Make_Code_Assign
-                      (Rhs             => Do_Expression (Init_Expr),
-                       Lhs             => Array_Irep,
-                       Source_Location => Source_Location,
-                       I_Type          => Get_Type (Array_Irep),
-                       Range_Check     => False));
-         null;
       else
-         --  We have to copy one element at a time
-         --  or use memcpy
-         Put_Line ("++++++++= One at a time ?");
-         if All_Dimensions_Static (Array_Type) then
-            Put_Line ("LHS is static array");
-            declare
-               Bounds : constant Node_Id :=
-                 Get_Range (First_Index (Array_Type));
-               First  : constant Int := UI_To_Int
-                 (Expr_Value (Low_Bound (Bounds)));
-               Last   : constant Int := UI_To_Int
-                 (Expr_Value (High_Bound (Bounds)));
-               Source : constant Irep := Do_Expression (Init_Expr);
-            begin
-               for I in 0 .. Last - First loop
-                  Assign_To_Array_Component
-                    (Block      => Block,
-                     The_Array  => Array_Irep,
-                     Zero_Index =>
-                       Integer_Constant_To_Expr
-                         (Value           => UI_From_Int (I),
-                          Expr_Type       => Int64_T,
-                          Source_Location => Internal_Source_Location),
-                     Value_Expr =>
-                       Make_Index_Expr
-                         (I_Array         => Source,
-                          Index           =>
-                            Integer_Constant_To_Expr
-                              (Value           => UI_From_Int (I),
-                               Expr_Type       => Int64_T,
-                               Source_Location => Internal_Source_Location),
-                          Source_Location => Internal_Source_Location,
-                          I_Type          => Get_Type (Source),
-                          Range_Check     => False),
-                     I_Type     => Get_Type (Array_Irep),
-                     Location   => Source_Location);
-               end loop;
-            end;
+         declare
+            Dest_Bounds_Static : constant Boolean :=
+              All_Dimensions_Static (Array_Type);
+            Source_Bounds_Static : constant Boolean :=
+              All_Dimensions_Static (Etype (Init_Expr));
+            Source : constant Irep := Do_Expression (Init_Expr);
+         begin
+            if Dest_Bounds_Static and Source_Bounds_Static then
+               --  Both the destination and source arrays have static
+               --  bounds.  The front-end should check the arrays are the same
+               --  length.
+               --  A simple assignment can be used.
+               Put_Line ("<<<<<<<<< Simple assgnment");
+               Print_Node_Briefly (Array_Type);
+               Print_Node_Briefly (Init_Expr);
+               Append_Op (Block,
+                          Make_Code_Assign
+                            (Rhs             =>
+                               Typecast_If_Necessary
+                                 (Expr           => Do_Expression (Init_Expr),
+                                  New_Type       => Get_Type (Array_Irep),
+                                  A_Symbol_Table => Global_Symbol_Table),
+                             Lhs             => Array_Irep,
+                             Source_Location => Source_Location,
+                             I_Type          => Get_Type (Array_Irep),
+                             Range_Check     => False));
+            else
+               --  At least one of the arrays has non-static bounds.
+               --  cbmc goto does not seem to support entire array assignment
+               --  if at least one of the arrays has non-static bounds.
+               --  The array elements have to be copied one element at a time.
+               Put_Line ("++++++++= One at a time ?");
+               if Dest_Bounds_Static or Source_Bounds_Static then
+                  Put_Line ((if Dest_Bounds_Static then "LHS" else
+                               "RHS") & " is static array");
+                  --  The bounds of one of the arrays is static.
+                  --  The length of the arrays should be the same.
+                  --  TODO - this is a run time check and a ASVAT
+                  --  check should be generated here.
+                  --
+                  --  Since the arrays should be the same length
+                  --  the bounds of the array with the static bounds is
+                  --  used to determine the length of the arrays and
+                  --  a call to Copy_Array_Static can be used to translate the
+                  --  array assignment innto a sequence of assignment
+                  --  statements, one for each element of the arrays,
+                  --  in the goto program (not a loop in the goto translation).
+                  declare
+                     Array_To_Use : constant Entity_Id :=
+                       (if Dest_Bounds_Static then
+                           Array_Type
+                        else
+                           Etype (Init_Expr));
 
-            null;
-         end if;
+                     Bounds : constant Node_Id :=
+                       Get_Range (First_Index (Array_To_Use));
+                     First  : constant Int := UI_To_Int
+                       (Expr_Value (Low_Bound (Bounds)));
+                     Last   : constant Int := UI_To_Int
+                       (Expr_Value (High_Bound (Bounds)));
+
+                  begin
+                     Copy_Array_Static
+                       (Block            => Block,
+                        Destination_Type => Array_Type,
+                        Source_Type      => Etype (Init_Expr),
+                        Zero_Based_High  => Last - First,
+                        Dest_Irep        => Array_Irep,
+                        Source_Irep      => Source);
+                  end;
+               else
+                  --  Neither array has static bounds.
+                  --  A call to Copy_Array_Dynamic has to be used which will
+                  --  translate the array assignment into a loop in the
+                  --  goto program which assigns each element of the array
+                  --  individually.
+                  --  The arrays must be the same length.
+                  --  TODO - This is a run-time check and an ASVAT check
+                  --  should be inserted here.
+                  declare
+                     Dest_Bounds : constant Dimension_Bounds :=
+                       Get_Bounds (First_Index (Array_Type));
+                     Zero_Based_High : constant Irep :=
+                       Typecast_If_Necessary
+                         (Expr           =>
+                            Make_Op_Sub
+                              (Rhs             => Dest_Bounds.Low,
+                               Lhs             => Dest_Bounds.High,
+                               Source_Location => Internal_Source_Location,
+                               Overflow_Check  => False,
+                               I_Type          => Get_Type (Dest_Bounds.Low),
+                               Range_Check     => False),
+                          New_Type       => Int64_T,
+                          A_Symbol_Table => Global_Symbol_Table);
+                  begin
+                     Copy_Array_Dynamic
+                       (Block            => Block,
+                        Destination_Type => Array_Type,
+                        Source_Type      => Etype (Init_Expr),
+                        Zero_Based_High  => Zero_Based_High,
+                        Dest_Irep        => Array_Irep,
+                        Source_Irep      => Source);
+                  end;
+               end if;
+            end if;
+         end;
       end if;
    end Initialse_Array_Object;
 
