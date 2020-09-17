@@ -1,6 +1,8 @@
 with Nlists;                  use Nlists;
 with Sem_Eval;                use Sem_Eval;
+with Follow;                  use Follow;
 with Tree_Walk;               use Tree_Walk;
+with ASVAT.Size_Model;        use ASVAT.Size_Model;
 with Ada.Text_IO; use Ada.Text_IO;
 package body Arrays.Low_Level is
 
@@ -256,6 +258,241 @@ package body Arrays.Low_Level is
            I_Type          => Int64_T,
            Range_Check     => False);
    end Calculate_Zero_Offset;
+
+   ------------------------
+   -- Copy_Array_Dynamic --
+   ------------------------
+
+   procedure Copy_Array_Dynamic
+     (Block            : Irep;
+      Destination_Type : Entity_Id;
+      Source_Type      : Entity_Id;
+      Zero_Based_High  : Irep;
+      Dest_Irep        : Irep;
+      Source_Irep      : Irep)
+   is
+      --  All goto arrays index from 0.
+      Low_Idx  : constant Irep := Get_Int64_T_Zero;
+      --  The length ot the destination and source arrays should be the same.
+      High_Idx : constant Irep :=
+        Typecast_If_Necessary
+          (Expr           => Zero_Based_High,
+           New_Type       => Int64_T,
+           A_Symbol_Table => Global_Symbol_Table);
+   begin
+      Copy_Array_With_Offset_Dynamic
+        (Block            => Block,
+         Destination_Type => Destination_Type,
+         Source_Type      => Source_Type,
+         Dest_Low         => Low_Idx,
+         Dest_High        => High_Idx,
+         Source_Low       => Low_Idx,
+         Source_High      => High_Idx,
+         Dest_Irep        => Dest_Irep,
+         Source_Irep      => Source_Irep);
+   end Copy_Array_Dynamic;
+
+   -----------------------
+   -- Copy_Array_Static --
+   -----------------------
+
+   procedure Copy_Array_Static
+     (Block            : Irep;
+      Destination_Type : Entity_Id;
+      Source_Type      : Entity_Id;
+      Zero_Based_High  : Int;
+      Dest_Irep        : Irep;
+      Source_Irep      : Irep) is
+   begin
+      Copy_Array_With_Offset_Static
+        (Block            => Block,
+         Destination_Type => Destination_Type,
+         Source_Type      => Source_Type,
+         Dest_Low         => 0,
+         Dest_High        => Zero_Based_High,
+         Source_Low       => 0,
+         Source_High      => Zero_Based_High,
+         Dest_Irep        => Dest_Irep,
+         Source_Irep      => Source_Irep);
+   end Copy_Array_Static;
+
+   ------------------------------------
+   -- Copy_Array_With_Offset_Dynamic --
+   ------------------------------------
+
+   procedure Copy_Array_With_Offset_Dynamic
+     (Block            : Irep;
+      Destination_Type : Entity_Id;
+      Source_Type      : Entity_Id;
+      Dest_Low         : Irep;
+      Dest_High        : Irep;
+      Source_Low       : Irep;
+      Source_High      : Irep;
+      Dest_Irep        : Irep;
+      Source_Irep      : Irep)
+   is
+      pragma Unreferenced (Source_High);  -- Used in precondition.
+      Source_Location : constant Irep := Get_Source_Location (Dest_Irep);
+
+      Component_Pre_Dest : constant Irep :=
+        Do_Type_Reference (Component_Type (Destination_Type));
+      Component_Dest     : constant Irep :=
+        (if Kind (Follow_Symbol_Type (Component_Pre_Dest,
+         Global_Symbol_Table)) = I_C_Enum_Type
+         then
+            Make_Unsignedbv_Type
+           (ASVAT.Size_Model.Static_Size
+                (Component_Type (Destination_Type)))
+         else
+            Component_Pre_Dest);
+
+      Component_Pre_Src  : constant Irep :=
+        Do_Type_Reference (Component_Type (Source_Type));
+      Component_Source   : constant Irep :=
+        (if Kind (Follow_Symbol_Type (Component_Pre_Src,
+         Global_Symbol_Table)) = I_C_Enum_Type
+         then
+            Make_Unsignedbv_Type
+           (ASVAT.Size_Model.Static_Size
+                (Component_Type (Source_Type)))
+         else
+            Component_Pre_Src);
+
+      Loop_Var : constant Irep :=
+        Fresh_Var_Symbol_Expr (Int64_T, "loop_var");
+      Loop_Body : constant Irep :=
+        Make_Code_Block (Source_Location => Source_Location);
+
+      Dest_Idx   : constant Irep :=
+        Make_Op_Add
+          (Rhs             => Dest_Low,
+           Lhs             => Loop_Var,
+           Source_Location => Source_Location,
+           Overflow_Check  => False,
+           I_Type          => Int64_T,
+           Range_Check     => False);
+      Source_Idx : constant Irep :=
+        Make_Op_Add
+          (Rhs             => Source_Low,
+           Lhs             => Loop_Var,
+           Source_Location => Source_Location,
+           Overflow_Check  => False,
+           I_Type          => Int64_T,
+           Range_Check     => False);
+
+      Loop_First : constant Irep := Get_Int64_T_Zero;
+      Loop_Last  : constant Irep :=
+        Make_Op_Sub
+          (Rhs             => Dest_Low,
+           Lhs             => Dest_High,
+           Source_Location => Internal_Source_Location,
+           Overflow_Check  => False,
+           I_Type          => Int64_T,
+           Range_Check     => False);
+   begin
+      --  The body of the loop is just the assignment of the indexed source
+      --  element to the indexed destination element.
+      Assign_To_Array_Component
+        (Block      => Loop_Body,
+         The_Array  => Dest_Irep,
+         Zero_Index => Dest_Idx,
+         Value_Expr =>
+           Typecast_If_Necessary
+             (Expr           =>
+                  Make_Index_Expr
+                (I_Array         => Source_Irep,
+                 Index           => Source_Idx,
+                 Source_Location => Internal_Source_Location,
+                 I_Type          => Component_Source,
+                 Range_Check     => False),
+              New_Type       => Component_Dest,
+              A_Symbol_Table => Global_Symbol_Table),
+         I_Type     => Component_Dest,
+         Location   => Source_Location);
+
+      --  Now the loop can be constructed.
+      Append_Op (Block,
+                 Make_Simple_For_Loop
+                   (Loop_Var        => Loop_Var,
+                    First           => Loop_First,
+                    Last            => Loop_Last,
+                    Loop_Body       => Loop_Body,
+                    Source_Location => Source_Location));
+   end Copy_Array_With_Offset_Dynamic;
+
+   -----------------------------------
+   -- Copy_Array_With_Offset_Static --
+   -----------------------------------
+
+   procedure Copy_Array_With_Offset_Static
+     (Block            : Irep;
+      Destination_Type : Entity_Id;
+      Source_Type      : Entity_Id;
+      Dest_Low         : Int;
+      Dest_High        : Int;
+      Source_Low       : Int;
+      Source_High      : Int;
+      Dest_Irep        : Irep;
+      Source_Irep      : Irep)
+   is
+      pragma Unreferenced (Source_High);  -- Used in precondition.
+      Source_Location : constant Irep := Get_Source_Location (Dest_Irep);
+
+      Component_Pre_Dest : constant Irep :=
+        Do_Type_Reference (Component_Type (Destination_Type));
+      Component_Dest     : constant Irep :=
+        (if Kind (Follow_Symbol_Type (Component_Pre_Dest,
+         Global_Symbol_Table)) = I_C_Enum_Type
+         then
+            Make_Unsignedbv_Type
+           (ASVAT.Size_Model.Static_Size
+                (Component_Type (Destination_Type)))
+         else
+            Component_Pre_Dest);
+
+      Component_Pre_Src  : constant Irep :=
+        Do_Type_Reference (Component_Type (Source_Type));
+      Component_Source   : constant Irep :=
+        (if Kind (Follow_Symbol_Type (Component_Pre_Src,
+         Global_Symbol_Table)) = I_C_Enum_Type
+         then
+            Make_Unsignedbv_Type
+           (ASVAT.Size_Model.Static_Size
+                (Component_Type (Source_Type)))
+         else
+            Component_Pre_Src);
+   begin
+      for I in 0 .. Dest_High - Dest_Low loop
+         Assign_To_Array_Component
+           (Block      => Block,
+            The_Array  => Dest_Irep,
+            Zero_Index =>
+              Integer_Constant_To_Expr
+                (Value           => UI_From_Int (I + Dest_Low),
+                 Expr_Type       => Int64_T,
+                 Source_Location =>
+                   Internal_Source_Location),
+            Value_Expr =>
+              Typecast_If_Necessary
+                (Expr           =>
+                     Make_Index_Expr
+                   (I_Array         => Source_Irep,
+                    Index           =>
+                      Integer_Constant_To_Expr
+                        (Value           => UI_From_Int (I + Source_Low),
+                         Expr_Type       => Int64_T,
+                         Source_Location =>
+                           Internal_Source_Location),
+                    Source_Location =>
+                      Internal_Source_Location,
+                    I_Type          => Component_Source,
+                    Range_Check     => False),
+                 New_Type       => Component_Dest,
+                 A_Symbol_Table => Global_Symbol_Table),
+            I_Type     => Component_Dest,
+            Location   => Source_Location);
+      end loop;
+   end Copy_Array_With_Offset_Static;
 
    -----------------
    -- Get_Bounds --

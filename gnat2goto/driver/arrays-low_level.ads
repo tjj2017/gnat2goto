@@ -64,6 +64,59 @@ package Arrays.Low_Level is
      with Pre => Nkind (Given_Index) in N_Subexpr;
    --  Calculates the zero offset from an Index represented by an Atree node.
 
+   procedure Copy_Array_Dynamic
+     (Block            : Irep;
+      Destination_Type : Entity_Id;
+      Source_Type      : Entity_Id;
+      Zero_Based_High  : Irep;
+      Dest_Irep        : Irep;
+      Source_Irep      : Irep)
+     with Pre => Is_Array_Type (Destination_Type) and
+                 Is_Array_Type (Source_Type) and
+                 Kind (Get_Type (Dest_Irep))   = I_Array_Type and
+                 Kind (Get_Type (Source_Irep)) = I_Array_Type;
+
+   procedure Copy_Array_Static
+     (Block            : Irep;
+      Destination_Type : Entity_Id;
+      Source_Type      : Entity_Id;
+      Zero_Based_High  : Int;
+      Dest_Irep        : Irep;
+      Source_Irep      : Irep)
+     with Pre => Is_Array_Type (Destination_Type) and
+                 Is_Array_Type (Source_Type) and
+                 Kind (Get_Type (Dest_Irep))   = I_Array_Type and
+                 Kind (Get_Type (Source_Irep)) = I_Array_Type;
+
+   procedure Copy_Array_With_Offset_Dynamic
+     (Block            : Irep;
+      Destination_Type : Entity_Id;
+      Source_Type      : Entity_Id;
+      Dest_Low         : Irep;
+      Dest_High        : Irep;
+      Source_Low       : Irep;
+      Source_High      : Irep;
+      Dest_Irep        : Irep;
+      Source_Irep      : Irep)
+     with Pre => Is_Array_Type (Destination_Type) and
+                 Is_Array_Type (Source_Type);
+
+   procedure Copy_Array_With_Offset_Static
+     (Block            : Irep;
+      Destination_Type : Entity_Id;
+      Source_Type      : Entity_Id;
+      Dest_Low         : Int;
+      Dest_High        : Int;
+      Source_Low       : Int;
+      Source_High      : Int;
+      Dest_Irep        : Irep;
+      Source_Irep      : Irep)
+     with Pre => Is_Array_Type (Destination_Type) and
+                 Is_Array_Type (Source_Type) and
+                 Kind (Get_Type (Dest_Irep))   = I_Array_Type and
+                 Kind (Get_Type (Source_Irep)) = I_Array_Type and
+                 Dest_High - Dest_Low + 1 = Source_High - Source_Low + 1;
+
    function Get_Bounds (Index : Node_Id) return Dimension_Bounds;
    --  If the array is constrained, returns the lower and upper bounds of
    --  the index constraint.
