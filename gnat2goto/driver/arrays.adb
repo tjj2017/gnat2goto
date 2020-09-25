@@ -205,8 +205,78 @@ package body Arrays is
             end if;
          end;
       elsif Nkind (Init_Expr) = N_Op_Concat then
+         Put_Line ("Op Concat");
+         Print_Node_Subtree (Init_Expr);
+         --  First the total length of the concatanated array expressions must
+         --  determined.
+
          null;
       elsif Nkind (Init_Expr) = N_Function_Call then
+         Put_Line ("Function Call");
+         Print_Node_Subtree (Init_Expr);
+         Print_Irep (Do_Expression (Init_Expr));
+         declare
+            Arr_Ptr : constant Irep :=
+              Make_Address_Of (Do_Expression (Init_Expr));
+         begin
+            if All_Dimensions_Static (Array_Type) then
+               declare
+                  Bounds : constant Node_Id :=
+                    Get_Range (First_Index (Array_Type));
+                  First  : constant Int := UI_To_Int
+                    (Expr_Value (Low_Bound (Bounds)));
+                  Last   : constant Int := UI_To_Int
+                    (Expr_Value (High_Bound (Bounds)));
+               begin
+                  Print_Irep (Arr_Ptr);
+                  Print_Irep (Get_Type (Arr_Ptr));
+                  Copy_Array_Static
+                    (Block            => Block,
+                     Destination_Type => Array_Type,
+                     Source_Type      => Etype (Init_Expr),
+                     Zero_Based_High  => Last - First,
+                     Dest_Irep        => Array_Irep,
+                     Source_Irep      => Make_Dereference_Expr
+                       (Object          => Arr_Ptr,
+                        Source_Location => Internal_Source_Location,
+                        I_Type          => Get_Subtype (Get_Type (Arr_Ptr)),
+                        Range_Check     => False));
+               end;
+            else
+               declare
+                  Dest_Bounds : constant Dimension_Bounds :=
+                    Get_Bounds (First_Index (Array_Type));
+                  Zero_Based_High : constant Irep :=
+                    Typecast_If_Necessary
+                      (Expr           =>
+                         Make_Op_Sub
+                           (Rhs             => Dest_Bounds.Low,
+                            Lhs             => Dest_Bounds.High,
+                            Source_Location => Internal_Source_Location,
+                            Overflow_Check  => False,
+                            I_Type          => Get_Type (Dest_Bounds.Low),
+                            Range_Check     => False),
+                       New_Type       => Int64_T,
+                       A_Symbol_Table => Global_Symbol_Table);
+               begin
+                  Put_Line ("Function call to dynamic");
+                  Print_Irep (Dest_Bounds.Low);
+                  Print_Irep (Dest_Bounds.High);
+                  Copy_Array_Dynamic
+                    (Block            => Block,
+                     Destination_Type => Array_Type,
+                     Source_Type      => Etype (Init_Expr),
+                     Zero_Based_High  => Zero_Based_High,
+                     Dest_Irep        => Array_Irep,
+                     Source_Irep      => Make_Dereference_Expr
+                       (Object          => Arr_Ptr,
+                        Source_Location => Internal_Source_Location,
+                        I_Type          => Get_Subtype (Get_Type (Arr_Ptr)),
+                        Range_Check     => False));
+               end;
+            end if;
+         end;
+
          null;
       else
          declare
@@ -513,16 +583,11 @@ package body Arrays is
             end if;
          end;
       else
-         if Positional_Assoc then
-            Report_Unhandled_Node_Empty
-              (N        => N,
-               Fun_Name => "Do_Aggregate_Array_Literal",
-               Message  =>
-                 "Positional Aggregates with dynamic bounds are unsupported");
-            declare
-               Bounds : constant Dimension_Bounds :=
-                 Get_Bounds (Aggregate_Bounds (N));
-            begin
+         declare
+            Bounds : constant Dimension_Bounds :=
+              Get_Bounds (Aggregate_Bounds (N));
+         begin
+            if Positional_Assoc then
                Array_Dynamic_Positional
                  (Block      => Result_Block,
                   Low_Bound  => Bounds.Low,
@@ -530,16 +595,16 @@ package body Arrays is
                   N          => N,
                   Target     => Obj_Irep,
                   Comp_Type  => Component_Irep);
-            end;
-
-         else
-            Report_Unhandled_Node_Empty
-              (N        => N,
-               Fun_Name => "Do_Aggregate_Array_Literal",
-               Message  =>
-                 "Named associatin Aggregates with dynamic bounds " &
-                 "are unsupported");
-         end if;
+            else
+               Array_Dynamic_Named_Assoc
+                 (Block      => Result_Block,
+                  Low_Bound  => Bounds.Low,
+                  High_Bound => Bounds.High,
+                  N          => N,
+                  Target     => Obj_Irep,
+                  Comp_Type  => Component_Irep);
+            end if;
+         end;
       end if;
 
       --  Now add the return statement.
@@ -1351,65 +1416,127 @@ package body Arrays is
    is
       Source_Loc  : constant Irep := Get_Source_Location (N);
       The_Prefix  : constant Node_Id := Prefix (N);
-      The_Entity  : constant Entity_Id := Entity (The_Prefix);
-      Arr_Subtype : constant Entity_Id := Etype (The_Entity);
       Attr_Expr   : constant Node_Id := First (Expressions (N));
       Dimension   : constant Integer :=
         (if Present (Attr_Expr) then
-            --  Ada rules require the dimension expression to be static.
+         --  Ada rules require the dimension expression to be static.
             Integer (UI_To_Int (Intval (Attr_Expr)))
          else
-            --  No dimension expression defaults to dimension 1
+         --  No dimension expression defaults to dimension 1
             1);
-      pragma Assert (Print_Node (N));
-      pragma Assert (Print_Node (The_Prefix));
-      pragma Assert (Print_Node (The_Entity));
-      pragma Assert (Print_Node (Etype (N)));
-      pragma Assert (Print_Node (Arr_Subtype));
-      pragma Assert (Print_Msg ("Is an array (The_Entity) " &
-                       Boolean'Image (Is_Array_Type (Etype (The_Entity)))));
-      pragma Assert (Print_Msg ("Is constrained (The_Entity) " &
-                       Boolean'Image (Is_Constrained (The_Entity))));
-      pragma Assert (Print_Msg ("Is constrained (Etype (The_Entity)) " &
-                       Boolean'Image (Is_Constrained (Etype (The_Entity)))));
-      pragma Assert (Print_Msg ("Is a parameter (The_Entity) " &
-                       Boolean'Image (Is_Formal (The_Entity))));
-      Bounds      : constant Dimension_Bounds :=
-        (if Is_Formal (The_Entity) and then not Is_Constrained (The_Entity)
-         then
-            --  It must be an unconstrained array parameter.
-            --  Use the extra parameters associated with the array.
-            Do_Unconstrained_First_Last (The_Entity, Dimension, Source_Loc)
-         else
-         --  Use the subtype definition which will be constrained as
-         --  it is not a formal parameter.
-            Do_Constrained_First_Last (Arr_Subtype, Dimension));
-
-      pragma Assert (Print_Irep_Func (Bounds.Low));
-      pragma Assert (Print_Irep_Func (Bounds.High));
    begin
       Put_Line ("**** Do_Array_First_Last_Length");
       Put_Line (Attribute_Id'Image (Attr));
       Print_Node_Briefly (N);
       Print_Node_Briefly (The_Prefix);
       Print_Node_Briefly (Attr_Expr);
---        Print_Node_Briefly (Etype (Prefix (N)));
-      Print_Node_Briefly (Entity (The_Prefix));
+      if Nkind (The_Prefix) in N_Has_Entity then
+         declare
+            The_Entity  : constant Entity_Id := Entity (The_Prefix);
+            Arr_Subtype : constant Entity_Id := Etype (The_Entity);
+            pragma Assert (Print_Node (N));
+            pragma Assert (Print_Node (The_Prefix));
+            pragma Assert (Print_Node (The_Entity));
+            pragma Assert (Print_Node (Etype (N)));
+            pragma Assert (Print_Node (Arr_Subtype));
+            pragma Assert (Print_Msg ("Is an array (The_Entity) " &
+                             Boolean'Image
+                             (Is_Array_Type (Etype (The_Entity)))));
+            pragma Assert (Print_Msg ("Is constrained (The_Entity) " &
+                             Boolean'Image (Is_Constrained (The_Entity))));
+            pragma Assert (Print_Msg ("Is constrained (Etype (The_Entity)) " &
+                             Boolean'Image
+                             (Is_Constrained (Etype (The_Entity)))));
+            pragma Assert (Print_Msg ("Is a parameter (The_Entity) " &
+                             Boolean'Image (Is_Formal (The_Entity))));
+            Bounds      : constant Dimension_Bounds :=
+              (if Is_Formal (The_Entity) and then not
+                   Is_Constrained (The_Entity)
+               then
+               --  It must be an unconstrained array parameter.
+               --  Use the extra parameters associated with the array.
+                  Do_Unconstrained_First_Last
+                 (The_Entity, Dimension, Source_Loc)
+               else
+               --  Use the subtype definition which will be constrained as
+               --  it is not a formal parameter.
+                  Do_Constrained_First_Last (Arr_Subtype, Dimension));
 
-      if Present (Attr_Expr) then
-         Put_Line ("The dimension is " &
-                     Int'Image (UI_To_Int (Intval (Attr_Expr))));
+            pragma Assert (Print_Irep_Func (Bounds.Low));
+            pragma Assert (Print_Irep_Func (Bounds.High));
+         begin
+            --        Print_Node_Briefly (Etype (Prefix (N)));
+            Print_Node_Briefly (Entity (The_Prefix));
+
+            if Present (Attr_Expr) then
+               Put_Line ("The dimension is " &
+                           Int'Image (UI_To_Int (Intval (Attr_Expr))));
+            else
+               Put_Line ("No Dimension");
+            end if;
+            Print_Node_Briefly (The_Entity);
+            Print_Node_Briefly (Etype (The_Prefix));
+            Print_Node_Briefly (Etype (The_Entity));
+            return
+              (case Attr is
+                  when Attribute_First => Bounds.Low,
+                  when Attribute_Last => Bounds.High,
+                  when others => Calculate_Dimension_Length (Bounds));
+
+         end;
       else
-         Put_Line ("No Dimension");
+         Put_Line ("The Prefix is not an array");
+         Print_Node_Subtree (The_Prefix);
+         if Nkind (The_Prefix) = N_Function_Call then
+            declare
+               Prefix_Etype : constant Entity_Id :=
+                 Etype (The_Prefix);
+            begin
+               if Is_Array_Type (Prefix_Etype) then
+                  if Is_Constrained (Prefix_Etype) then
+                     declare
+                        Bounds : constant Dimension_Bounds :=
+                          Do_Constrained_First_Last (Prefix_Etype, Dimension);
+                     begin
+                        return
+                          (case Attr is
+                              when Attribute_First => Bounds.Low,
+                              when Attribute_Last => Bounds.High,
+                              when others =>
+                                 Calculate_Dimension_Length (Bounds));
+                     end;
+                  else
+                     declare
+                        Res_Arr : constant Irep :=
+                          Do_Expression (The_Prefix);
+                     begin
+                        Put_Line ("The return irep");
+                        Print_Irep (Res_Arr);
+                        Print_Irep (Get_Type (Res_Arr));
+                     end;
+
+                     return
+                       Report_Unhandled_Node_Irep
+                         (N        => The_Prefix,
+                          Fun_Name => "Do_Array_First_Last_Length",
+                          Message  => "Unconstrainned array");
+                  end if;
+               else
+                  return
+                    Report_Unhandled_Node_Irep
+                      (N        => The_Prefix,
+                       Fun_Name => "Do_Array_First_Last_Length",
+                       Message  => "The function result is not an array");
+               end if;
+            end;
+         else
+            return
+              Report_Unhandled_Node_Irep
+                (N        => The_Prefix,
+                 Fun_Name => "Do_Array_First_Last_Length",
+                 Message  => "oops");
+         end if;
       end if;
-      Print_Node_Briefly (The_Entity);
-      Print_Node_Briefly (Etype (The_Prefix));
-      Print_Node_Briefly (Etype (The_Entity));
-      return
-        (case Attr is
-            when Attribute_First => Bounds.Low,
-            when Attribute_Last => Bounds.High,
-            when others => Calculate_Dimension_Length (Bounds));
    end Do_Array_First_Last_Length;
 
    function Do_Constrained_First_Last (E : Entity_Id;
