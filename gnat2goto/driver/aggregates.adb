@@ -82,6 +82,7 @@ package body Aggregates is
       --  Now assign the expressions for each choice list.
       --  Iterate through the component associations.
       while Present (Next_Comp_Assoc) loop
+         Put_Line ("Dynamic outer loop");
          --  Get the associated expression and iterate through the choices
          --  specifying this expression.
          declare
@@ -94,6 +95,7 @@ package body Aggregates is
             while Present (Next_Choice) and then
               Nkind (Next_Choice) /= N_Others_Choice
             loop
+               Put_Line ("Dynamic Inner Loop");
                --  A choice may be a range of indices.
                if Nkind (Next_Choice) in
                  N_Range | N_Subtype_Indication or else
