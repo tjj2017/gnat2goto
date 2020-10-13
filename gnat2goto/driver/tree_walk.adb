@@ -5257,8 +5257,28 @@ package body Tree_Walk is
    --------------------------------
 
    function Do_Subprogram_Specification (N : Node_Id) return Irep is
-      Param_List : constant Irep := Make_Parameter_List;
-      Param_Iter : Node_Id := First (Parameter_Specifications (N));
+      Is_Function   : constant Boolean :=
+        Nkind (N) in N_Function_Specification | N_Access_Function_Definition;
+      Ret_Type_Node : constant Node_Id :=
+        (if Is_Function then
+            Etype (Result_Definition (N))
+         else
+            Types.Empty);
+      Ret_Type_Irep : constant Irep := Do_Type_Reference (Ret_Type_Node);
+      Ret_Type      : constant Irep :=
+        (if Is_Function then
+           (if Is_Array_Type (Ret_Type_Node) then
+               --  Arrays are returned as a pointer to the array.
+               Make_Pointer_Type
+              (I_Subtype => Ret_Type_Irep,
+               Width     => Pointer_Type_Width)
+            else
+               Ret_Type_Irep)
+         else
+            CProver_Void_T);
+
+      Param_List   : constant Irep := Make_Parameter_List;
+      Param_Iter   : Node_Id := First (Parameter_Specifications (N));
    begin
       while Present (Param_Iter) loop
          declare
@@ -5371,11 +5391,7 @@ package body Tree_Walk is
       return Make_Code_Type
         (Parameters => Param_List,
          Ellipsis => False,
-         Return_Type =>
-           (if Nkind (N) in N_Function_Specification |
-               N_Access_Function_Definition
-            then Do_Type_Reference (Etype (Result_Definition (N)))
-            else CProver_Void_T),
+         Return_Type => Ret_Type,
          Inlined => False,
          Knr => False);
    end Do_Subprogram_Specification;
