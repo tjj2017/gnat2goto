@@ -46,9 +46,6 @@ package body Arrays is
    end Debug_Help;
    use Debug_Help;
 
-   function All_Dimensions_Static (The_Array : Entity_Id) return Boolean
-     with Pre => Is_Array_Type (The_Array);
-
    procedure Declare_First_Last (Prefix         : String;
                                  Dimension      : Positive;
                                  Index          : Node_Id;
@@ -91,15 +88,16 @@ package body Arrays is
             Array_Irep  : Irep)
    is
       Source_Location : constant Irep := Get_Source_Location (Init_Expr);
+      RHS_Node_Kind   : constant Node_Kind := Nkind (Init_Expr);
    begin
-      if Nkind (Init_Expr) = N_Aggregate then
+      if RHS_Node_Kind = N_Aggregate then
          --  Initialise_Array_From_Aggregate ...
          Initialse_Array_From_Aggregate
            (Block      => Block,
             Array_Type => Array_Type,
             Agg        => Init_Expr,
             Array_Irep => Array_Irep);
-      elsif Nkind (Init_Expr) = N_Slice then
+      elsif RHS_Node_Kind = N_Slice then
          Put_Line ("RHS is a slice");
          Print_Node_Briefly (Init_Expr);
          declare
@@ -204,21 +202,27 @@ package body Arrays is
                end;
             end if;
          end;
-      elsif Nkind (Init_Expr) = N_Op_Concat then
+      elsif RHS_Node_Kind = N_Op_Concat then
          Put_Line ("Op Concat");
          Print_Node_Subtree (Init_Expr);
          --  First the total length of the concatanated array expressions must
          --  determined.
 
          null;
-      elsif Nkind (Init_Expr) = N_Function_Call then
-         Put_Line ("Function Call");
-         Print_Node_Subtree (Init_Expr);
-         Print_Irep (Do_Expression (Init_Expr));
+      elsif RHS_Node_Kind = N_Function_Call then
          declare
-            Arr_Ptr : constant Irep :=
-              Make_Address_Of (Do_Expression (Init_Expr));
+            Func_Result_Type : constant Entity_Id := Etype (Init_Expr);
          begin
+            Put_Line ("Function Call");
+            Print_Node_Subtree (Init_Expr);
+            Print_Irep (Do_Expression (Init_Expr));
+            Print_Node_Subtree (First_Index (Func_Result_Type));
+            if not Is_Constrained (Func_Result_Type) then
+               Put_Line ("Unconstrained array result");
+            elsif not All_Dimensions_Static (Func_Result_Type) then
+               Put_Line ("Non static array result");
+            end if;
+
             if All_Dimensions_Static (Array_Type) then
                declare
                   Bounds : constant Node_Id :=
@@ -227,20 +231,15 @@ package body Arrays is
                     (Expr_Value (Low_Bound (Bounds)));
                   Last   : constant Int := UI_To_Int
                     (Expr_Value (High_Bound (Bounds)));
+                  Source : constant Irep := Do_Expression (Init_Expr);
                begin
-                  Print_Irep (Arr_Ptr);
-                  Print_Irep (Get_Type (Arr_Ptr));
                   Copy_Array_Static
                     (Block            => Block,
                      Destination_Type => Array_Type,
                      Source_Type      => Etype (Init_Expr),
                      Zero_Based_High  => Last - First,
                      Dest_Irep        => Array_Irep,
-                     Source_Irep      => Make_Dereference_Expr
-                       (Object          => Arr_Ptr,
-                        Source_Location => Internal_Source_Location,
-                        I_Type          => Get_Subtype (Get_Type (Arr_Ptr)),
-                        Range_Check     => False));
+                     Source_Irep      => Source);
                end;
             else
                declare
@@ -258,6 +257,7 @@ package body Arrays is
                             Range_Check     => False),
                        New_Type       => Int64_T,
                        A_Symbol_Table => Global_Symbol_Table);
+                  Source : constant Irep := Do_Expression (Init_Expr);
                begin
                   Put_Line ("Function call to dynamic");
                   Print_Irep (Dest_Bounds.Low);
@@ -268,17 +268,13 @@ package body Arrays is
                      Source_Type      => Etype (Init_Expr),
                      Zero_Based_High  => Zero_Based_High,
                      Dest_Irep        => Array_Irep,
-                     Source_Irep      => Make_Dereference_Expr
-                       (Object          => Arr_Ptr,
-                        Source_Location => Internal_Source_Location,
-                        I_Type          => Get_Subtype (Get_Type (Arr_Ptr)),
-                        Range_Check     => False));
+                     Source_Irep      => Source);
                end;
             end if;
          end;
-
          null;
       else
+         --  The rhs is an array object or a function call returning an array
          declare
             Dest_Bounds_Static : constant Boolean :=
               All_Dimensions_Static (Array_Type);
@@ -291,6 +287,7 @@ package body Arrays is
                --  bounds.  The front-end should check the arrays are the same
                --  length.
                --  A simple assignment can be used.
+               Put_Line (Node_Kind'Image (RHS_Node_Kind));
                Put_Line ("<<<<<<<<< Simple assgnment");
                Print_Node_Briefly (Array_Type);
                Print_Node_Briefly (Init_Expr);
@@ -298,7 +295,7 @@ package body Arrays is
                           Make_Code_Assign
                             (Rhs             =>
                                Typecast_If_Necessary
-                                 (Expr           => Do_Expression (Init_Expr),
+                                 (Expr           => Source,
                                   New_Type       => Get_Type (Array_Irep),
                                   A_Symbol_Table => Global_Symbol_Table),
                              Lhs             => Array_Irep,

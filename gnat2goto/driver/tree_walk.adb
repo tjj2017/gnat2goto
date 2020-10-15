@@ -4995,9 +4995,9 @@ package body Tree_Walk is
          then Do_Expression (Expression (N))
          else CProver_Nil);
    begin
-      return Make_Code_Return
-        (Return_Value => Return_Value,
-         Source_Location => Get_Source_Location (N));
+         return Make_Code_Return
+           (Return_Value => Return_Value,
+            Source_Location => Get_Source_Location (N));
    end Do_Simple_Return_Statement;
 
    function Do_Raise_Statement (N : Node_Id) return Irep is
@@ -5264,22 +5264,32 @@ package body Tree_Walk is
             Etype (Result_Definition (N))
          else
             Types.Empty);
-      Ret_Type_Irep : constant Irep := Do_Type_Reference (Ret_Type_Node);
       Ret_Type      : constant Irep :=
         (if Is_Function then
-           (if Is_Array_Type (Ret_Type_Node) then
-               --  Arrays are returned as a pointer to the array.
-               Make_Pointer_Type
-              (I_Subtype => Ret_Type_Irep,
-               Width     => Pointer_Type_Width)
-            else
-               Ret_Type_Irep)
+            Do_Type_Reference (Ret_Type_Node)
          else
             CProver_Void_T);
 
       Param_List   : constant Irep := Make_Parameter_List;
       Param_Iter   : Node_Id := First (Parameter_Specifications (N));
    begin
+      if Is_Function and then Is_Array_Type (Ret_Type_Node) then
+         if not Is_Constrained (Ret_Type_Node) then
+            Report_Unhandled_Node_Empty
+              (N        => N,
+               Fun_Name => "Do_Subprogram_Specification",
+               Message  =>
+                 "Functions returning an unconstrained array are unsupported");
+         elsif not All_Dimensions_Static (Ret_Type_Node) then
+            Report_Unhandled_Node_Empty
+              (N        => N,
+               Fun_Name => "Do_Subprogram_Specification",
+               Message  =>
+                 "Functions returning an array with non-static bounds " &
+                 "are unsupported");
+         end if;
+      end if;
+
       while Present (Param_Iter) loop
          declare
             Param_Sort : constant Node_Id := Parameter_Type (Param_Iter);
@@ -5335,16 +5345,7 @@ package body Tree_Walk is
                         This => False,
                         Default_Value => Ireps.Empty);
                   begin
-                     Put_Line ("??????? Do_Subprogram_Specification");
-                     Put_Line ("An array");
-                     Print_Node_Briefly (Param_Iter);
-                     Print_Node_Briefly (Param_Sort);
-                     Print_Node_Briefly (Param_Ada_Type);
-                     Print_Node_Briefly (Component_Subtype);
-                     Print_Irep (Component_Irep);
-                     Print_Irep (Ptr_To_Component);
                      if not Is_Constrained (Param_Ada_Type) then
-                        Put_Line ("It's an unconstrained array parameter");
                         Add_Array_Friends
                           (Param_Name, Param_Ada_Type, Param_List);
                      end if;
