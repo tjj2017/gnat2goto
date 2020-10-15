@@ -21,6 +21,9 @@ package Arrays is
    --  to the symbol table and to the subprogram parameter list for each
    --  dimension of the array.
 
+   function All_Dimensions_Static (The_Array : Entity_Id) return Boolean
+     with Pre => Is_Array_Type (The_Array);
+
    function Do_Aggregate_Literal_Array (N : Node_Id) return Irep
      with Pre  => Nkind (N) = N_Aggregate;
 
