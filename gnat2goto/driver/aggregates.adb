@@ -47,16 +47,16 @@ package body Aggregates is
             --  overwritten with the value associated with the index.
             --  Goto arrays are inexded from 0.
             declare
-               First_Idx : constant Irep := Get_Int64_T_Zero;
+               First_Idx : constant Irep := Index_T_Zero;
                Last_Idx  : constant Irep :=
                  Make_Zero_Index
                    (Index    => Typecast_If_Necessary
                       (Expr           => High_Bound,
-                       New_Type       => Int64_T,
+                       New_Type       => Index_T,
                        A_Symbol_Table => Global_Symbol_Table),
                     First    => Typecast_If_Necessary
                       (Expr           => Low_Bound,
-                       New_Type       => Int64_T,
+                       New_Type       => Index_T,
                        A_Symbol_Table => Global_Symbol_Table),
                     Location => Source_Location);
             begin
@@ -179,18 +179,18 @@ package body Aggregates is
          --  elements of the array are unchanged.
             Ireps.Empty);
 
-      Low_Bound_Int64_T  : constant Irep :=
+      Low_Bound_Index_T  : constant Irep :=
         Make_Op_Typecast
           (Op0             => Low_Bound,
            Source_Location => Internal_Source_Location,
-           I_Type          => Int64_T,
+           I_Type          => Index_T,
            Range_Check     => False);
 
-      High_Bound_Int64_T : constant Irep :=
+      High_Bound_Index_T : constant Irep :=
         Make_Op_Typecast
           (Op0             => High_Bound,
            Source_Location => Internal_Source_Location,
-           I_Type          => Int64_T,
+           I_Type          => Index_T,
            Range_Check     => False);
 
       --  Iterator for expressions in the aggregate
@@ -205,7 +205,7 @@ package body Aggregates is
       while Present (Next_Expr) loop
          Print_Irep (Integer_Constant_To_Expr
                 (Value           => UI_From_Int (I),
-                 Expr_Type       => Int64_T,
+                 Expr_Type       => Index_T,
                  Source_Location => Source_Location));
          Print_Irep (Do_Expression (Next_Expr));
          Assign_To_Array_Component
@@ -214,7 +214,7 @@ package body Aggregates is
             Zero_Index =>
               Integer_Constant_To_Expr
                 (Value           => UI_From_Int (I),
-                 Expr_Type       => Int64_T,
+                 Expr_Type       => Index_T,
                  Source_Location => Source_Location),
             Value_Expr => Do_Expression (Next_Expr),
             I_Type     => Comp_Type,
@@ -233,12 +233,12 @@ package body Aggregates is
                First_Idx : constant Irep :=
                  Integer_Constant_To_Expr
                    (Value           => UI_From_Int (I),
-                    Expr_Type       => Int64_T,
+                    Expr_Type       => Index_T,
                     Source_Location => Source_Location);
                Last_Idx  : constant Irep :=
                  Make_Zero_Index
-                   (Index    => High_Bound_Int64_T,
-                    First    => Low_Bound_Int64_T,
+                   (Index    => High_Bound_Index_T,
+                    First    => Low_Bound_Index_T,
                     Location => Source_Location);
             begin
                Assign_Value_To_Dynamic_Array_Components
@@ -481,7 +481,7 @@ package body Aggregates is
                Zero_Index =>
                  Integer_Constant_To_Expr
                    (Value           => UI_From_Int (I),
-                    Expr_Type       => Int64_T,
+                    Expr_Type       => Index_T,
                     Source_Location => Source_Location),
                Value_Expr => Do_Expression (Next_Expr),
                I_Type     => Comp_Type,

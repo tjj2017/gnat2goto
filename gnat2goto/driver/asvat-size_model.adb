@@ -517,66 +517,67 @@ package body ASVAT.Size_Model is
    --------------
 
    function Has_Size (E : Entity_Id) return Boolean is
-      E_Sym_Id : constant Symbol_Id :=
-        Intern (Unique_Name (E));
-   begin
-      return
-        (if Extra_Entity_Info.Contains (E_Sym_Id) then
-              Extra_Entity_Info (E_Sym_Id).Computed_Model_Size /= Ireps.Empty
-         else
-            False);
-   end Has_Size;
+      (Has_Size (Intern (Unique_Name (E))));
+
+   function Has_Size (Id : Symbol_Id) return Boolean is
+      (Extra_Entity_Info.Contains (Id) and then
+       Extra_Entity_Info (Id).Computed_Model_Size /= Ireps.Empty);
 
    ---------------------
    -- Has_Static_Size --
    ---------------------
 
    function Has_Static_Size (E : Entity_Id) return Boolean is
-      E_Sym_Id : constant Symbol_Id :=
-        Intern (Unique_Name (E));
-   begin
-      return
-        (if Extra_Entity_Info.Contains (E_Sym_Id) then
-              Extra_Entity_Info (E_Sym_Id).Model_Size /= 0
-         else
-            False);
-   end Has_Static_Size;
+      (Has_Static_Size (Intern (Unique_Name (E))));
+
+   function Has_Static_Size (Id : Symbol_Id) return Boolean is
+     (Extra_Entity_Info.Contains (Id) and then
+      Extra_Entity_Info (Id).Model_Size /= 0);
 
    -----------------------
    -- Set_Computed_Size --
    -----------------------
 
    procedure Set_Computed_Size (E : Entity_Id; Size_Expr : Irep) is
-      E_Sym_Id   : constant Symbol_Id :=
-        Intern (Unique_Name (E));
-      E_In_Table : constant Boolean := Extra_Entity_Info.Contains (E_Sym_Id);
+   begin
+      Set_Computed_Size (Intern (Unique_Name (E)), Size_Expr);
+   end Set_Computed_Size;
+
+   procedure Set_Computed_Size (Id : Symbol_Id; Size_Expr : Irep) is
+      E_In_Table : constant Boolean := Extra_Entity_Info.Contains (Id);
       E_Info     : Entity_Info :=
         (if E_In_Table then
-              Extra_Entity_Info (E_Sym_Id)
+              Extra_Entity_Info (Id)
          else
             Empty_Entity_Info);
    begin
       E_Info.Computed_Model_Size := Size_Expr;
       if E_In_Table then
-         Extra_Entity_Info.Replace (E_Sym_Id, E_Info);
+         Extra_Entity_Info.Replace (Id, E_Info);
       else
-         Extra_Entity_Info.Insert (E_Sym_Id, E_Info);
+         Extra_Entity_Info.Insert (Id, E_Info);
       end if;
    end Set_Computed_Size;
 
+   -------------------
+   -- Computed_Size --
+   -------------------
+
    function Computed_Size (E : Entity_Id) return Irep is
-      E_Sym_Id : constant Symbol_Id :=
-        Intern (Unique_Name (E));
-   begin
-      return Extra_Entity_Info (E_Sym_Id).Computed_Model_Size;
-   end Computed_Size;
+      (Computed_Size (Intern (Unique_Name (E))));
+
+   function Computed_Size (Id : Symbol_Id) return Irep is
+      (Extra_Entity_Info (Id).Computed_Model_Size);
+
+   -----------------
+   -- Static_Size --
+   -----------------
 
    function Static_Size (E : Entity_Id) return Natural is
-      E_Sym_Id : constant Symbol_Id :=
-        Intern (Unique_Name (E));
-   begin
-      return Extra_Entity_Info (E_Sym_Id).Model_Size;
-   end Static_Size;
+      (Static_Size (Intern (Unique_Name (E))));
+
+   function Static_Size (Id : Symbol_Id) return Natural is
+      (Extra_Entity_Info (Id).Model_Size);
 
    ----------------------------
    -- Make_Byte_Aligned_Size --
@@ -602,12 +603,15 @@ package body ASVAT.Size_Model is
    ---------------------
 
    procedure Set_Static_Size (E : Entity_Id; Model_Size : Natural) is
-      E_Sym_Id   : constant Symbol_Id :=
-        Intern (Unique_Name (E));
-      E_In_Table : constant Boolean := Extra_Entity_Info.Contains (E_Sym_Id);
+   begin
+      Set_Static_Size (Intern (Unique_Name (E)), Model_Size);
+   end Set_Static_Size;
+
+   procedure Set_Static_Size (Id : Symbol_Id; Model_Size : Natural) is
+      E_In_Table : constant Boolean := Extra_Entity_Info.Contains (Id);
       E_Info     : Entity_Info :=
         (if E_In_Table then
-              Extra_Entity_Info (E_Sym_Id)
+              Extra_Entity_Info (Id)
          else
             Empty_Entity_Info);
    begin
@@ -616,11 +620,11 @@ package body ASVAT.Size_Model is
         Integer_Constant_To_Expr
           (Value           => UI_From_Int (Int (Model_Size)),
            Expr_Type       => Make_Signedbv_Type (32),
-           Source_Location => Get_Source_Location (E));
+           Source_Location => Internal_Source_Location);
       if E_In_Table then
-         Extra_Entity_Info.Replace (E_Sym_Id, E_Info);
+         Extra_Entity_Info.Replace (Id, E_Info);
       else
-         Extra_Entity_Info.Insert (E_Sym_Id, E_Info);
+         Extra_Entity_Info.Insert (Id, E_Info);
       end if;
    end Set_Static_Size;
 

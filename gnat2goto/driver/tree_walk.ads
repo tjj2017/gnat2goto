@@ -78,6 +78,14 @@ package Tree_Walk is
    function Do_Compilation_Unit (N : Node_Id) return Symbol
      with Pre => Nkind (N) = N_Compilation_Unit;
 
+   procedure Do_Plain_Object_Decalration (Block          : Irep;
+                                          Object_Sym     : Irep;
+                                          Object_Name    : String;
+                                          Object_Def     : Entity_Id;
+                                          Object_Type    : Entity_Id;
+                                          Init_Expr_Irep : Irep)
+     with Pre => Get_Identifier (Object_Sym) = Object_Name;
+
    function Do_Type_Reference (E : Entity_Id) return Irep
      with Pre  => Is_Type (E),
      Post => Kind (Do_Type_Reference'Result) in Class_Type;

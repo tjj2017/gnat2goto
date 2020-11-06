@@ -46,18 +46,60 @@ package body Arrays is
    end Debug_Help;
    use Debug_Help;
 
-   procedure Declare_First_Last (Prefix         : String;
-                                 Dimension      : Positive;
-                                 Index          : Node_Id;
-                                 Param_List     : Irep);
+   procedure Array_Object_And_Friends (Array_Name : String;
+                                       Array_Type : Entity_Id;
+                                       Source_Loc : Irep;
+                                       Block      : Irep)
+   with Pre => Is_Array_Type (Array_Type);
+
+   procedure Array_Assignment_Op (Source_Expr  : Node_Id;
+                                  Target_Array : Irep;
+                                  Array_Type   : Entity_Id;
+                                  Block       : Irep)
+   with Pre => Is_Array_Type (Etype (Source_Expr)) and
+               Kind (Get_Type (Target_Array)) = I_Array_Type;
+
+   procedure Declare_Constrained_Array_Object (Block           : Irep;
+                                               Array_Name      : String;
+                                               Array_Type      : Entity_Id;
+                                               Source_Location : Irep;
+                                               The_Array       : out Irep)
+     with Pre  => Is_Array_Type (Array_Type),
+          Post => Kind (Get_Type (The_Array)) = I_Array_Type;
+
+   procedure Declare_First_Last_From_Bounds (Prefix     : String;
+                                             Dimension  : String;
+                                             Index_Type : Entity_Id;
+                                             Bounds     : Dimension_Bounds;
+                                             Block      : Irep);
+   --  This is similar to Declare_First_Last_Vars but is called at a slightly
+   --  lower-level with the index node replaced by the Index_Type node and
+   --  the dimension Bounds.
+
+   procedure Declare_First_Last_Params (Prefix     : String;
+                                        Dimension  : Positive;
+                                        Index      : Node_Id;
+                                        Param_List : Irep);
    --  Each dimension of an unconstrained array parameter
    --  introduces two extra friend parameters of mode in to a subprogram.
    --  The values passed in these extra parameters are the lower and upper
    --  bounds of each dimension of the unconstrained array parameter.
-   --  The parameters representing the lower and upper bounds of the dimension
-   --  are of the base type of the index type.
+   --  The parameters representing the lower and upper bounds of the
+   --  dimension are of the base type of the index type.
    --  Their names of the variables are <Prefix>___first_<Dimension>,
-   --  and <Prefix>___last_<imension>.
+   --  and <Prefix>___last_<Dimension>.
+
+   procedure Declare_First_Last_Vars (Prefix     : String;
+                                      Dimension  : Positive;
+                                      Index      : Node_Id;
+                                      Block      : Irep);
+   --  A declatation of an unconstrained array object has to be supplemented
+   --  by declarations of friend variables to represent the upper and lower
+   --  bounds of each dimension of the array object.
+   --  The variables representing the lower and upper bounds of the
+   --  dimension are of the base type of the index type.
+   --  Their names of the variables are <Prefix>___first_<Dimension>,
+   --  and <Prefix>___last_<Dimension>.
 
    function Do_Constrained_First_Last (E         : Entity_Id;
                                        Dimension : Positive)
@@ -70,7 +112,19 @@ package body Arrays is
                                          Source_Loc : Irep)
                                          return Dimension_Bounds
      with Pre => Is_Array_Type (Etype (The_Array)) and not
-                 Is_Constrained (The_Array);
+     Is_Constrained (The_Array);
+
+   procedure Initialse_Array_Object (Block       : Irep;
+                                     Array_Type  : Entity_Id;
+                                     Init_Expr   : Node_Id;
+                                     Array_Irep  : Irep)
+     with Pre => Is_Array_Type (Array_Type);
+
+   procedure Make_Constrained_Array_From_Initialization
+     (Block       : Irep;
+      Target_Type : Entity_Id;
+      Array_Name  : String;
+      N           : Node_Id);
 
    function Make_Constrained_Array_Subtype (Declaration    : Node_Id;
                                             First_Index    : Node_Id;
@@ -81,41 +135,116 @@ package body Arrays is
                                               Component_Type : Entity_Id)
                                               return Irep;
 
-   procedure Initialse_Array_Object
-           (Block       : Irep;
-            Array_Type  : Entity_Id;
-            Init_Expr   : Node_Id;
-            Array_Irep  : Irep)
+--     procedure Array_Assignment_Op (Source_Node : Node_Id;
+--                                    Target_Node : Node_Id;
+--                                    Is_Assign   : Boolean;
+--                                    Block       : Irep);
+--     is
+--      Location         : constant Irep := Get_Source_Location (Target_Node);
+--
+--        Target_Type      : constant Entity_Id := Etype (Target_Node);
+--        Source_Type      : constant Entity_Id := Etype (Source_Node);
+--
+--        Target_Is_Slice  : constant Boolean :=
+--          Nkind (Target_Node) = N_Slice;
+--        Source_Is_Slice  : constant Boolean :=
+--          Nkind (Source_Node) = N_Slice;
+--        Has_Slices        : constant Boolean :=
+--          Target_Is_Slice or Source_Is_Slice;
+--        Is_Aggregate     : constant Boolean :=
+--          Nkind (Source_Node) = N_Aggregate;
+--        Is_Function_Call : constant Boolean :=
+--          Nkind (Source_Node) = N_Function_Call;
+--        Is_Concat_Op     : constant Boolean :=
+--          Nkind (Source_Node) = N_Op_Concat;
+--
+--        Is_Unconstrained : constant Boolean :=
+--       not Is_Constrained (Source_Type) and not Is_Constrained (Target_Type);
+--        Has_Static_Bounds : constant Boolean :=
+--          not Is_Unconstrained and then
+--          All_Dimensions_Static (Source_Type) and
+--          All_Dimensions_Static (Target_Type);
+--
+--        Dest : constant Irep :=
+--          (if Is_Assign and (Is_Aggregate or Has_Slices) then
+--                Declare_Temp_Array (Target_Type, Block)
+--               elsif
+--        procedure Simple_Array_Assignment;
+--        procedure Simple_Array_Assignment is
+--           Target_Ty : constant Irep := Get_Type (Target_Irep);
+--        begin
+--           Append_Op (Block,
+--                      Make_Code_Assign
+--                        (Rhs             =>
+--                           Typecast_If_Necessary
+--                             (Expr           => Source_Irep,
+--                              New_Type       => Target_Ty,
+--                              A_Symbol_Table => Global_Symbol_Table),
+--                         Lhs             => Target_Irep,
+--                         Source_Location => Location,
+--                         I_Type          => Target_Ty,
+--                         Range_Check     => False));
+--        end Simple_Array_Assignment;
+--
+--     begin
+--        if Source_Node not in
+--          N_Identifier    | N_Expanded_Name |
+--          N_Aggregate     | N_Slice         |
+--          N_Function_Call | N_Op_Concat
+--        then
+--           Report_Unhandled_Node_Empty
+--             (N        => Source_Node,
+--              Fun_Name => "Array_Assignment_Op",
+--              Message  => "Unsupported RHS of assignement operation " &
+--                Node_Kind'Image (Nkind (Source_Node)));
+--        elsif Is_Unconstrained then
+--           Report_Unhandled_Node_Empty
+--             (N        => N,
+--              Fun_Name => "Array_Assignment_Op",
+--         Message  => "Unconstrained assignment operations are unsupported");
+--           --  As a simple recovery action - but not semantically correct
+--              --  perform a simple assignment.
+--              Simple_Array_Assignment;
+--
+--        elsif Has_Static_Bounds and No_Slices then
+--           --  A simple array assignment is all that is needed.
+--           Simple_Array_Assignment;
+--        elsif Is_
+
+   procedure Array_Assignment_Op (Source_Expr  : Node_Id;
+                                  Target_Array : Irep;
+                                  Array_Type   : Entity_Id;
+                                  Block       : Irep)
    is
-      Source_Location : constant Irep := Get_Source_Location (Init_Expr);
-      RHS_Node_Kind   : constant Node_Kind := Nkind (Init_Expr);
+      Source_Location : constant Irep := Get_Source_Location (Source_Expr);
+      RHS_Node_Kind   : constant Node_Kind := Nkind (Source_Expr);
    begin
       if RHS_Node_Kind = N_Aggregate then
          --  Initialise_Array_From_Aggregate ...
          Initialse_Array_From_Aggregate
            (Block      => Block,
             Array_Type => Array_Type,
-            Agg        => Init_Expr,
-            Array_Irep => Array_Irep);
+            Agg        => Source_Expr,
+            Array_Irep => Target_Array);
       elsif RHS_Node_Kind = N_Slice then
          Put_Line ("RHS is a slice");
-         Print_Node_Briefly (Init_Expr);
+         Print_Node_Briefly (Source_Expr);
          declare
             Dest_Range : constant Node_Id :=
               Get_Range (First_Index (Array_Type));
             Underlying_Array_Type : constant Entity_Id :=
-              Etype (Prefix (Init_Expr));
+              Etype (Prefix (Source_Expr));
             Underlying_Range : constant Node_Id :=
               Get_Range (First_Index (Underlying_Array_Type));
             Slice_Range : constant Node_Id :=
-              Get_Range (Discrete_Range (Init_Expr));
+              Get_Range (Discrete_Range (Source_Expr));
             --  Do expression of a slice returns the array from which the
             --  slice is taken.
             Underlying_Array : constant Irep :=
-              Do_Expression (Init_Expr);
+              Do_Expression (Source_Expr);
          begin
             if All_Dimensions_Static (Array_Type) and then
-              All_Dimensions_Static (Etype (Prefix (Init_Expr))) and then
+              All_Dimensions_Static (Etype (Prefix (Source_Expr))) and then
               Is_OK_Static_Range (Slice_Range)
             then
                Put_Line ("Destination Underlying and Slice have static range");
@@ -147,7 +276,7 @@ package body Arrays is
                               Int'Image (Dest_High - Dest_Low + 1));
                   Put_Line ("Src_Len = " &
                               Int'Image (Source_High - Source_Low + 1));
-                  Print_Irep (Array_Irep);
+                  Print_Irep (Target_Array);
                   Print_Irep (Underlying_Array);
                   Copy_Array_With_Offset_Static
                     (Block            => Block,
@@ -157,7 +286,7 @@ package body Arrays is
                      Dest_High        => Dest_High,
                      Source_Low       => Source_Low,
                      Source_High      => Source_High,
-                     Dest_Irep        => Array_Irep,
+                     Dest_Irep        => Target_Array,
                      Source_Irep      => Underlying_Array);
                end;
             else
@@ -171,7 +300,7 @@ package body Arrays is
                   Slice_Bounds : constant Dimension_Bounds :=
                     Get_Bounds (Slice_Range);
 
-                  Dest_First : constant Irep := Get_Int64_T_Zero;
+                  Dest_First : constant Irep := Index_T_Zero;
                   Dest_Last  : constant Irep :=
                     Make_Zero_Index
                       (Index    => Dest_Bounds.High,
@@ -197,25 +326,25 @@ package body Arrays is
                      Dest_High        => Dest_Last,
                      Source_Low       => Source_First,
                      Source_High      => Source_Last,
-                     Dest_Irep        => Array_Irep,
+                     Dest_Irep        => Target_Array,
                      Source_Irep      => Underlying_Array);
                end;
             end if;
          end;
       elsif RHS_Node_Kind = N_Op_Concat then
          Put_Line ("Op Concat");
-         Print_Node_Subtree (Init_Expr);
+         Print_Node_Subtree (Source_Expr);
          --  First the total length of the concatanated array expressions must
          --  determined.
 
          null;
       elsif RHS_Node_Kind = N_Function_Call then
          declare
-            Func_Result_Type : constant Entity_Id := Etype (Init_Expr);
+            Func_Result_Type : constant Entity_Id := Etype (Source_Expr);
          begin
             Put_Line ("Function Call");
-            Print_Node_Subtree (Init_Expr);
-            Print_Irep (Do_Expression (Init_Expr));
+            Print_Node_Subtree (Source_Expr);
+            Print_Irep (Do_Expression (Source_Expr));
             Print_Node_Subtree (First_Index (Func_Result_Type));
             if not Is_Constrained (Func_Result_Type) then
                Put_Line ("Unconstrained array result");
@@ -231,14 +360,14 @@ package body Arrays is
                     (Expr_Value (Low_Bound (Bounds)));
                   Last   : constant Int := UI_To_Int
                     (Expr_Value (High_Bound (Bounds)));
-                  Source : constant Irep := Do_Expression (Init_Expr);
+                  Source : constant Irep := Do_Expression (Source_Expr);
                begin
                   Copy_Array_Static
                     (Block            => Block,
                      Destination_Type => Array_Type,
-                     Source_Type      => Etype (Init_Expr),
+                     Source_Type      => Etype (Source_Expr),
                      Zero_Based_High  => Last - First,
-                     Dest_Irep        => Array_Irep,
+                     Dest_Irep        => Target_Array,
                      Source_Irep      => Source);
                end;
             else
@@ -255,9 +384,9 @@ package body Arrays is
                             Overflow_Check  => False,
                             I_Type          => Get_Type (Dest_Bounds.Low),
                             Range_Check     => False),
-                       New_Type       => Int64_T,
+                       New_Type       => Index_T,
                        A_Symbol_Table => Global_Symbol_Table);
-                  Source : constant Irep := Do_Expression (Init_Expr);
+                  Source : constant Irep := Do_Expression (Source_Expr);
                begin
                   Put_Line ("Function call to dynamic");
                   Print_Irep (Dest_Bounds.Low);
@@ -267,7 +396,7 @@ package body Arrays is
                      Destination_Type => Array_Type,
                      Source_Type      => Etype (Init_Expr),
                      Zero_Based_High  => Zero_Based_High,
-                     Dest_Irep        => Array_Irep,
+                     Dest_Irep        => Target_Array,
                      Source_Irep      => Source);
                end;
             end if;
@@ -279,8 +408,8 @@ package body Arrays is
             Dest_Bounds_Static : constant Boolean :=
               All_Dimensions_Static (Array_Type);
             Source_Bounds_Static : constant Boolean :=
-              All_Dimensions_Static (Etype (Init_Expr));
-            Source : constant Irep := Do_Expression (Init_Expr);
+              All_Dimensions_Static (Etype (Source_Expr));
+            Source : constant Irep := Do_Expression (Source_Expr);
          begin
             if Dest_Bounds_Static and Source_Bounds_Static then
                --  Both the destination and source arrays have static
@@ -290,17 +419,17 @@ package body Arrays is
                Put_Line (Node_Kind'Image (RHS_Node_Kind));
                Put_Line ("<<<<<<<<< Simple assgnment");
                Print_Node_Briefly (Array_Type);
-               Print_Node_Briefly (Init_Expr);
+               Print_Node_Briefly (Source_Expr);
                Append_Op (Block,
                           Make_Code_Assign
                             (Rhs             =>
                                Typecast_If_Necessary
                                  (Expr           => Source,
-                                  New_Type       => Get_Type (Array_Irep),
+                                  New_Type       => Get_Type (Target_Array),
                                   A_Symbol_Table => Global_Symbol_Table),
-                             Lhs             => Array_Irep,
+                             Lhs             => Target_Array,
                              Source_Location => Source_Location,
-                             I_Type          => Get_Type (Array_Irep),
+                             I_Type          => Get_Type (Target_Array),
                              Range_Check     => False));
             else
                --  At least one of the arrays has non-static bounds.
@@ -341,9 +470,9 @@ package body Arrays is
                      Copy_Array_Static
                        (Block            => Block,
                         Destination_Type => Array_Type,
-                        Source_Type      => Etype (Init_Expr),
+                        Source_Type      => Etype (Source_Expr),
                         Zero_Based_High  => Last - First,
-                        Dest_Irep        => Array_Irep,
+                        Dest_Irep        => Target_Array,
                         Source_Irep      => Source);
                   end;
                else
@@ -368,22 +497,148 @@ package body Arrays is
                                Overflow_Check  => False,
                                I_Type          => Get_Type (Dest_Bounds.Low),
                                Range_Check     => False),
-                          New_Type       => Int64_T,
+                          New_Type       => Index_T,
                           A_Symbol_Table => Global_Symbol_Table);
                   begin
                      Copy_Array_Dynamic
                        (Block            => Block,
                         Destination_Type => Array_Type,
-                        Source_Type      => Etype (Init_Expr),
+                        Source_Type      => Etype (Source_Expr),
                         Zero_Based_High  => Zero_Based_High,
-                        Dest_Irep        => Array_Irep,
+                        Dest_Irep        => Target_Array,
                         Source_Irep      => Source);
                   end;
                end if;
             end if;
          end;
       end if;
-   end Initialse_Array_Object;
+   end Array_Assignment_Op;
+
+   procedure Array_Object_And_Friends (Array_Name : String;
+                                       Array_Type : Entity_Id;
+                                       Source_Loc : Irep;
+                                       Block      : Irep)
+   is
+      Id           : constant Symbol_Id := Intern (Array_Name);
+
+      Array_Type_Irep : constant Irep := Do_Type_Reference (Array_Type);
+      Array_Irep : constant Irep :=
+        Make_Symbol_Expr
+          (Source_Location => Source_Loc,
+           I_Type          => Array_Type_Irep,
+           Range_Check     => False,
+           Identifier      => Array_Name);
+      Decl      : constant Irep := Make_Code_Decl
+        (Symbol => Array_Irep,
+         Source_Location => Source_Loc);
+   begin
+      if not Global_Symbol_Table.Contains (Id) then
+         Append_Op (Block, Decl);
+         New_Object_Symbol_Entry
+           (Object_Name       => Id,
+            Object_Type       => Array_Type_Irep,
+            Object_Init_Value => Ireps.Empty,
+            A_Symbol_Table    => Global_Symbol_Table);
+
+         --  The model size of the object hast to be recorded.
+         if ASVAT.Size_Model.Has_Static_Size (Array_Type) then
+            ASVAT.Size_Model.Set_Static_Size
+              (E          => Array_Type,
+               Model_Size =>
+                 ASVAT.Size_Model.Static_Size (Array_Type));
+         else
+            ASVAT.Size_Model.Set_Computed_Size
+              (E         => Array_Type,
+               Size_Expr =>
+                 ASVAT.Size_Model.Computed_Size (Array_Type));
+         end if;
+         --  The first and last variables for each dimension have to
+         --  added to the symbol table and initialised.
+         Put_Line ("Declaring array friends for " & Array_Name);
+         Print_Node_Briefly (Array_Type);
+         Put_Line ("Is_Constrained: " &
+                     Boolean'Image (Is_Constrained (Array_Type)));
+         Put_Line ("Is_Constrained Etype: " &
+                     Boolean'Image
+                     (Is_Constrained (Etype (Array_Type))));
+
+         Declare_Array_Friends
+           (Array_Name => Array_Name,
+            Array_Type => Array_Type,
+            Block      => Block);
+      end if;
+   end Array_Object_And_Friends;
+
+   --------------------------------------
+   -- Declare_Constrained_Aray_Object  --
+   --------------------------------------
+
+   procedure Declare_Constrained_Array_Object (Block           : Irep;
+                                               Array_Name      : String;
+                                               Array_Type      : Entity_Id;
+                                               Source_Location : Irep;
+                                               The_Array       : out Irep)
+   is
+
+   ----------------------
+   -- Do_Array_Object  --
+   ----------------------
+
+   procedure Do_Array_Object (Block       : Irep;
+                              Target_Type : Entity_Id;
+                              Array_Name  : String;
+                              Init_Expr   : Node_Id)
+   is
+      Source_Loc : constant Irep := Get_Source_Location (Init_Expr);
+      Array_Id   : constant Symbol_Id := Intern (Array_Name);
+      The_Array  : Irep;
+   begin
+      if Is_Constrained (Target_Type) then
+         Declare_Constrained_Array_Object
+           (Block,
+            Array_Name,
+             Array_Type,
+               Source_Location
+                The_Array
+      else
+
+         Make_Constrained_Array_From_Initialization
+           (Block        => Block,
+            Target_Type  => Target_Type,
+            Array_Name   => Array_Name,
+            Init_Expr    => Init_Expr;
+            The_Array    => The_Array);
+      else
+         The _Array := Make_Symbol_Expr
+           (Source_Location => Source_Loc,
+            I_Type          => Do_Type_Reference (Array_Type),
+           Range_Check     => False,
+            Identifier      => Array_Name);
+
+         if not Global_Symbol_Table.Contains (Array_Id) then
+            Append_Op (Block, Decl);
+               New_Object_Symbol_Entry
+                 (Object_Name       => Obj_Id,
+                  Object_Type       => Obj_Type,
+                  Object_Init_Value => Init_Expr,
+                  A_Symbol_Table    => Global_Symbol_Table);
+               --  The model size of the object hast to be recorded.
+               if ASVAT.Size_Model.Has_Static_Size (Defined_Type) then
+                  ASVAT.Size_Model.Set_Static_Size
+                    (E          => Defined,
+                     Model_Size =>
+                       ASVAT.Size_Model.Static_Size (Defined_Type));
+               else
+                  ASVAT.Size_Model.Set_Computed_Size
+                    (E         => Defined,
+                     Size_Expr =>
+                       ASVAT.Size_Model.Computed_Size (Defined_Type));
+               end if;
+     end if;
+
+      Copy_To_Array_Object
+
+
 
    ---------------------------
    -- All_Dimensions_Static --
@@ -415,7 +670,7 @@ package body Arrays is
    begin
       for Dimension in 1 .. Integer (Number_Dimensions (Array_Type)) loop
          pragma Assert (Present (Index_Iter));
-         Declare_First_Last
+         Declare_First_Last_Params
            (Prefix     => Array_Name,
             Dimension  => Dimension,
             Index      => Index_Iter,
@@ -424,14 +679,118 @@ package body Arrays is
       end loop;
    end Add_Array_Friends;
 
-   ----------------------------
-   -- Declare_First_And_Last --
-   ----------------------------
+   ---------------------------
+   -- Declare_Array_Friends --
+   ---------------------------
 
-   procedure Declare_First_Last (Prefix         : String;
-                                 Dimension      : Positive;
-                                 Index          : Node_Id;
-                                 Param_List     : Irep)
+   procedure Declare_Array_Friends (Array_Name : String;
+                                    Array_Type : Entity_Id;
+                                    Block      : Irep)
+   is
+      Index_Iter : Node_Id := First_Index (Array_Type);
+   begin
+      for Dimension in 1 .. Integer (Number_Dimensions (Array_Type)) loop
+         pragma Assert (Present (Index_Iter));
+         Declare_First_Last_Vars
+           (Prefix     => Array_Name,
+            Dimension  => Dimension,
+            Index      => Index_Iter,
+            Block      => Block);
+         Index_Iter := Next_Index (Index_Iter);
+      end loop;
+   end Declare_Array_Friends;
+
+   ----------------------------------------
+   -- Declare_First_And_Last_From_Bounds --
+   ----------------------------------------
+
+   procedure Declare_First_Last_From_Bounds (Prefix     : String;
+                                             Dimension  : String;
+                                             Index_Type : Node_Id;
+                                             Bounds     : Dimension_Bounds;
+                                             Block      : Irep)
+   is
+      Source_Loc      : constant Irep := Internal_Source_Location;
+      First_Name      : constant String :=
+        Prefix & "___first_" & Dimension;
+      First_Name_Id   : constant Symbol_Id := Intern (First_Name);
+      Last_Name       : constant String :=
+        Prefix & "___last_" & Dimension;
+      Last_Name_Id    : constant Symbol_Id := Intern (Last_Name);
+
+      Type_Irep : constant Irep :=
+        Do_Type_Reference (Index_Type);
+
+      First_Sym : constant Irep :=
+        Make_Symbol_Expr
+          (Source_Location => Source_Loc,
+           I_Type          => Type_Irep,
+           Range_Check     => False,
+           Identifier      => First_Name);
+      Last_Sym : constant Irep :=
+        Make_Symbol_Expr
+          (Source_Location => Source_Loc,
+           I_Type          => Type_Irep,
+           Range_Check     => False,
+           Identifier      => Last_Name);
+
+      Dec_First : constant Irep :=
+        Make_Code_Decl
+          (Symbol          => First_Sym,
+           Source_Location => Source_Loc,
+           I_Type          => Type_Irep,
+           Range_Check     => False);
+
+      Dec_Last : constant Irep :=
+        Make_Code_Decl
+          (Symbol          => Last_Sym,
+           Source_Location => Source_Loc,
+           I_Type          => Type_Irep,
+           Range_Check     => False);
+
+      Assign_First : constant Irep :=
+        Make_Code_Assign
+          (Rhs             => Bounds.Low,
+           Lhs             => First_Sym,
+           Source_Location => Source_Loc,
+           I_Type          => Type_Irep,
+           Range_Check     => False);
+
+      Assign_Last : constant Irep :=
+        Make_Code_Assign
+          (Rhs             => Bounds.High,
+           Lhs             => Last_Sym,
+           Source_Location => Source_Loc,
+           I_Type          => Type_Irep,
+           Range_Check     => False);
+   begin
+      --  Add the first and last variables to the symbol table.
+      New_Object_Symbol_Entry
+        (Object_Name       => First_Name_Id,
+         Object_Type       => Type_Irep,
+         Object_Init_Value => Bounds.Low,
+         A_Symbol_Table    => Global_Symbol_Table);
+      New_Object_Symbol_Entry
+        (Object_Name       => Last_Name_Id,
+         Object_Type       => Type_Irep,
+         Object_Init_Value => Bounds.High,
+         A_Symbol_Table    => Global_Symbol_Table);
+
+      --  Declare and assign values in goto code.
+      Append_Op (Block, Dec_First);
+      Append_Op (Block, Dec_Last);
+      Append_Op (Block, Assign_First);
+      Append_Op (Block, Assign_Last);
+   end Declare_First_Last_From_Bounds;
+
+   -----------------------------------
+   -- Declare_First_And_Last_Params --
+   -----------------------------------
+
+   procedure Declare_First_Last_Params (Prefix     : String;
+                                        Dimension  : Positive;
+                                        Index      : Node_Id;
+                                        Param_List : Irep)
    is
       Source_Loc      : constant Irep := Get_Source_Location (Index);
       Number_Str_Raw  : constant String :=
@@ -487,7 +846,35 @@ package body Arrays is
       --  Append the parameters to the parameter list.
       Append_Parameter (Param_List, First_Irep);
       Append_Parameter (Param_List, Last_Irep);
-   end Declare_First_Last;
+
+   end Declare_First_Last_Params;
+
+   ---------------------------------
+   -- Declare_First_And_Last_Vars --
+   ---------------------------------
+
+   procedure Declare_First_Last_Vars (Prefix    : String;
+                                      Dimension : Positive;
+                                      Index     : Node_Id;
+                                      Block      : Irep)
+   is
+      Number_Str_Raw  : constant String :=
+        Integer'Image (Dimension);
+      Number_Str      : constant String :=
+        Number_Str_Raw (2 .. Number_Str_Raw'Last);
+
+      Index_Type : constant Entity_Id :=
+        Base_Type (Etype (Index));
+
+      Bounds : constant Dimension_Bounds := Get_Bounds (Index);
+   begin
+      Declare_First_Last_From_Bounds
+        (Prefix     => Prefix,
+         Dimension  => Number_Str,
+         Index_Type => Index_Type,
+         Bounds     => Bounds,
+         Block      => Block);
+   end Declare_First_Last_Vars;
 
    --------------------------------
    -- Do_Aggregate_Literal_Array --
@@ -1643,6 +2030,163 @@ package body Arrays is
       return Component_Type (Ty);
    end Get_Array_Component_Type;
 
+   ------------------------------------------------
+   -- Make_Constrained_Array_From_Initialization --
+   ------------------------------------------------
+   procedure Make_Constrained_Array_From_Initialization
+     (Block        : Irep;
+      Target_Type  : Entity_Id;
+      Array_Name   : String;
+      Init_Expr    : Node_Id;
+      The_Array    : out Irep)
+   is
+      Array_Id     : constant Symbol_Id := Intern (Array_Name);
+      Expr_Kind    : constant Node_Kind := Nkind (Init_Expr);
+      Source_Loc   : constant Irep := Get_Source_Location (Init_Expr);
+      Expr_Type    : constant Entity_Id := Etype (Init_Expr);
+      Is_Concat    : constant Boolean := Expr_Kind = N_Op_Concat;
+      Is_Func_Call : constant Boolean := Expr_Kind = N_Function_Call;
+      Array_Type   : constant Entity_Id :=
+        (if not Is_Concat then
+              Get_Constrained_Subtype (Init_Expr)
+         else
+            Expr_Type);
+   begin
+      Put_Line ("Make_Constrained_Array_From_Initialization");
+      Put_Line (Array_Name);
+      Put_Line (Node_Kind'Image (Nkind (Array_Type)));
+      Put_Line (Entity_Kind'Image (Ekind (Array_Type)));
+      Put_Line (Node_Kind'Image (Nkind (Init_Expr)));
+      if Is_Constrained (Array_Type) then
+         Put_Line ("Is constrained");
+         Print_Node_Briefly (Init_Expr);
+         --  Add the array object to the symbol table and declare it.
+         declare
+            Array_I_Type : constant Irep := Do_Type_Reference (Array_Type);
+            Array_Sym    : constant Irep :=
+              Make_Symbol_Expr
+                (Source_Location => Source_Loc,
+                 I_Type          => Array_I_Type,
+                 Identifier      => Array_Name);
+            RHS          : constant Irep := Do_Expression (Init_Expr);
+         begin
+            Array_Object_And_Friends
+              (Array_Name => Array_Name,
+               Array_Type => Array_Type,
+               Source_Loc => Source_Loc,
+               Block      => Block);
+            if All_Dimensions_Static (Array_Type) then
+               --  A simple assignment can be used.
+               Append_Op (Block,
+                          Make_Code_Assign
+                            (Rhs             => RHS,
+                             Lhs             => Array_Sym,
+                             Source_Location => Source_Loc,
+                             I_Type          => Array_I_Type,
+                             Range_Check     => False));
+            else
+               Put_Line ("Not_Static");
+                     end if;
+
+         end;
+      elsif Is_Func_Call then
+         --  A call to a funcion which returns an unconstrained array.
+         Report_Unhandled_Node_Empty
+           (N        => N,
+            Fun_Name => "Make_Constrained_Array_From_Initialization",
+            Message  => "Function calls returning unconstrained arrays " &
+              "are unsupported.");
+         --  For to allow coninuation of translation an unconstrained object
+         --  is declared.
+         Array_Object_And_Friends
+           (Array_Name => Array_Name,
+            Array_Type => Array_Type,
+            Source_Loc => Source_Loc,
+            Block      => Block);
+      elsif Is_Concat then
+         Put_Line ("A concatination");
+         --  The resultant array from a concatination is 1 dimensional
+         declare
+            Comp_Etype      : constant Entity_Id :=
+              Component_Type (Target_Type);
+            Cat_Array_Length : constant Irep :=
+              Calculate_Concat_Length (Init_Expr);
+            Cat_Array_Bounds : constant Dimension_Bounds :=
+              Calculate_Concat_Bounds
+                (Target_Type   => Target_Type,
+                 Concat_Length => Cat_Array_Length);
+            Comp_Type_Pre    : constant Irep :=
+              Do_Type_Reference (Comp_Etype);
+            Comp_Type        : constant Irep :=
+              (if Kind
+                 (Follow_Symbol_Type (Comp_Type_Pre, Global_Symbol_Table))
+               = I_C_Enum_Type
+               then
+                  Make_Unsignedbv_Type
+                 (ASVAT.Size_Model.Static_Size (Comp_Etype))
+               else
+                  Comp_Type_Pre);
+            Array_Type_Irep  : constant Irep :=
+              Make_Array_Type
+                (I_Subtype => Comp_Type,
+                 Size      => Cat_Array_Length);
+            Array_Sym_Irep   : constant Irep :=
+              Make_Symbol_Expr
+                (Source_Location => Source_Loc,
+                 Identifier => Array_Name,
+                 I_Type => Array_Type_Irep);
+            Decl             : constant Irep :=
+              Make_Code_Decl
+                (Symbol          => Array_Sym_Irep,
+                 Source_Location => Source_Loc);
+            Array_Model_Size : constant Irep :=
+              Make_Op_Mul
+                (Rhs             => Typecast_If_Necessary
+                   (Expr           =>
+                          ASVAT.Size_Model.Computed_Size (Comp_Etype),
+                    New_Type       => Index_T,
+                    A_Symbol_Table => Global_Symbol_Table),
+                 Lhs             => Cat_Array_Length,
+                 Source_Location => Source_Loc,
+                 Overflow_Check  => False,
+                 I_Type          => Index_T,
+                 Range_Check     => False);
+         begin
+            Put_Line ("The concatenation length is:");
+            Print_Irep (Cat_Array_Length);
+            if not Global_Symbol_Table.Contains (Array_Id) then
+               --  Declare the array companion variables and the array object
+               Declare_First_Last_From_Bounds
+                 (Prefix     => Array_Name,
+                  Dimension  => "1",
+                  Index_Type => Etype (First_Index (Target_Type)),
+                  Bounds     => Cat_Array_Bounds,
+                  Block      => Block);
+
+               Append_Op (Block, Decl);
+
+               New_Object_Symbol_Entry
+                 (Object_Name       => Array_Id,
+                  Object_Type       => Array_Type_Irep,
+                  Object_Init_Value => Ireps.Empty,
+                  A_Symbol_Table    => Global_Symbol_Table);
+               --  The model size of the object hast to be recorded.
+               ASVAT.Size_Model.Set_Computed_Size
+                 (Id        => Array_Id,
+                  Size_Expr => Array_Model_Size);
+            end if;
+            Put_Line ("Fill a concatenated array");
+            --  Fill_Concat_Array (Array_Sym_Irep, N);
+         end;
+      else
+       Source_Expr
+           (N,
+            "Make_Constrained_Array_From_Object",
+            "Unsupported unconstrained array initialization by " &
+              Node_Kind'Image (Nkind (Init_Expr)));
+      end if;
+   end Make_Constrained_Array_From_Initialization;
+
    ---------------------------
    -- Make_Array_First_Expr --
    ---------------------------
@@ -1962,7 +2506,7 @@ package body Arrays is
                   (Expr           => Calculate_Index_Offset
                      (The_Array   => Array_Type,
                       The_Indices => N),
-                   New_Type       => Int64_T,
+                   New_Type       => Index_T,
                    A_Symbol_Table => Global_Symbol_Table),
               Source_Location => Source_Loc,
               I_Type          => Element_Type,
@@ -2132,7 +2676,10 @@ package body Arrays is
    is
       Source_Location : constant Irep := Get_Source_Location (First_Index);
       Array_Entity    : constant Entity_Id :=
-        Defining_Identifier (Declaration);
+        (if Nkind (Declaration) = N_Defining_Identifier then
+              Declaration
+         else
+            Defining_Identifier (Declaration));
    begin
       Put_Line ("Make_Array_Subtype");
       Print_Node_Briefly (Declaration);
@@ -2191,7 +2738,7 @@ package body Arrays is
                      Lhs             => Var_Dim_Bounds,
                      Source_Location => Source_Location,
                      Overflow_Check  => False,
-                     I_Type          => Int64_T,
+                     I_Type          => Index_T,
                      Range_Check     => False);
                end if;
             end if;
@@ -2210,7 +2757,7 @@ package body Arrays is
               (if Static_Array_Size /= Uint_0 then
                   Integer_Constant_To_Expr
                  (Value           => Static_Array_Size,
-                  Expr_Type       => Int64_T,
+                  Expr_Type       => Index_T,
                   Source_Location => Source_Location)
                else
                   Ireps.Empty);
@@ -2224,7 +2771,7 @@ package body Arrays is
                   Lhs             => Var_Dim_Bounds,
                   Source_Location => Source_Location,
                   Overflow_Check  => False,
-                  I_Type          => Int64_T,
+                  I_Type          => Index_T,
                   Range_Check     => False)
                else
                   Var_Dim_Bounds);
@@ -2234,12 +2781,12 @@ package body Arrays is
                 (Rhs             => Typecast_If_Necessary
                    (Expr           =>
                           ASVAT.Size_Model.Computed_Size (Component_Type),
-                    New_Type       => Int64_T,
+                    New_Type       => Index_T,
                     A_Symbol_Table => Global_Symbol_Table),
                  Lhs             => Array_Size,
                  Source_Location => Source_Location,
                  Overflow_Check  => False,
-                 I_Type          => Int64_T,
+                 I_Type          => Index_T,
                  Range_Check     => False);
          begin
             if Var_Dim_Bounds /= Ireps.Empty then
@@ -2297,13 +2844,19 @@ package body Arrays is
                                 Range_Check     => False));
                   Print_Irep (Block);
                   Put_Line ("Done Make_Array_Subtype");
-                  --  Now Make the array type
+                  --  Set the model size and return the dynamic array type
+                  --  using the declared array length variable.
+                  --  Set the ASVAT.Size_Model size for the array.
+                  ASVAT.Size_Model.Set_Computed_Size
+                    (Array_Entity, Arr_Len_Irep);
                   return Make_Array_Type
                     (I_Subtype => Sub,
                      Size      => Arr_Len_Irep);
                end;
             end if;
             Put_Line ("Done Make_Array_Subtype");
+            --  Set the model size and return the array type using the static
+            --  length of the array.
             --  Set the ASVAT.Size_Model size for the array.
             ASVAT.Size_Model.Set_Computed_Size
               (Array_Entity, Array_Model_Size);
@@ -2330,7 +2883,7 @@ package body Arrays is
             Sub_Pre);
       Nondet_Expr : constant Irep := Make_Side_Effect_Expr_Nondet
         (Source_Location => Get_Source_Location (Declaration),
-         I_Type          => Int64_T,
+         I_Type          => Index_T,
          Range_Check     => False);
    begin
       Put_Line ("Make_Unconstrained_Array_Subtype");

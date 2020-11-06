@@ -14,12 +14,23 @@ package Arrays is
    procedure Add_Array_Friends (Array_Name : String;
                                 Array_Type : Entity_Id;
                                 Param_List : Irep)
-     with Pre => Is_Array_Type (Array_Type) and then
-                 not Is_Constrained (Array_Type);
+     with Pre => (Is_Array_Type (Array_Type) and then
+          not Is_Constrained (Array_Type)) and
+          Kind (Param_List) = I_Parameter_List;
    --  For an unconstrained array parameter adds the array friend variables
    --  Array_Name___first_<Dimension> and Array_Name___last_<Dimension>
-   --  to the symbol table and to the subprogram parameter list for each
-   --  dimension of the array.
+   --  to the subprogram parameter list for each dimension of the array.
+
+   procedure Declare_Array_Friends (Array_Name : String;
+                                    Array_Type : Entity_Id;
+                                    Block      : Irep)
+     with Pre => (Is_Array_Type (Array_Type) and then
+          not (Is_Constrained (Etype (Array_Type)))) and
+          Kind (Block) = I_Code_Block;
+   --  An unconstrained array object declaration has to be suplemented
+   --  by the declaration of the array friend variables
+   --  Array_Name___first_<Dimension> and Array_Name___last_<Dimension>
+   --  for each dimension of the array.
 
    function All_Dimensions_Static (The_Array : Entity_Id) return Boolean
      with Pre => Is_Array_Type (The_Array);
@@ -27,16 +38,28 @@ package Arrays is
    function Do_Aggregate_Literal_Array (N : Node_Id) return Irep
      with Pre  => Nkind (N) = N_Aggregate;
 
---     procedure Do_Array_Object (Object_Node     : Node_Id;
---                                Object_Ada_Type : Entity_Id;
---                                Subtype_Irep    : out Irep)
---       with Pre  => Is_Array_Type (Object_Ada_Type),
---            Post => Kind (Subtype_Irep) = I_Array_Type;
---     --  In goto an array is not a type, objects may be arrays.
---     --  An anonymous subtype has to be declared for each
---     --  array object describing its format.
---     --  Do_Array_Object creates an array subtype and the
---     --  anonymous array subtype is returned via the Subtype_Irep parameter.
+   procedure Do_Array_Object_Declaration (Block       : Irep;
+                                          Target_Def  : Entity_Id;
+                                          Target_Type : Entity_Id;
+                                          Array_Name  : String;
+                                          Init_Expr   : Node_Id)
+
+     with Pre => Is_Array_Type (Target_Type) and
+                 Is_Array_Type (Etype (Init_Expr));
+   --  In goto an array is not a type, objects may be arrays.
+   --  Array types are entered into the global symbol. Some of these may
+   --  be anonomous types introduced by the gnat front-end.
+   --  If the object is a constrained array type then the type entry from
+   --  the symbol table is used to define the goto array object.
+   --  If the object is an unconstrained array subtype, then its first, last
+   --  and length attributes must be determined from its mandatory
+   --  initialization.  In such cases, if the initalization has a constrained
+   --  subtype, then it is used to define the goto array object.
+   --  If the initialization is not constrained it will not have a constrained
+   --  subtype in the global symbol table and cannot be used to define the
+   --  object.  In such cases the first, last and length attributes object
+   --  have to be determined directly from the initialization expression
+   --  and are use to define a goto array object of the correct length.
 
    function Do_Array_Subtype (Subtype_Node   : Node_Id;
                               Parent_Type    : Entity_Id;
@@ -130,12 +153,6 @@ package Arrays is
      with Pre => (Kind (Base) in Class_Expr
                   and then Kind (Offset) in Class_Expr),
      Post => Kind (Offset_Array_Data'Result) in Class_Expr;
-
-   procedure Initialse_Array_Object (Block       : Irep;
-                                     Array_Type  : Entity_Id;
-                                     Init_Expr   : Node_Id;
-                                     Array_Irep  : Irep)
-     with Pre => Is_Array_Type (Array_Type);
 
    function Make_Array_Default_Initialiser (E : Entity_Id) return Irep;
 

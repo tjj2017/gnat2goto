@@ -12,6 +12,27 @@ package Arrays.Low_Level is
       Low, High : Irep;
    end record;
 
+   --  The type used for index expressions.
+   Index_T      : constant Irep := Int64_T;
+
+   function Index_T_Zero return Irep renames Get_Int64_T_Zero;
+   function Index_T_One  return Irep is
+     (Integer_Constant_To_Expr (Uint_1, Index_T, Internal_Source_Location));
+
+   function Inc_Index (Ix : Irep) return Irep is
+     (Make_Op_Add
+        (Rhs             => Index_T_One,
+         Lhs             => Ix,
+         Source_Location => Internal_Source_Location,
+         I_Type          => Index_T));
+
+   function Dec_Index (Ix : Irep) return Irep is
+     (Make_Op_Sub
+        (Rhs             => Index_T_One,
+         Lhs             => Ix,
+         Source_Location => Internal_Source_Location,
+         I_Type          => Index_T));
+
    procedure Assign_To_Array_Component (Block      : Irep;
                                         The_Array  : Irep;
                                         Zero_Index : Irep;
@@ -43,6 +64,16 @@ package Arrays.Low_Level is
    --  Assigns a single value to a contiguous set of elements of the array
    --  specified by the statically determinable Zero_Based_First and Last
    --  Int values.
+
+   function Calculate_Concat_Bounds
+     (Target_Type   : Entity_Id;
+      Concat_Length : Irep) return Dimension_Bounds
+     with Pre => Is_Array_Type (Target_Type);
+   --  Calculates the bounds of an array concatination.
+
+   function Calculate_Concat_Length (N : Node_Id) return Irep
+     with Pre => Nkind (N) = N_Op_Concat;
+   --  Calculates the length of an array concatination.
 
    function Calculate_Dimension_Length (Bounds : Dimension_Bounds) return Irep;
 
@@ -120,6 +151,11 @@ package Arrays.Low_Level is
    function Get_Bounds (Index : Node_Id) return Dimension_Bounds;
    --  If the array is constrained, returns the lower and upper bounds of
    --  the index constraint.
+
+   function Get_Constrained_Subtype (N : Node_Id) return Entity_Id;
+   --  Determines the constrained array subtype of an array expression.
+   --  If no constrained subtype is found returns the unconstrained
+   --  type of the expression.
 
    function Get_Range (Index : Node_Id) return Node_Id;
 
