@@ -48,7 +48,7 @@ package body Arrays.Low_Level is
       Location         : Irep)
    is
       Loop_Var : constant Irep :=
-        Fresh_Var_Symbol_Expr (Int64_T, "loop_var");
+        Fresh_Var_Symbol_Expr (Index_T, "loop_var");
       Loop_Body : constant Irep :=
         Make_Code_Block (Source_Location => Location);
    begin
@@ -108,7 +108,7 @@ package body Arrays.Low_Level is
             Zero_Index =>
               Integer_Constant_To_Expr
                 (Value           => UI_From_Int (I),
-                 Expr_Type       => Int64_T,
+                 Expr_Type       => Index_T,
                  Source_Location => Location),
             Value_Expr => Value_Expr,
             I_Type     => I_Type,
@@ -116,42 +116,205 @@ package body Arrays.Low_Level is
       end loop;
    end Assign_Value_To_Static_Array_Components;
 
+   -----------------------------
+   -- Calculate_Concat_Bounds --
+   -----------------------------
+
+   function Calculate_Concat_Bounds
+     (Target_Type   : Entity_Id;
+      Concat_Length : Irep) return Dimension_Bounds is
+   begin
+      --  A concatination is always 1 dimensional.
+      if Is_Constrained (Target_Type) then
+         return Get_Bounds (First_Index (Target_Type));
+      end if;
+
+      declare
+         Index      : constant Node_Id := First_Index (Target_Type);
+         Index_Type : constant Entity_Id := Base_Type (Etype (Index));
+
+         Type_Irep : constant Irep :=
+           Do_Type_Reference (Index_Type);
+
+         --  For unconstrained array type, a concatination takes the
+         --  first value of the scalar index type.
+         Lower_Bound  : constant Node_Id := Type_Low_Bound (Index_Type);
+         Low_Irep     : constant Irep := Do_Expression (Lower_Bound);
+
+         Low_Index    : constant Irep :=
+           Typecast_If_Necessary
+             (Expr           => Low_Irep,
+              New_Type       => Index_T,
+              A_Symbol_Table => Global_Symbol_Table);
+
+         High_Index : constant Irep :=
+           Make_Op_Sub
+             (Rhs             => Index_T_One,
+              Lhs             => Make_Op_Add
+                (Rhs             => Concat_Length,
+                 Lhs             => Low_Index,
+                 Source_Location => Internal_Source_Location,
+                 Overflow_Check  => False,
+                 I_Type          => Index_T,
+                 Range_Check     => False),
+              Source_Location => Internal_Source_Location,
+              Overflow_Check  => False,
+              I_Type          => Index_T,
+              Range_Check     => False);
+
+         High_Irep : constant Irep :=
+           Typecast_If_Necessary
+             (Expr           => High_Index,
+              New_Type       => Type_Irep,
+              A_Symbol_Table => Global_Symbol_Table);
+      begin
+         return (Low_Irep, High_Irep);
+      end;
+   end Calculate_Concat_Bounds;
+
+   ------------------------------
+   -- Calculate_Concat_Length --
+   -----------------------------
+
+   function Calculate_Concat_Length (N : Node_Id) return Irep is
+      procedure Add_One (Is_Static      : Boolean;
+                         Static_Length  : in out Uint;
+                         Dynamic_Length : in out Irep);
+
+      procedure Calc_Length (N             : Node_Id;
+                             Is_Static     : in out Boolean;
+                            Static_Length  : in out Uint;
+                            Dynamic_Length : in out Irep);
+
+      procedure Add_One (Is_Static      : Boolean;
+                         Static_Length  : in out Uint;
+                         Dynamic_Length : in out Irep)
+      is
+      begin
+         if Is_Static then
+            Static_Length := Static_Length + Uint_1;
+         else
+            Dynamic_Length := Inc_Index (Dynamic_Length);
+         end if;
+      end Add_One;
+
+      procedure Calc_Length (N             : Node_Id;
+                             Is_Static     : in out Boolean;
+                            Static_Length  : in out Uint;
+                            Dynamic_Length : in out Irep) is
+      begin
+         if Nkind (N) = N_Op_Concat then
+            if Is_Component_Left_Opnd (N) then
+               Add_One (Is_Static, Static_Length, Dynamic_Length);
+            else
+               Calc_Length
+                 (N              => Left_Opnd (N),
+                  Is_Static      => Is_Static,
+                  Static_Length  => Static_Length,
+                  Dynamic_Length => Dynamic_Length);
+            end if;
+            if Is_Component_Right_Opnd (N) then
+               Add_One (Is_Static, Static_Length, Dynamic_Length);
+            else
+               Calc_Length
+                 (N              => Right_Opnd (N),
+                  Is_Static      => Is_Static,
+                  Static_Length  => Static_Length,
+                  Dynamic_Length => Dynamic_Length);
+            end if;
+         else
+            declare
+               --  The array can only have one dimension.
+               Array_Type  : constant Entity_Id := Get_Constrained_Subtype (N);
+               Array_Range : constant Node_Id := First_Index (Array_Type);
+            begin
+               if Is_Constrained (Array_Type) then
+                  if Is_Static and then Is_OK_Static_Range (Array_Range) then
+                     Static_Length := Static_Length +
+                       Calculate_Static_Dimension_Length (Array_Range);
+                  else
+                     declare
+                        Bounds : constant Dimension_Bounds :=
+                          Get_Bounds (Array_Range);
+                     begin
+                        if Is_Static then
+                           Is_Static := False;
+                           Dynamic_Length :=
+                             Integer_Constant_To_Expr
+                               (Value           => Static_Length,
+                                Expr_Type       => Index_T,
+                                Source_Location => Internal_Source_Location);
+                        end if;
+
+                        Dynamic_Length :=
+                          Make_Op_Add
+                            (Rhs             =>
+                               Calculate_Dimension_Length (Bounds),
+                             Lhs             => Dynamic_Length,
+                             Source_Location => Internal_Source_Location,
+                             Overflow_Check  => False,
+                             I_Type          => Index_T,
+                             Range_Check     => False);
+                     end;
+                  end if;
+               else
+                  Report_Unhandled_Node_Empty
+                    (N        => N,
+                     Fun_Name => "Calculate_Concat_Length",
+                     Message  => "Unconstrained array expressions in " &
+                       "concatinations are unsupported");
+               end if;
+            end;
+         end if;
+      end Calc_Length;
+
+      Is_Static      : Boolean := True;
+      Static_Length  : Uint := Uint_0;
+      Dynamic_Length : Irep := Ireps.Empty;
+      Result : Irep;
+   begin
+      Put_Line ("Calculate_Cocat_Length");
+      Calc_Length
+        (N              => N,
+         Is_Static      => Is_Static,
+         Static_Length  => Static_Length,
+         Dynamic_Length => Dynamic_Length);
+      if Is_Static then
+         Put_Line ("Result is static: " &
+                  Int'Image (UI_To_Int (Static_Length)));
+         Result := Integer_Constant_To_Expr
+           (Value           => Static_Length,
+            Expr_Type       => Index_T,
+            Source_Location => Internal_Source_Location);
+      else
+         Put_Line ("The_Result is dynamic:");
+         Print_Irep (Dynamic_Length);
+         Result := Dynamic_Length;
+      end if;
+      return Result;
+   end Calculate_Concat_Length;
+
    --------------------------------
    -- Calculate_Dimension_Length --
    --------------------------------
 
    function Calculate_Dimension_Length (Bounds : Dimension_Bounds)
                                         return Irep is
-      First_Type : constant Irep := Get_Type (Bounds.Low);
-      Last_Type  : constant Irep := Get_Type (Bounds.High);
-
       First_Val : constant Irep :=
-        (if Kind (First_Type) /= I_Signedbv_Type or else
-         Get_Width (First_Type) /= 64
-         then
-            Make_Op_Typecast
-           (Op0             => Bounds.Low,
-            Source_Location => Internal_Source_Location,
-            I_Type          => Int64_T,
-            Range_Check     => False)
-         else
-            Bounds.Low);
+        Typecast_If_Necessary
+          (Expr           => Bounds.Low,
+           New_Type       => Index_T,
+           A_Symbol_Table => Global_Symbol_Table);
       Last_Val : constant Irep :=
-        (if Kind (Last_Type) /= I_Signedbv_Type or else
-         Get_Width (Last_Type) /= 64
-         then
-            Make_Op_Typecast
-           (Op0             => Bounds.High,
-            Source_Location => Internal_Source_Location,
-            I_Type          => Int64_T,
-            Range_Check     => False)
-         else
-            Bounds.High);
+        Typecast_If_Necessary
+          (Expr           => Bounds.High,
+           New_Type       => Index_T,
+           A_Symbol_Table => Global_Symbol_Table);
 
       One : constant Irep :=
         Make_Constant_Expr
           (Source_Location => Internal_Source_Location,
-           I_Type          => Int64_T,
+           I_Type          => Index_T,
            Range_Check     => False,
            Value           => "1");
 
@@ -161,7 +324,7 @@ package body Arrays.Low_Level is
            Lhs             => Last_Val,
            Source_Location => Internal_Source_Location,
            Overflow_Check  => False,
-           I_Type          => Int64_T,
+           I_Type          => Index_T,
            Range_Check     => False);
 
       Length_Val : constant Irep :=
@@ -170,7 +333,7 @@ package body Arrays.Low_Level is
            Lhs             => Diff,
            Source_Location => Internal_Source_Location,
            Overflow_Check  => False,
-           I_Type          => Int64_T,
+           I_Type          => Index_T,
            Range_Check     => False);
    begin
       return Length_Val;
@@ -206,15 +369,15 @@ package body Arrays.Low_Level is
                    Typecast_If_Necessary
                      (Expr           =>
                           Calculate_Dimension_Length (Bounds_Iter),
-                      New_Type       => Int64_T,
+                      New_Type       => Index_T,
                       A_Symbol_Table => Global_Symbol_Table),
                  Source_Location => Source_Location,
                  Overflow_Check  => False,
-                 I_Type          => Int64_T,
+                 I_Type          => Index_T,
                  Range_Check     => False),
               Source_Location => Source_Location,
               Overflow_Check  => False,
-              I_Type          => Int64_T,
+              I_Type          => Index_T,
               Range_Check     => False);
       end loop;
       return Offset;
@@ -240,22 +403,22 @@ package body Arrays.Low_Level is
       Index_Irep : constant Irep :=
         Typecast_If_Necessary
           (Expr           => Do_Expression (Given_Index),
-           New_Type       => Int64_T,
+           New_Type       => Index_T,
            A_Symbol_Table => Global_Symbol_Table);
    begin
       return
         Make_Op_Sub
           (Rhs             => Typecast_If_Necessary
              (Expr           => Dim_Bounds.Low,
-              New_Type       => Int64_T,
+              New_Type       => Index_T,
               A_Symbol_Table => Global_Symbol_Table),
            Lhs             => Typecast_If_Necessary
              (Expr           => Index_Irep,
-              New_Type       => Int64_T,
+              New_Type       => Index_T,
               A_Symbol_Table => Global_Symbol_Table),
            Source_Location => Get_Source_Location (Given_Index),
            Overflow_Check  => False,
-           I_Type          => Int64_T,
+           I_Type          => Index_T,
            Range_Check     => False);
    end Calculate_Zero_Offset;
 
@@ -272,12 +435,12 @@ package body Arrays.Low_Level is
       Source_Irep      : Irep)
    is
       --  All goto arrays index from 0.
-      Low_Idx  : constant Irep := Get_Int64_T_Zero;
+      Low_Idx  : constant Irep := Index_T_Zero;
       --  The length ot the destination and source arrays should be the same.
       High_Idx : constant Irep :=
         Typecast_If_Necessary
           (Expr           => Zero_Based_High,
-           New_Type       => Int64_T,
+           New_Type       => Index_T,
            A_Symbol_Table => Global_Symbol_Table);
    begin
       Copy_Array_With_Offset_Dynamic
@@ -359,7 +522,7 @@ package body Arrays.Low_Level is
             Component_Pre_Src);
 
       Loop_Var : constant Irep :=
-        Fresh_Var_Symbol_Expr (Int64_T, "loop_var");
+        Fresh_Var_Symbol_Expr (Index_T, "loop_var");
       Loop_Body : constant Irep :=
         Make_Code_Block (Source_Location => Source_Location);
 
@@ -369,7 +532,7 @@ package body Arrays.Low_Level is
            Lhs             => Loop_Var,
            Source_Location => Source_Location,
            Overflow_Check  => False,
-           I_Type          => Int64_T,
+           I_Type          => Index_T,
            Range_Check     => False);
       Source_Idx : constant Irep :=
         Make_Op_Add
@@ -377,17 +540,17 @@ package body Arrays.Low_Level is
            Lhs             => Loop_Var,
            Source_Location => Source_Location,
            Overflow_Check  => False,
-           I_Type          => Int64_T,
+           I_Type          => Index_T,
            Range_Check     => False);
 
-      Loop_First : constant Irep := Get_Int64_T_Zero;
+      Loop_First : constant Irep := Index_T_Zero;
       Loop_Last  : constant Irep :=
         Make_Op_Sub
           (Rhs             => Dest_Low,
            Lhs             => Dest_High,
            Source_Location => Internal_Source_Location,
            Overflow_Check  => False,
-           I_Type          => Int64_T,
+           I_Type          => Index_T,
            Range_Check     => False);
    begin
       --  The body of the loop is just the assignment of the indexed source
@@ -469,7 +632,7 @@ package body Arrays.Low_Level is
             Zero_Index =>
               Integer_Constant_To_Expr
                 (Value           => UI_From_Int (I + Dest_Low),
-                 Expr_Type       => Int64_T,
+                 Expr_Type       => Index_T,
                  Source_Location =>
                    Internal_Source_Location),
             Value_Expr =>
@@ -480,7 +643,7 @@ package body Arrays.Low_Level is
                     Index           =>
                       Integer_Constant_To_Expr
                         (Value           => UI_From_Int (I + Source_Low),
-                         Expr_Type       => Int64_T,
+                         Expr_Type       => Index_T,
                          Source_Location =>
                            Internal_Source_Location),
                     Source_Location =>
@@ -510,6 +673,44 @@ package body Arrays.Low_Level is
    begin
       return (Low => Low, High => High);
    end Get_Bounds;
+
+   -----------------------------
+   -- Get_Constrained_Subtype --
+   -----------------------------
+   function Get_Constrained_Subtype (N : Node_Id) return Entity_Id is
+      E_Type_N : constant Entity_Id := Etype (N);
+   begin
+      if Is_Constrained (E_Type_N) then
+         return E_Type_N;
+      end if;
+
+      case Nkind (N) is
+         when N_Identifier | N_Expanded_Name =>
+            declare
+               Dec_Node : constant Node_Id :=
+                 Declaration_Node (Entity (N));
+            begin
+               pragma Assert (Has_Init_Expression (Dec_Node));
+               return Get_Constrained_Subtype (Expression (Dec_Node));
+            end;
+         when N_Function_Call =>
+            Report_Unhandled_Node_Empty
+              (N        => N,
+               Fun_Name => "Get_Constrained_Subtype",
+               Message  => "Unsupported: " &
+                 "functions returning unconstrained array types.");
+            return E_Type_N;
+         when N_Type_Conversion | N_Qualified_Expression =>
+            return Get_Constrained_Subtype (Expression (N));
+         when others =>
+            Report_Unhandled_Node_Empty
+              (N        => N,
+               Fun_Name => "Get_Constrained_Subtype",
+               Message  => "Unsuported unconstrained expression kind " &
+                 Node_Kind'Image (Nkind (N)));
+            return E_Type_N;
+      end case;
+   end Get_Constrained_Subtype;
 
    ---------------
    -- Get_Range --
@@ -552,15 +753,7 @@ package body Arrays.Low_Level is
                      Overflow_Check  => False,
                      I_Type          => Make_Bool_Type);
 
-      Loop_Inc : constant Irep :=
-        Make_Op_Add
-          (Lhs => Loop_Var,
-           Rhs =>  Integer_Constant_To_Expr
-             (Value           => Uint_1,
-              Expr_Type       => Int64_T,
-              Source_Location => Internal_Source_Location),
-           I_Type => Get_Type (Loop_Var),
-           Source_Location => Internal_Source_Location);
+      Loop_Inc : constant Irep := Inc_Index (Loop_Var);
 
       Loop_Post : constant Irep :=
         Make_Side_Effect_Expr_Assign
@@ -587,17 +780,17 @@ package body Arrays.Low_Level is
         (Rhs             =>
               Typecast_If_Necessary
            (Expr           => First,
-            New_Type       => Int64_T,
+            New_Type       => Index_T,
             A_Symbol_Table => Global_Symbol_Table),
          Lhs             =>
             Typecast_If_Necessary
            (Expr           => Index,
-            New_Type       => Int64_T,
+            New_Type       => Index_T,
             A_Symbol_Table =>
                Global_Symbol_Table),
          Source_Location => Location,
          Overflow_Check  => False,
-         I_Type          => Int64_T,
+         I_Type          => Index_T,
          Range_Check     => False));
 
    function Make_Zero_Index (Index : Irep; First : Int; Location : Irep)
@@ -606,7 +799,7 @@ package body Arrays.Low_Level is
         (Index    => Index,
          First    => Integer_Constant_To_Expr
            (Value           => UI_From_Int (First),
-            Expr_Type       => Int64_T,
+            Expr_Type       => Index_T,
             Source_Location => Location),
          Location => Location));
 

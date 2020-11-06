@@ -42,14 +42,26 @@ package ASVAT.Size_Model is
    --  rather than the compiler size.
    --  These subprograms are used to set and get the model size
    --  of a type.
+   --  These subprograms are overloaded with both an entity_Id and a
+   --  Symbol_Id as when creating modeling arrays, e.g. for concatinations
+   --  an Entity_Id is not available from the Atree and a Symbol_Id is
+   --  used instead.
    procedure Set_Static_Size (E : Entity_Id; Model_Size : Natural);
+   procedure Set_Static_Size (Id : Symbol_Id; Model_Size : Natural);
    procedure Set_Computed_Size (E : Entity_Id; Size_Expr : Irep);
+   procedure Set_Computed_Size (Id : Symbol_Id; Size_Expr : Irep);
    function Has_Static_Size (E : Entity_Id) return Boolean;
+   function Has_Static_Size (Id : Symbol_Id) return Boolean;
    function Has_Size (E : Entity_Id) return Boolean;
+   function Has_Size (Id : Symbol_Id) return Boolean;
    function Static_Size (E : Entity_Id) return Natural
      with Pre => Has_Static_Size (E);
+   function Static_Size (Id : Symbol_Id) return Natural
+     with Pre => Has_Static_Size (Id);
    function Computed_Size (E : Entity_Id) return Irep
      with Pre => Has_Size (E);
+   function Computed_Size (Id : Symbol_Id) return Irep
+     with Pre => Has_Size (Id);
 
    --  Model representations of entities are byte aligned.
    function Make_Byte_Aligned_Size (S : Uint) return Uint;

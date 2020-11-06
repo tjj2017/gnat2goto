@@ -8,6 +8,8 @@ with Symbol_Table_Info;     use Symbol_Table_Info;
 with Tree_Walk;             use Tree_Walk;
 with Follow;                use Follow;
 with Arrays;                use Arrays;
+with Ada.Text_IO; use Ada.Text_IO;
+with Treepr; use Treepr;
 
 package body Gnat2goto_Itypes is
 
@@ -83,6 +85,9 @@ package body Gnat2goto_Itypes is
       --  hand must reverse-engineer the type from its Entity.
       --  Possibly in the long term, since we need this anyhow, it
       --  might become the only way to get a type definition.
+      Put_Line ("Do_Itype_Definition");
+      Print_Node_Briefly (N);
+      Put_Line ("Ekind: " & Entity_Kind'Image (Ekind (N)));
       return (case Ekind (N) is
          when E_Array_Subtype => Do_Itype_Array_Subtype (N, Block),
          when E_Array_Type => Do_Itype_Array_Type (N, Block),
@@ -126,9 +131,14 @@ package body Gnat2goto_Itypes is
 
    function Do_Itype_Array_Subtype (N : Node_Id; Block : Irep) return Irep is
    begin
-      Declare_Itype (Etype (N), Block);
-      return Make_Symbol_Type
-        (Identifier => Unique_Name (Etype (N)));
+      Put_Line ("Do_Itype_Array_Subtype");
+      return
+        Do_Array_Subtype
+           (Subtype_Node   => N,
+            Parent_Type    => Etype (N),
+            Is_Constrained => Is_Constrained (N),
+            First_Index    => First_Index (N),
+            Block          => Block);
    end Do_Itype_Array_Subtype;
 
    -------------------------------------

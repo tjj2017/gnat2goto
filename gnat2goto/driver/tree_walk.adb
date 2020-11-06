@@ -3239,16 +3239,11 @@ package body Tree_Walk is
    -- Do_Object_Declaration_Full --
    --------------------------------
 
-   procedure Do_Object_Declaration_Full
-     (N : Node_Id; Block : Irep) is
+   procedure Do_Object_Declaration_Full (N : Node_Id; Block : Irep) is
+      Source_Loc : constant Irep := Get_Source_Location (N);
+
       Defined : constant Entity_Id := Defining_Identifier (N);
       Defined_Type : constant Entity_Id := Etype (Defined);
-
-      Id   : constant Irep := Do_Defining_Identifier (Defined);
-      Decl : constant Irep := Make_Code_Decl
-        (Symbol => Id,
-         Source_Location => Get_Source_Location (N));
-      Init_Expr : Irep := Ireps.Empty;
 
       Obj_Name : constant String := Unique_Name (Defined);
       Obj_Id   : constant Symbol_Id := Intern (Obj_Name);
@@ -3295,11 +3290,11 @@ package body Tree_Walk is
       function Needs_Default_Initialisation (E : Entity_Id) return Boolean is
       begin
          return Has_Defaulted_Discriminants (E)
-           or else Has_Defaulted_Components (E)
-           or else Ekind (E) = E_Array_Subtype
-           or else (Ekind (E) = E_Private_Type
-                    and then Present (Full_View (E))
-                    and then Ekind (Full_View (E)) = E_Array_Subtype);
+           or else Has_Defaulted_Components (E);
+--             or else Ekind (E) = E_Array_Subtype
+--             or else (Ekind (E) = E_Private_Type
+--                      and then Present (Full_View (E))
+--                      and then Ekind (Full_View (E)) = E_Array_Subtype);
       end Needs_Default_Initialisation;
 
       function Disc_Expr (N : Node_Id) return Node_Id is
@@ -3393,7 +3388,7 @@ package body Tree_Walk is
            Component_List (Record_Def);
          Variant_Disc_Value : Node_Id;
          Ret : constant Irep := Make_Struct_Expr
-           (Source_Location => Get_Source_Location (N),
+           (Source_Location => Source_Loc,
             I_Type => Do_Type_Reference (E));
 
       --  begin processing for Make_Record_Default_Initialiser
@@ -3524,78 +3519,147 @@ package body Tree_Walk is
          end if;
       end Make_Default_Initialiser;
 
-      procedure Update_Value (Key : Symbol_Id; Element : in out Symbol);
-      procedure Update_Value (Key : Symbol_Id; Element : in out Symbol) is
-      begin
-         pragma Assert (Unintern (Key) = Unintern (Obj_Id));
-         Element.Value := Init_Expr;
-      end Update_Value;
-
       --  Begin processing for Do_Object_Declaration_Full_Declaration
    begin
       Put_Line ("Do_Object_Declaration_Full");
       Print_Node_Briefly (N);
       Print_Node_Briefly (Defined);
       Print_Node_Briefly (Defined_Type);
-      Put_Line ("********* Is_An_Array_Type " &
-                  Boolean'Image (Is_Array_Type (Defined_Type)));
 
-      if not Is_Array_Type (Defined_Type) then
-         if Has_Init_Expression (N) or Present (Expression (N)) then
-            Init_Expr := Do_Expression (Expression (N));
-         elsif Needs_Default_Initialisation (Defined_Type) or
-           (Present (Object_Definition (N)) and then
-            Nkind (Object_Definition (N)) = N_Subtype_Indication)
-         then
-            declare
-               Defn : constant Node_Id := Object_Definition (N);
-               Discriminant_Constraint : constant Node_Id :=
-                 (if Nkind (Defn) = N_Subtype_Indication
-                  then Constraint (Defn) else Types.Empty);
-            begin
-               Init_Expr :=
-                 Make_Default_Initialiser (Defined_Type,
-                                           Discriminant_Constraint);
-            end;
-         end if;
-      end if;
-      pragma Assert (Get_Identifier (Id) = Obj_Name);
-      if not Global_Symbol_Table.Contains (Obj_Id) then
+      if Is_Array_Type (Defined_Type) then
+         Do_Array_Object_Declaration
+           (Block       => Block,
+            Target_Def  => Defined,
+            Target_Type => Defined_Type,
+            Array_Name  => Obj_Name,
+            Init_Expr   => Expression (N));
+      else
          declare
-            Obj_Type : Irep;
-         begin
-            Obj_Type := Get_Type (Id);
-            Append_Op (Block, Decl);
-            New_Object_Symbol_Entry
-              (Object_Name       => Obj_Id,
-               Object_Type       => Obj_Type,
-               Object_Init_Value => Init_Expr,
-               A_Symbol_Table    => Global_Symbol_Table);
-         end;
-      elsif Init_Expr /= Ireps.Empty then
-         Global_Symbol_Table.Update_Element
-           (Position => Global_Symbol_Table.Find (Obj_Id),
-            Process  => Update_Value'Access);
-      end if;
+            Defn : constant Node_Id := Object_Definition (N);
+            Discriminant_Constraint : constant Node_Id :=
+              (if Nkind (Defn) = N_Subtype_Indication then
+                    Constraint (Defn)
+               else Types.Empty);
 
-      if Init_Expr /= Ireps.Empty then
-         Append_Op (Block, Make_Code_Assign (Lhs => Id,
-                Rhs => Typecast_If_Necessary (Init_Expr, Get_Type (Id),
-                                              Global_Symbol_Table),
-                                             Source_Location =>
-                                               Get_Source_Location (N)));
-      elsif Is_Array_Type (Defined_Type) and then Has_Init_Expression (N) then
-         --  We have to copy one element at a time;
-         Put_Line ("??????? Array object has initialisation");
-         Print_Node_Briefly (Defined);
-         Print_Irep (Id);
-         Initialse_Array_Object
-           (Block,
-            Defined_Type,
-            Expression (N),
-            Id);
+            --  Check for if initialization is required.
+            Init_Expr_Irep : constant Irep :=
+              (if Present (Expression (N)) then
+                  Do_Expression (Expression (N))
+               elsif Needs_Default_Initialisation (Defined_Type) or
+                   (Present (Object_Definition (N)) and then
+                    Nkind (Object_Definition (N)) = N_Subtype_Indication)
+               then
+                  Make_Default_Initialiser
+                 (Defined_Type,
+                  Discriminant_Constraint)
+               else
+                  Ireps.Empty);
+
+            Id       : constant Irep := Do_Defining_Identifier (Defined);
+            Obj_Type : constant Irep := Get_Type (Id);
+            Decl     : constant Irep := Make_Code_Decl
+              (Symbol => Id,
+               Source_Location => Source_Loc);
+         begin
+            Do_Plain_Object_Decalration
+              (Block       => Block,
+               Object_Sym  => Do_Defining_Identifier (Defined),
+               Object_Name => Obj_Name,
+               Object_Def  => Defined,
+               Object_Type => Defined_Type,
+               Init_Expr_Irep => Init_Expr_Irep);
+
+            --  Assign the initialization, if any.
+            if Init_Expr_Irep /= Ireps.Empty then
+               Append_Op (Block, Make_Code_Assign
+                          (Lhs => Id,
+                           Rhs =>
+                             Typecast_If_Necessary
+                               (Init_Expr_Irep, Get_Type (Id),
+                                Global_Symbol_Table),
+                           Source_Location => Source_Loc));
+            end if;
+            Put_Line ("Do_Object_Declaration_Full - Get_Type (Id)");
+            Print_Irep (Get_Type (Id));
+            pragma Assert (Get_Identifier (Id) = Obj_Name);
+            if not Global_Symbol_Table.Contains (Obj_Id) then
+               Append_Op (Block, Decl);
+               New_Object_Symbol_Entry
+                 (Object_Name       => Obj_Id,
+                  Object_Type       => Obj_Type,
+                  Object_Init_Value => Init_Expr_Irep,
+                  A_Symbol_Table    => Global_Symbol_Table);
+               --  The model size of the object hast to be recorded.
+               if ASVAT.Size_Model.Has_Static_Size (Defined_Type) then
+                  ASVAT.Size_Model.Set_Static_Size
+                    (E          => Defined,
+                     Model_Size =>
+                       ASVAT.Size_Model.Static_Size (Defined_Type));
+               else
+                  ASVAT.Size_Model.Set_Computed_Size
+                    (E         => Defined,
+                     Size_Expr =>
+                       ASVAT.Size_Model.Computed_Size (Defined_Type));
+               end if;
+
+            elsif Init_Expr_Irep /= Ireps.Empty then
+               declare
+                  Obj_Symbol : Symbol := Global_Symbol_Table (Obj_Id);
+               begin
+                  Obj_Symbol.Value := Init_Expr_Irep;
+                  Global_Symbol_Table.Replace (Obj_Id, Obj_Symbol);
+               end;
+            end if;
+         end;
       end if;
    end Do_Object_Declaration_Full;
+
+   ---------------------------------
+   -- Do_Plain_Object_Declaration --
+   ---------------------------------
+
+   procedure Do_Plain_Object_Decalration (Block          : Irep;
+                                          Object_Sym     : Irep;
+                                          Object_Name    : String;
+                                          Object_Def     : Entity_Id;
+                                          Object_Type    : Entity_Id;
+                                          Init_Expr_Irep : Irep)
+   is
+      Object_Id : constant Symbol_Id := Intern (Object_Name);
+      Decl      : constant Irep :=
+        Make_Code_Decl
+          (Symbol          => Object_Sym,
+           Source_Location => Get_Source_Location (Object_Sym));
+   begin
+      if not Global_Symbol_Table.Contains (Object_Id) then
+         Append_Op (Block, Decl);
+         New_Object_Symbol_Entry
+           (Object_Name       => Object_Id,
+            Object_Type       => Get_Type (Object_Sym),
+            Object_Init_Value => Init_Expr_Irep,
+            A_Symbol_Table    => Global_Symbol_Table);
+         --  The model size of the object hast to be recorded.
+         if ASVAT.Size_Model.Has_Static_Size (Object_Type) then
+            ASVAT.Size_Model.Set_Static_Size
+              (E          => Object_Def,
+               Model_Size =>
+                 ASVAT.Size_Model.Static_Size (Object_Type));
+         else
+            ASVAT.Size_Model.Set_Computed_Size
+              (E         => Object_Def,
+               Size_Expr =>
+                 ASVAT.Size_Model.Computed_Size (Object_Type));
+         end if;
+
+      elsif Init_Expr_Irep /= Ireps.Empty then
+         declare
+            Obj_Symbol : Symbol := Global_Symbol_Table (Object_Id);
+         begin
+            Obj_Symbol.Value := Init_Expr_Irep;
+            Global_Symbol_Table.Replace (Object_Id, Obj_Symbol);
+         end;
+      end if;
+   end Do_Plain_Object_Decalration;
 
    -------------------------
    --     Do_Op_Not       --
@@ -6859,6 +6923,7 @@ package body Tree_Walk is
 
       --  Declare the implicit initial subtype too
       if Etype (E) /= E then
+         Put_Line ("Register_Type_Declaration - First Subtype");
          Do_Type_Declaration (New_Type, Etype (E));
       end if;
    end Register_Type_Declaration;
