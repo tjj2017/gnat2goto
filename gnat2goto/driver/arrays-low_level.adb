@@ -15,8 +15,7 @@ package body Arrays.Low_Level is
                                         Zero_Index : Irep;
                                         Value_Expr : Irep;
                                         I_Type     : Irep;
-                                        Location   : Irep)
-   is
+                                        Location   : Irep) is
    begin
       Append_Op
         (Block,
@@ -172,7 +171,7 @@ package body Arrays.Low_Level is
       end;
    end Calculate_Concat_Bounds;
 
-   ------------------------------
+   -----------------------------
    -- Calculate_Concat_Length --
    -----------------------------
 
@@ -181,10 +180,10 @@ package body Arrays.Low_Level is
                          Static_Length  : in out Uint;
                          Dynamic_Length : in out Irep);
 
-      procedure Calc_Length (N             : Node_Id;
-                             Is_Static     : in out Boolean;
-                            Static_Length  : in out Uint;
-                            Dynamic_Length : in out Irep);
+      procedure Calc_Length (N              : Node_Id;
+                             Is_Static      : in out Boolean;
+                             Static_Length  : in out Uint;
+                             Dynamic_Length : in out Irep);
 
       procedure Add_One (Is_Static      : Boolean;
                          Static_Length  : in out Uint;
@@ -198,10 +197,10 @@ package body Arrays.Low_Level is
          end if;
       end Add_One;
 
-      procedure Calc_Length (N             : Node_Id;
-                             Is_Static     : in out Boolean;
-                            Static_Length  : in out Uint;
-                            Dynamic_Length : in out Irep) is
+      procedure Calc_Length (N              : Node_Id;
+                             Is_Static      : in out Boolean;
+                             Static_Length  : in out Uint;
+                             Dynamic_Length : in out Irep) is
       begin
          if Nkind (N) = N_Op_Concat then
             if Is_Component_Left_Opnd (N) then
@@ -428,64 +427,6 @@ package body Arrays.Low_Level is
 
    procedure Copy_Array_Dynamic
      (Block            : Irep;
-      Destination_Type : Entity_Id;
-      Source_Type      : Entity_Id;
-      Zero_Based_High  : Irep;
-      Dest_Irep        : Irep;
-      Source_Irep      : Irep)
-   is
-      --  All goto arrays index from 0.
-      Low_Idx  : constant Irep := Index_T_Zero;
-      --  The length ot the destination and source arrays should be the same.
-      High_Idx : constant Irep :=
-        Typecast_If_Necessary
-          (Expr           => Zero_Based_High,
-           New_Type       => Index_T,
-           A_Symbol_Table => Global_Symbol_Table);
-   begin
-      Copy_Array_With_Offset_Dynamic
-        (Block            => Block,
-         Destination_Type => Destination_Type,
-         Source_Type      => Source_Type,
-         Dest_Low         => Low_Idx,
-         Dest_High        => High_Idx,
-         Source_Low       => Low_Idx,
-         Source_High      => High_Idx,
-         Dest_Irep        => Dest_Irep,
-         Source_Irep      => Source_Irep);
-   end Copy_Array_Dynamic;
-
-   -----------------------
-   -- Copy_Array_Static --
-   -----------------------
-
-   procedure Copy_Array_Static
-     (Block            : Irep;
-      Destination_Type : Entity_Id;
-      Source_Type      : Entity_Id;
-      Zero_Based_High  : Int;
-      Dest_Irep        : Irep;
-      Source_Irep      : Irep) is
-   begin
-      Copy_Array_With_Offset_Static
-        (Block            => Block,
-         Destination_Type => Destination_Type,
-         Source_Type      => Source_Type,
-         Dest_Low         => 0,
-         Dest_High        => Zero_Based_High,
-         Source_Low       => 0,
-         Source_High      => Zero_Based_High,
-         Dest_Irep        => Dest_Irep,
-         Source_Irep      => Source_Irep);
-   end Copy_Array_Static;
-
-   ------------------------------------
-   -- Copy_Array_With_Offset_Dynamic --
-   ------------------------------------
-
-   procedure Copy_Array_With_Offset_Dynamic
-     (Block            : Irep;
-      Destination_Type : Entity_Id;
       Source_Type      : Entity_Id;
       Dest_Low         : Irep;
       Dest_High        : Irep;
@@ -496,18 +437,6 @@ package body Arrays.Low_Level is
    is
       pragma Unreferenced (Source_High);  -- Used in precondition.
       Source_Location : constant Irep := Get_Source_Location (Dest_Irep);
-
-      Component_Pre_Dest : constant Irep :=
-        Do_Type_Reference (Component_Type (Destination_Type));
-      Component_Dest     : constant Irep :=
-        (if Kind (Follow_Symbol_Type (Component_Pre_Dest,
-         Global_Symbol_Table)) = I_C_Enum_Type
-         then
-            Make_Unsignedbv_Type
-           (ASVAT.Size_Model.Static_Size
-                (Component_Type (Destination_Type)))
-         else
-            Component_Pre_Dest);
 
       Component_Pre_Src  : constant Irep :=
         Do_Type_Reference (Component_Type (Source_Type));
@@ -520,6 +449,8 @@ package body Arrays.Low_Level is
                 (Component_Type (Source_Type)))
          else
             Component_Pre_Src);
+
+      Component_Dest : constant Irep := Get_Subtype (Dest_Irep);
 
       Loop_Var : constant Irep :=
         Fresh_Var_Symbol_Expr (Index_T, "loop_var");
@@ -581,15 +512,14 @@ package body Arrays.Low_Level is
                     Last            => Loop_Last,
                     Loop_Body       => Loop_Body,
                     Source_Location => Source_Location));
-   end Copy_Array_With_Offset_Dynamic;
+   end Copy_Array_Dynamic;
 
-   -----------------------------------
-   -- Copy_Array_With_Offset_Static --
-   -----------------------------------
+   -----------------------
+   -- Copy_Array_Static --
+   -----------------------
 
-   procedure Copy_Array_With_Offset_Static
+   procedure Copy_Array_Static
      (Block            : Irep;
-      Destination_Type : Entity_Id;
       Source_Type      : Entity_Id;
       Dest_Low         : Int;
       Dest_High        : Int;
@@ -598,20 +528,9 @@ package body Arrays.Low_Level is
       Dest_Irep        : Irep;
       Source_Irep      : Irep)
    is
-      pragma Unreferenced (Source_High);  -- Used in precondition.
+      --  Currently Source_High is only referenced in the precondition.
+      pragma Unreferenced (Source_High);
       Source_Location : constant Irep := Get_Source_Location (Dest_Irep);
-
-      Component_Pre_Dest : constant Irep :=
-        Do_Type_Reference (Component_Type (Destination_Type));
-      Component_Dest     : constant Irep :=
-        (if Kind (Follow_Symbol_Type (Component_Pre_Dest,
-         Global_Symbol_Table)) = I_C_Enum_Type
-         then
-            Make_Unsignedbv_Type
-           (ASVAT.Size_Model.Static_Size
-                (Component_Type (Destination_Type)))
-         else
-            Component_Pre_Dest);
 
       Component_Pre_Src  : constant Irep :=
         Do_Type_Reference (Component_Type (Source_Type));
@@ -624,8 +543,10 @@ package body Arrays.Low_Level is
                 (Component_Type (Source_Type)))
          else
             Component_Pre_Src);
+
+      Component_Dest : constant Irep := Get_Subtype (Dest_Irep);
    begin
-      for I in 0 .. Dest_High - Dest_Low loop
+      for I in 0 .. Dest_High - Dest_Low  loop
          Assign_To_Array_Component
            (Block      => Block,
             The_Array  => Dest_Irep,
@@ -655,7 +576,7 @@ package body Arrays.Low_Level is
             I_Type     => Component_Dest,
             Location   => Source_Location);
       end loop;
-   end Copy_Array_With_Offset_Static;
+   end Copy_Array_Static;
 
    -----------------
    -- Get_Bounds --
@@ -802,5 +723,131 @@ package body Arrays.Low_Level is
             Expr_Type       => Index_T,
             Source_Location => Location),
          Location => Location));
+
+   function Zero_Based_Bounds (The_Array : Node_Id)
+                               return Static_And_Dynamic_Bounds
+   is
+      Array_Is_Slice    : constant Boolean := Nkind = N_Slice;
+      Array_Type        : constant Entity_Id :=
+        (if Array_Is_Slice then
+              Get_Constrained_Subtype (Etype (Prefix (The_Array)))
+         else
+            Get_Constrained_Subtype (Etype (The_Array)));
+
+      Is_Unconstrained  : constant Boolean := not Is_Constrained (Array_Type);
+   begin
+      if Is_Unconstrained then
+         return Static_And_Dynamic_Bounds'
+           (Is_Unconstrained  => True,
+            Has_Static_Bounds => False,
+            Low_Static        => 0,
+            High_Static       => 0,
+            Low_Dynamic       => Ireps.Empty,
+            High_Dynamic      => Ireps.Empty);
+      elsif not Array_Is_Slice then
+         --  The array may be multidimensional
+         return Multi_Dimension_Flat_Bounds (Array_Type);
+      else
+         --  It's a slice. A slice can only be one-dimensional.
+         return Zero_Based_Slice_Bounds
+           (The_Slice        => The_Array,
+            Underlying_Array => Array_Type);
+      end if;
+   end Zero_Based_Bounds;
+
+   function Zero_Based_Slice_Bounds (The_Slice        : Node_Id;
+                                     Underlying_Array : Entity_Id)
+                                     return Static_And_Dynamic_Bounds
+   is
+      Source_Location : constant Irep := Get_Source_Location (The_Slice);
+      Slice_Type : constant Entity_Id := Etype (The_Slice);
+      Has_Static_Bounds : constant Boolean :=
+        All_Dimensions_Static (Underlying_Array) and
+        All_Dimensions_Static (The_Slice);
+   begin
+      if Has_Static_Bounds then
+         declare
+            Slice_Low             : constant Uint :=
+              Expr_Value (Low_Bound (First_Index (Slice_Type)));
+            Slice_High            : constant Uint :=
+              Expr_Value (High_Bound (First_Index (Slice_Type)));
+            Underlying_Array_Low  : constant Uint :=
+              Expr_Value (Low_Bound (First_Index (Array_Type)));
+            Underlying_Array_High : constant Uint :=
+              Expr_Value (High_Bound (First_Index (Array_Type)));
+            Low_Static            : constant Nat :=
+              UI_To_Int (Slice_Low - Underlying_Array_Low);
+            High_Static           : constant Nat :=
+              UI_To_Int (Slice_High - Underlying_Array_Low);
+         begin
+            return Static_And_Dynamic_Bounds'
+              (Is_Unconstrained  => False,
+               Has_Static_Bounds => True,
+               Low_Static        => Low_Static,
+               High_Static       => High_Static,
+               Low_Dynamic       =>
+                 Integer_Constant_To_Expr
+                   (Value           => Low_Static,
+                    Expr_Type       => Index_T,
+                    Source_Location => Source_Location),
+               High_Dynamic      =>
+                 Integer_Constant_To_Expr
+                   (Value           => High_Static,
+                    Expr_Type       => Index_T,
+                    Source_Location => Source_Location));
+         end;
+      else
+         declare
+            Slice_Low             : constant Irep :=
+              Typecast_If_Necessary
+                (Expr           =>
+                   Do_Expression (Low_Bound (First_Index (Slice_Type))),
+                 New_Type       => Index_T,
+                 A_Symbol_Table => Global_Symbol_Table);
+            Slice_High            : constant Irep :=
+              Typecast_If_Necessary
+                (Expr           =>
+                   Do_Expression (High_Bound (First_Index (Slice_Type))),
+                 New_Type       => Index_T,
+                 A_Symbol_Table => Global_Symbol_Table);
+            Underlying_Array_Low  : constant Irep :=
+              Typecast_If_Necessary
+                (Expr           =>
+                   Do_Expression (Low_Bound (First_Index (Array_Type))),
+                 New_Type       => Index_T,
+                 A_Symbol_Table => Global_Symbol_Table);
+            Underlying_Array_High : constant Irep :=
+              Typecast_If_Necessary
+                (Expr           =>
+                   Do_Expression (High_Bound (First_Index (Array_Type))),
+                 New_Type       => Index_T,
+                 A_Symbol_Table => Global_Symbol_Table);
+            Low_Dynamic            : constant Irep :=
+              Make_Op_Sub
+                (Rhs             => Underlying_Array_Low,
+                 Lhs             => Slice_Low,
+                 Source_Location => Source_Location,
+                 Overflow_Check  => False,
+                 I_Type          => Index_T,
+                 Range_Check     => False);
+            High_Dynamic           : constant Irep :=
+              Make_Op_Sub
+                (Rhs             => Underlying_Array_Low,
+                 Lhs             => Slice_High,
+                 Source_Location => Source_Location,
+                 Overflow_Check  => False,
+                 I_Type          => Index_T,
+                 Range_Check     => False);
+         begin
+            return Static_And_Dynamic_Bounds'
+              (Is_Unconstrained  => False,
+               Has_Static_Bounds => False,
+               Low_Static        => 0,
+               High_Static       => 0,
+               Low_Dynamic       => Low_Dynamic,
+               High_Dynamic      => High_Dynamic);
+         end;
+      end if;
+   end Zero_Based_Slice_Bounds;
 
 end Arrays.Low_Level;

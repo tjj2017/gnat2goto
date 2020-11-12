@@ -39,12 +39,13 @@ package Arrays is
      with Pre  => Nkind (N) = N_Aggregate;
 
    procedure Do_Array_Object_Declaration (Block       : Irep;
-                                          Target_Def  : Entity_Id;
+                                          Dec_Node    : Node_Id;
                                           Target_Type : Entity_Id;
                                           Array_Name  : String;
                                           Init_Expr   : Node_Id)
 
-     with Pre => Is_Array_Type (Target_Type) and
+     with Pre => Nkind (Dec_Node) = N_Object_Declaration and
+                 Is_Array_Type (Target_Type) and
                  Is_Array_Type (Etype (Init_Expr));
    --  In goto an array is not a type, objects may be arrays.
    --  Array types are entered into the global symbol. Some of these may
