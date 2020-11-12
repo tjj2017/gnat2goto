@@ -96,11 +96,6 @@ package body Tree_Walk is
    function Do_Null_Expression (N : Node_Id) return Irep
      with Pre => Nkind (N) = N_Null;
 
-   function Do_Defining_Identifier (E : Entity_Id) return Irep
-   with Pre  => Nkind (E) = N_Defining_Identifier,
-        Post => Kind (Do_Defining_Identifier'Result) in
-           I_Symbol_Expr | I_Dereference_Expr;
-
    function Do_Dereference (N : Node_Id) return Irep
    with Pre  => Nkind (N) = N_Explicit_Dereference,
         Post => Kind (Do_Dereference'Result) = I_Dereference_Expr;
@@ -3210,7 +3205,6 @@ package body Tree_Walk is
       Defined_Type : constant Entity_Id := Etype (Defined);
 
       Obj_Name : constant String := Unique_Name (Defined);
-      Obj_Id   : constant Symbol_Id := Intern (Obj_Name);
 
       function Has_Defaulted_Components (E : Entity_Id) return Boolean;
       function Needs_Default_Initialisation (E : Entity_Id) return Boolean;
@@ -3493,7 +3487,7 @@ package body Tree_Walk is
       if Is_Array_Type (Defined_Type) then
          Do_Array_Object_Declaration
            (Block       => Block,
-            Target_Def  => Defined,
+            Dec_Node    => N,
             Target_Type => Defined_Type,
             Array_Name  => Obj_Name,
             Init_Expr   => Expression (N));
@@ -3520,12 +3514,8 @@ package body Tree_Walk is
                   Ireps.Empty);
 
             Id       : constant Irep := Do_Defining_Identifier (Defined);
-            Obj_Type : constant Irep := Get_Type (Id);
-            Decl     : constant Irep := Make_Code_Decl
-              (Symbol => Id,
-               Source_Location => Source_Loc);
          begin
-            Do_Plain_Object_Decalration
+            Do_Plain_Object_Declaration
               (Block       => Block,
                Object_Sym  => Do_Defining_Identifier (Defined),
                Object_Name => Obj_Name,
@@ -3543,37 +3533,6 @@ package body Tree_Walk is
                                 Global_Symbol_Table),
                            Source_Location => Source_Loc));
             end if;
-            Put_Line ("Do_Object_Declaration_Full - Get_Type (Id)");
-            Print_Irep (Get_Type (Id));
-            pragma Assert (Get_Identifier (Id) = Obj_Name);
-            if not Global_Symbol_Table.Contains (Obj_Id) then
-               Append_Op (Block, Decl);
-               New_Object_Symbol_Entry
-                 (Object_Name       => Obj_Id,
-                  Object_Type       => Obj_Type,
-                  Object_Init_Value => Init_Expr_Irep,
-                  A_Symbol_Table    => Global_Symbol_Table);
-               --  The model size of the object hast to be recorded.
-               if ASVAT.Size_Model.Has_Static_Size (Defined_Type) then
-                  ASVAT.Size_Model.Set_Static_Size
-                    (E          => Defined,
-                     Model_Size =>
-                       ASVAT.Size_Model.Static_Size (Defined_Type));
-               else
-                  ASVAT.Size_Model.Set_Computed_Size
-                    (E         => Defined,
-                     Size_Expr =>
-                       ASVAT.Size_Model.Computed_Size (Defined_Type));
-               end if;
-
-            elsif Init_Expr_Irep /= Ireps.Empty then
-               declare
-                  Obj_Symbol : Symbol := Global_Symbol_Table (Obj_Id);
-               begin
-                  Obj_Symbol.Value := Init_Expr_Irep;
-                  Global_Symbol_Table.Replace (Obj_Id, Obj_Symbol);
-               end;
-            end if;
          end;
       end if;
    end Do_Object_Declaration_Full;
@@ -3582,7 +3541,7 @@ package body Tree_Walk is
    -- Do_Plain_Object_Declaration --
    ---------------------------------
 
-   procedure Do_Plain_Object_Decalration (Block          : Irep;
+   procedure Do_Plain_Object_Declaration (Block          : Irep;
                                           Object_Sym     : Irep;
                                           Object_Name    : String;
                                           Object_Def     : Entity_Id;
@@ -3623,7 +3582,7 @@ package body Tree_Walk is
             Global_Symbol_Table.Replace (Object_Id, Obj_Symbol);
          end;
       end if;
-   end Do_Plain_Object_Decalration;
+   end Do_Plain_Object_Declaration;
 
    -------------------------
    --     Do_Op_Not       --

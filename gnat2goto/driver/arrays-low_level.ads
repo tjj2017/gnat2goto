@@ -12,6 +12,13 @@ package Arrays.Low_Level is
       Low, High : Irep;
    end record;
 
+   type Static_And_Dynamic_Bounds is record
+      Is_Unconstrained          : Boolean;
+      Has_Static_Bounds         : Boolean;
+      Low_Static, High_Static   : Int;
+      Low_Dynamic, High_Dynamic : Irep;
+   end record;
+
    --  The type used for index expressions.
    Index_T      : constant Irep := Int64_T;
 
@@ -97,31 +104,6 @@ package Arrays.Low_Level is
 
    procedure Copy_Array_Dynamic
      (Block            : Irep;
-      Destination_Type : Entity_Id;
-      Source_Type      : Entity_Id;
-      Zero_Based_High  : Irep;
-      Dest_Irep        : Irep;
-      Source_Irep      : Irep)
-     with Pre => Is_Array_Type (Destination_Type) and
-                 Is_Array_Type (Source_Type) and
-                 Kind (Get_Type (Dest_Irep))   = I_Array_Type and
-                 Kind (Get_Type (Source_Irep)) = I_Array_Type;
-
-   procedure Copy_Array_Static
-     (Block            : Irep;
-      Destination_Type : Entity_Id;
-      Source_Type      : Entity_Id;
-      Zero_Based_High  : Int;
-      Dest_Irep        : Irep;
-      Source_Irep      : Irep)
-     with Pre => Is_Array_Type (Destination_Type) and
-                 Is_Array_Type (Source_Type) and
-                 Kind (Get_Type (Dest_Irep))   = I_Array_Type and
-                 Kind (Get_Type (Source_Irep)) = I_Array_Type;
-
-   procedure Copy_Array_With_Offset_Dynamic
-     (Block            : Irep;
-      Destination_Type : Entity_Id;
       Source_Type      : Entity_Id;
       Dest_Low         : Irep;
       Dest_High        : Irep;
@@ -129,12 +111,12 @@ package Arrays.Low_Level is
       Source_High      : Irep;
       Dest_Irep        : Irep;
       Source_Irep      : Irep)
-     with Pre => Is_Array_Type (Destination_Type) and
-                 Is_Array_Type (Source_Type);
+     with Pre => Is_Array_Type (Source_Type) and
+                 Kind (Get_Type (Dest_Irep))   = I_Array_Type and
+                 Kind (Get_Type (Source_Irep)) = I_Array_Type;
 
-   procedure Copy_Array_With_Offset_Static
+   procedure Copy_Array_Static
      (Block            : Irep;
-      Destination_Type : Entity_Id;
       Source_Type      : Entity_Id;
       Dest_Low         : Int;
       Dest_High        : Int;
@@ -142,8 +124,7 @@ package Arrays.Low_Level is
       Source_High      : Int;
       Dest_Irep        : Irep;
       Source_Irep      : Irep)
-     with Pre => Is_Array_Type (Destination_Type) and
-                 Is_Array_Type (Source_Type) and
+     with Pre => Is_Array_Type (Source_Type) and
                  Kind (Get_Type (Dest_Irep))   = I_Array_Type and
                  Kind (Get_Type (Source_Irep)) = I_Array_Type and
                  Dest_High - Dest_Low + 1 = Source_High - Source_Low + 1;
@@ -171,5 +152,59 @@ package Arrays.Low_Level is
                              return Irep;
    --  Calculate a zero offset index from an Ada index represented as an Irep
    --  and the lower bound given as an Int constant.
+
+   function Multi_Dimension_Flat_Length (Array_Type : Entity_Id)
+                                         return Static_And_Dynamic_Bounds
+     with Pre => Is_Array_Type (Array_Type);
+   --  In goto Ada multidimensional arrays are flattenned into one dimensional
+   --  arrays. This function calculates the length of a flattened
+   --  multi-dimentional array
+
+   function Zero_Based_Bounds (The_Array : Node_Id)
+                               return Static_And_Dynamic_Bounds
+     with Pre => Is_Array_Type (Etype (The_Array));
+   --  Calculate the zero based bounds of an array taking in to account
+   --  any adjustment required if The_Array is a slice.
+   --  For a slice Indexing is performed on the underlying array on which the
+   --  slice is defined.
+   --  If The_Array is not constrained then the result is
+   --  Static_And_Dynamic_Bounds'
+   --  (Is_Unconstrained  => True,
+   --   Has_Static_Bounds => False,
+   --   Low_Static  | High_Static  => 0,
+   --   Low_Dynamic | High_Dynamic => Ireps.Empty).
+   --  If the array, and any underlying array, if it is a slice, have static
+   --  bounds, then result is
+   --  If The_Array is not constrained then the result is
+   --  Static_And_Dynamic_Bounds'
+   --  (Is_Unconstrained  => False,
+   --   Has_Static_Bounds => True,
+   --   Low_Static   => <zero based lower bound with any slice adjustment>,
+   --   High_Static  => <zero based upper bound with any slice
+   --                    and multi-dimension adjustment>,
+   --   Low_Dynamic  => <Irep representation of Low_Static>,
+   --   High_Dynamic => <Irep representaion of High_Static>).
+   --  If the array is constrained but does not have static bounds the
+   --  the result is
+   --  Static_And_Dynamic_Bounds'
+   --  (Is_Unconstrained  => False,
+   --   Has_Static_Bounds => False,
+   --   Low_Static   => 0,
+   --   High_Static  => 0,
+   --   Low_Dynamic  => <zero based lower bound with any slice adjustment>,
+   --   High_Dynamic => <zero based upper bound with any slice
+   --                    and multi-dimension adjustment>.
+
+   function Zero_Based_Slice_Bounds (The_Slice        : Node_Id;
+                                     Underlying_Array : Entity_Id)
+                                     return Static_And_Dynamic_Bounds
+   with Pre => (Nkind (The_Slice) = N_Slice and
+                Is_Array_Type (Underlying_Array));
+   --  A slice is represented by its underlying array with the zero based
+   --  lower and upper bounds adjusted so that they index into just the
+   --  components defined by the slice.
+   --  A slice is always one-dimensional and is constrained and its underlying
+   --  array also must have a constraint even if it is of an unconstrained
+   --  subtype.  At some point it will have been initialized and constrained.
 
 end Arrays.Low_Level;

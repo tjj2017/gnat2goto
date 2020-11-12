@@ -1,7 +1,6 @@
 with Types;             use Types;
 with Atree;             use Atree;
 with Sinfo;             use Sinfo;
-with Einfo;             use Einfo;
 with Sem_Eval;          use Sem_Eval;
 with Ireps;             use Ireps;
 package Aggregates is
@@ -39,11 +38,16 @@ package Aggregates is
      with Pre => Nkind (N) = N_Aggregate and then
                  Is_OK_Static_Range (Aggregate_Bounds (N));
 
-   procedure Initialse_Array_From_Aggregate
-           (Block       : Irep;
-            Array_Type  : Entity_Id;
-            Agg         : Node_Id;
-            Array_Irep  : Irep)
-     with Pre => Nkind (Agg) = N_Aggregate and Is_Array_Type (Array_Type);
+   procedure Update_Array_From_Aggregate
+           (Block                : Irep;
+            Agg                  : Node_Id;
+            N_Dimensions         : Pos;
+            Zero_Based_Low       : Nat;
+            Zero_Based_High      : Nat;
+            Array_Irep           : Irep;
+            Zero_Based_Low_Irep  : Irep;
+            Zero_Based_High_Irep : Irep)
+     with Pre => Nkind (Agg) = N_Aggregate and
+                 Kind (Get_Type (Array_Irep)) = I_Array_Type;
 
 end Aggregates;

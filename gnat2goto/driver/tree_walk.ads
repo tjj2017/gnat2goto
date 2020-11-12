@@ -78,7 +78,12 @@ package Tree_Walk is
    function Do_Compilation_Unit (N : Node_Id) return Symbol
      with Pre => Nkind (N) = N_Compilation_Unit;
 
-   procedure Do_Plain_Object_Decalration (Block          : Irep;
+   function Do_Defining_Identifier (E : Entity_Id) return Irep
+   with Pre  => Nkind (E) = N_Defining_Identifier,
+        Post => Kind (Do_Defining_Identifier'Result) in
+           I_Symbol_Expr | I_Dereference_Expr;
+
+   procedure Do_Plain_Object_Declaration (Block          : Irep;
                                           Object_Sym     : Irep;
                                           Object_Name    : String;
                                           Object_Def     : Entity_Id;
