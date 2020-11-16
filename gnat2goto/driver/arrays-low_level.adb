@@ -6,6 +6,24 @@ with ASVAT.Size_Model;        use ASVAT.Size_Model;
 with Ada.Text_IO; use Ada.Text_IO;
 package body Arrays.Low_Level is
 
+   ---------------------------
+   -- All_Dimensions_Static --
+   ---------------------------
+
+   function All_Dimensions_Static (The_Array : Entity_Id) return Boolean is
+      Next_Dim : Node_Id := First_Index (The_Array);
+      Result : Boolean := True;
+   begin
+      while Present (Next_Dim) loop
+         if not Is_OK_Static_Range (Get_Range (Next_Dim)) then
+            Result := False;
+            exit;
+         end if;
+         Next_Dim := Next_Index (Next_Dim);
+      end loop;
+      return Result;
+   end All_Dimensions_Static;
+
    -------------------------------
    -- Assign_To_Array_Component --
    -------------------------------
@@ -727,7 +745,7 @@ package body Arrays.Low_Level is
    function Zero_Based_Bounds (The_Array : Node_Id)
                                return Static_And_Dynamic_Bounds
    is
-      Array_Is_Slice    : constant Boolean := Nkind = N_Slice;
+      Array_Is_Slice    : constant Boolean := Nkind (The_Array) = N_Slice;
       Array_Type        : constant Entity_Id :=
         (if Array_Is_Slice then
               Get_Constrained_Subtype (Etype (Prefix (The_Array)))

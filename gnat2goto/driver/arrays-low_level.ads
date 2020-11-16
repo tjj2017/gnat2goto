@@ -40,6 +40,9 @@ package Arrays.Low_Level is
          Source_Location => Internal_Source_Location,
          I_Type          => Index_T));
 
+   function All_Dimensions_Static (The_Array : Entity_Id) return Boolean
+     with Pre => Is_Array_Type (The_Array);
+
    procedure Assign_To_Array_Component (Block      : Irep;
                                         The_Array  : Irep;
                                         Zero_Index : Irep;
@@ -153,11 +156,11 @@ package Arrays.Low_Level is
    --  Calculate a zero offset index from an Ada index represented as an Irep
    --  and the lower bound given as an Int constant.
 
-   function Multi_Dimension_Flat_Length (Array_Type : Entity_Id)
+   function Multi_Dimension_Flat_Bounds (Array_Type : Entity_Id)
                                          return Static_And_Dynamic_Bounds
      with Pre => Is_Array_Type (Array_Type);
    --  In goto Ada multidimensional arrays are flattenned into one dimensional
-   --  arrays. This function calculates the length of a flattened
+   --  arrays. This function calculates the zero based bounds of a flattened
    --  multi-dimentional array
 
    function Zero_Based_Bounds (The_Array : Node_Id)
