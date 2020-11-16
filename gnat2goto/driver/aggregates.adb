@@ -4,7 +4,6 @@ with Einfo;               use Einfo;
 with GOTO_Utils;          use GOTO_Utils;
 with Tree_Walk;           use Tree_Walk;
 with Follow;              use Follow;
-with Arrays.Low_Level;    use Arrays.Low_Level;
 with ASVAT.Size_Model;    use ASVAT.Size_Model;
 with Ada.Text_IO; use Ada.Text_IO;
 with Treepr;            use Treepr;
@@ -502,14 +501,11 @@ package body Aggregates is
    end Array_Static_Positional;
 
    procedure Update_Array_From_Aggregate
-           (Block                : Irep;
-            Agg                  : Node_Id;
-            N_Dimensions         : Pos;
-            Zero_Based_Low       : Nat;
-            Zero_Based_High      : Nat;
-            Array_Irep           : Irep;
-            Zero_Based_Low_Irep  : Irep;
-            Zero_Based_High_Irep : Irep)
+           (Block        : Irep;
+            Agg          : Node_Id;
+            N_Dimensions : Pos;
+            Dest_Bounds  : Static_And_Dynamic_Bounds;
+            Dest_Array   : Irep)
    is
       Positional_Assoc : constant Boolean := Present (Expressions (Agg));
       Aggregate_Subtype : constant Entity_Id := Etype (Agg);
@@ -535,9 +531,8 @@ package body Aggregates is
             "Update_Array_From_Aggregate",
             "Aggregates with non-scalar components are unsupported");
 
-      elsif Zero_Based_Low_Irep = Ireps.Empty and
-        Zero_Based_High_Irep = Ireps.Empty and
-        Is_OK_Static_Range (Aggregate_Bounds (Agg))
+      elsif Dest_Bounds.Has_Static_Bounds and
+        All_Dimensions_Static (Aggregate_Subtype)
       then
          --  The target array and
          --  The aggregate have static bounds.
@@ -545,20 +540,20 @@ package body Aggregates is
             Put_Line ("Positional static");
             Array_Static_Positional
               (Block      => Block,
-               Low_Bound  => Zero_Based_Low,
-               High_Bound => Zero_Based_High,
+               Low_Bound  => Dest_Bounds.Low_Static,
+               High_Bound => Dest_Bounds.High_Static,
                N          => Agg,
-               Target     => Array_Irep,
+               Target     => Dest_Array,
                Comp_Type  => Component_Irep);
          elsif Present (Component_Associations (Agg)) then
             Put_Line ("Named static");
             --  Named associations.
             Array_Static_Named_Assoc
               (Block      => Block,
-               Low_Bound  => Zero_Based_Low,
-               High_Bound => Zero_Based_High,
+               Low_Bound  => Dest_Bounds.Low_Static,
+               High_Bound => Dest_Bounds.High_Static,
                N          => Agg,
-               Target     => Array_Irep,
+               Target     => Dest_Array,
                Comp_Type  => Component_Irep);
          else
             Report_Unhandled_Node_Empty
@@ -572,20 +567,20 @@ package body Aggregates is
             Put_Line ("Positional dynamic");
             Array_Dynamic_Positional
               (Block      => Block,
-               Low_Bound  => Zero_Based_Low_Irep,
-               High_Bound => Zero_Based_High_Irep,
+               Low_Bound  => Dest_Bounds.Low_Dynamic,
+               High_Bound => Dest_Bounds.High_Dynamic,
                N          => Agg,
-               Target     => Array_Irep,
+               Target     => Dest_Array,
                Comp_Type  => Component_Irep);
          else
             Put_Line ("Named dynamic");
             Array_Dynamic_Named_Assoc
               (Block      => Block,
-               Low_Bound  => Zero_Based_Low_Irep,
-                  High_Bound => Zero_Based_High_Irep,
-                  N          => Agg,
-                  Target     => Array_Irep,
-                  Comp_Type  => Component_Irep);
+               Low_Bound  => Dest_Bounds.Low_Dynamic,
+               High_Bound => Dest_Bounds.High_Dynamic,
+               N          => Agg,
+               Target     => Dest_Array,
+               Comp_Type  => Component_Irep);
          end if;
       end if;
    end Update_Array_From_Aggregate;

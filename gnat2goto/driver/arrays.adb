@@ -52,18 +52,12 @@ package body Arrays is
                                        Block      : Irep)
    with Pre => Is_Array_Type (Array_Type);
 
-   procedure Array_Assignment_Op (Source_Expr          : Node_Id;
-                                  Dec_Node             : Node_Id;
-                                  Target_Array         : Irep;
-                                  N_Dimensions         : Pos;
-                                  Zero_Based_Low       : Nat;
-                                  Zero_Based_High      : Nat;
-                                  Zero_Based_Low_Irep  : Irep;
-                                  Zero_Based_High_Irep : Irep;
-                                  Block                : Irep)
-
+   procedure Array_Assignment_Op (Source_Expr  : Node_Id;
+                                  Dest_Node    : Node_Id;
+                                  Dest_Bounds  : Static_And_Dynamic_Bounds;
+                                  Target_Array : Irep;
+                                  Block        : Irep)
    with Pre => Is_Array_Type (Etype (Source_Expr)) and
-               Is_Array_Type (Array_Type) and
                Kind (Get_Type (Target_Array)) = I_Array_Type;
 
    procedure Declare_First_Last_From_Bounds (Prefix     : String;
@@ -142,26 +136,20 @@ package body Arrays is
                                               Component_Type : Entity_Id)
                                               return Irep;
    procedure Update_Array_From_Concatenation
-           (Block                : Irep;
-            Concat               : Node_Id;
-            Array_Irep           : Irep;
-            Zero_Based_Low       : Nat;
-            Zero_Based_High      : Nat;
-            Zero_Based_Low_Irep  : Irep;
-            Zero_Based_High_Irep : Irep)
+           (Block        : Irep;
+            Concat      : Node_Id;
+            Dest_Bounds : Static_And_Dynamic_Bounds;
+            Dest_Array  : Irep)
      with Pre => Nkind (Concat) = N_Slice and
-                 Kind (Get_Type (Array_Irep)) = I_Array_Type;
+                 Kind (Get_Type (Dest_Array)) = I_Array_Type;
 
    procedure Update_Array_From_Slice
-           (Block                : Irep;
-            Slice                : Node_Id;
-            Array_Irep           : Irep;
-            Zero_Based_Low       : Nat;
-            Zero_Based_High      : Nat;
-            Zero_Based_Low_Irep  : Irep;
-            Zero_Based_High_Irep : Irep)
+           (Block       : Irep;
+            Slice       : Node_Id;
+            Dest_Array  : Irep;
+            Dest_Bounds : Static_And_Dynamic_Bounds)
      with Pre => Nkind (Slice) = N_Slice and
-                 Kind (Get_Type (Array_Irep)) = I_Array_Type;
+                 Kind (Get_Type (Dest_Array)) = I_Array_Type;
 
 --     procedure Array_Assignment_Op (Source_Node : Node_Id;
 --                                    Target_Node : Node_Id;
@@ -239,82 +227,55 @@ package body Arrays is
 --           Simple_Array_Assignment;
 --        elsif Is_
 
-   procedure Array_Assignment_Op (Source_Expr          : Node_Id;
-                                  Dec_Node             : Node_Id;
-                                  Target_Array         : Irep;
-                                  N_Dimensions         : Pos;
-                                  Zero_Based_Low       : Nat;
-                                  Zero_Based_High      : Nat;
-                                  Zero_Based_Low_Irep  : Irep;
-                                  Zero_Based_High_Irep : Irep;
-                                  Block                : Irep)
+   procedure Array_Assignment_Op (Source_Expr  : Node_Id;
+                                  Dest_Node    : Node_Id;
+                                  Dest_Bounds  : Static_And_Dynamic_Bounds;
+                                  Target_Array : Irep;
+                                  Block        : Irep)
    is
       Source_Location : constant Irep := Get_Source_Location (Source_Expr);
-      RHS_Node_Kind   : constant Node_Kind := Nkind (Source_Expr);
+      Dest_Is_Slice   : constant Boolean := Nkind (Dest_Node) = N_Slice;
+      Dest_Type       : constant Entity_Id := Etype (Dest_Node);
 
-      Source_Type     : constant Entity_Id := Etype (Source_Expr);
-      pragma Assert (not Target_Is_Slice or else
+      RHS_Node_Kind   : constant Node_Kind := Nkind (Source_Expr);
+      Source_Type     : constant Entity_Id :=
+        Get_Constrained_Subtype (Source_Expr);
+      pragma Assert (not Dest_Is_Slice or else
                      Is_Constrained (Get_Constrained_Subtype
                          (Etype (Prefix (Source_Expr)))));
       Underlying_Dest_Type : constant Entity_Id :=
-        (if Target_Is_Slice the
+        (if Dest_Is_Slice then
          --  Obtain the underlying type upon which the slice is defined.
          --  Ada rules dictate the underling array must have been constrained.
-           Get_Constrained_Subtype (Etype (Prefix (Source_Expr)))
+           Get_Constrained_Subtype (Etype (Prefix (Dest_Node)))
          else
-            Get_Constrained_Subtype (Target_Type));
+            Get_Constrained_Subtype (Dest_Type));
 
-      Dest_Bounds_Static : constant Boolean :=
-        Is_Constrained (Underlying_Dest_Type) and then
-        All_Dimensions_Static (Underlying_Dest_Type);
-
-      Dest_Low_Static : constant Nat :=
-        (if Dest_Bounds_Static then
-            if Target_Is_Slice then
-
-           not Is_Constrained (Underling_Dest_Type)
-         then
-            --  Set to an used value of 0 if
-            0  --  All goto arrays are indexed from zero.
-
-
+      N_Dimensions : constant Pos := Number_Dimensions (Underlying_Dest_Type);
    begin
       if RHS_Node_Kind = N_Aggregate then
-         declare
-
-
          Update_Array_From_Aggregate
-           (Block                => Block,
-            Agg                  => Source_Expr,
-            N_Dimensions         => N_Dimensions,
-            Zero_Based_Low       => Zero_Based_Low,
-            Zero_Based_High      => Zero_Based_High,
-            Array_Irep           => Target_Array,
-            Zero_Based_Low_Irep  => Zero_Based_Low_Irep,
-            Zero_Based_High_Irep => Zero_Based_High_Irep);
+           (Block        => Block,
+            Agg          => Source_Expr,
+            N_Dimensions => N_Dimensions,
+            Dest_Bounds  => Dest_Bounds,
+            Dest_Array   => Target_Array);
       elsif RHS_Node_Kind = N_Slice then
          Put_Line ("RHS is a slice");
          Print_Node_Briefly (Source_Expr);
          Update_Array_From_Slice
-           (Block                => Block,
-            Slice                => Source_Expr,
-            Array_Irep           => Target_Array,
-            Zero_Based_Low       => Zero_Based_Low,
-            Zero_Based_High      => Zero_Based_High,
-            Zero_Based_Low_Irep  => Zero_Based_Low_Irep,
-            Zero_Based_High_Irep => Zero_Based_High_Irep);
+           (Block       => Block,
+            Slice       => Source_Expr,
+            Dest_Array  => Target_Array,
+            Dest_Bounds => Dest_Bounds);
       elsif RHS_Node_Kind = N_Op_Concat then
          Put_Line ("Op Concat");
          Print_Node_Subtree (Source_Expr);
          Update_Array_From_Concatenation
-           (Block                => Block,
-            Concat               => Source_Expr,
-            Array_Irep           => Target_Array,
-            Zero_Based_Low       => Zero_Based_Low,
-            Zero_Based_High      => Zero_Based_High,
-            Zero_Based_Low_Irep  => Zero_Based_Low_Irep,
-            Zero_Based_High_Irep => Zero_Based_High_Irep);
-
+           (Block       => Block,
+            Concat      => Source_Expr,
+            Dest_Array  => Target_Array,
+            Dest_Bounds => Dest_Bounds);
       elsif RHS_Node_Kind = N_Function_Call then
          declare
             Func_Result_Type : constant Entity_Id := Etype (Source_Expr);
@@ -324,180 +285,60 @@ package body Arrays is
             Print_Irep (Do_Expression (Source_Expr));
             Print_Node_Subtree (First_Index (Func_Result_Type));
             if not Is_Constrained (Func_Result_Type) then
-               Put_Line ("Unconstrained array result");
+               Report_Unhandled_Node_Empty
+                 (N        => Source_Expr,
+                  Fun_Name => "Array_Assignment_Op",
+                  Message  => "A function call returning an unconstrained "
+                  & "array type is unsupported");
             elsif not All_Dimensions_Static (Func_Result_Type) then
-               Put_Line ("Non static array result");
-            end if;
-
-            if All_Dimensions_Static (Func_Result_Type) then
-               declare
-                  Bounds : constant Node_Id :=
-                    Get_Range (First_Index (Func_Result_Type));
-                  First  : constant Int := UI_To_Int
-                    (Expr_Value (Low_Bound (Bounds)));
-                  Last   : constant Int := UI_To_Int
-                    (Expr_Value (High_Bound (Bounds)));
-                  Source : constant Irep := Do_Expression (Source_Expr);
-               begin
-                  Copy_Array_Static
-                    (Block       => Block,
-                     Source_Type => Func_Result_Type,
-                     Dest_Low    => Zero_Based_Low,
-                     Dest_High   => Zero_Based_High,
-                     Source_Low  => 0,
-                     Source_High => UI_To_Int (Last - First),
-                     Dest_Irep   => Target_Array,
-                     Source_Irep => Source);
-               end;
-            else
-               if
-               declare
-                  Source_Type : constant Entity_Id := Etype (Source_Expr);
-                  Bounds : constant Dimension_Bounds :=
-                    Get_Bounds (First_Index (Source_Type));
-                  Zero_Based_High : constant Irep :=
-                    Typecast_If_Necessary
-                      (Expr           =>
-                         Make_Op_Sub
-                           (Rhs             => Dest_Bounds.Low,
-                            Lhs             => Dest_Bounds.High,
-                            Source_Location => Internal_Source_Location,
-                            Overflow_Check  => False,
-                            I_Type          => Get_Type (Dest_Bounds.Low),
-                            Range_Check     => False),
-                       New_Type       => Index_T,
-                       A_Symbol_Table => Global_Symbol_Table);
-                  Source : constant Irep := Do_Expression (Source_Expr);
-               begin
-                  Put_Line ("Function call to dynamic");
-                  Copy_Array_Dynamic
-                    (Block       => Block,
-                     Source_Type => ,
-                     Dest_Low    => ,
-                     Dest_High   => ,
-                     Source_Low  => ,
-                     Source_High => ,
-                     Dest_Irep   => ,
-                     Source_Irep => )
-                    (Block            => Block,
-                     Destination_Type => Array_Type,
-                     Source_Type      => Etype (Init_Expr),
-                     Zero_Based_High  => Zero_Based_High,
-                     Dest_Irep        => Target_Array,
-                     Source_Irep      => Source);
-               end;
+               Report_Unhandled_Node_Empty
+                 (N        => Source_Expr,
+                  Fun_Name => "Array_Assignment_Op",
+                  Message  => "A function call returning an array with "
+                  & "non-static bounds is unsupported");
             end if;
          end;
-         null;
+      elsif Dest_Bounds.Has_Static_Bounds then
+         if All_Dimensions_Static (Source_Type) then
+            --  Both source and destination have static bounds.
+            --   A simple assignment should work.
+            declare
+               Assignment : constant Irep :=
+                 Make_Code_Assign
+                   (Rhs             => Do_Expression (Source_Expr),
+                    Lhs             => Target_Array,
+                    Source_Location => Source_Location,
+                    I_Type          => Get_Type (Target_Array),
+                    Range_Check     => False);
+            begin
+               Put_Line ("Static_Assignment");
+               Append_Op (Block, Assignment);
+            end;
+         else
+            --  Components have to be copied one at a time
+            declare
+               Source_Bounds : Static_And_Dynamic_Bounds :=
+                 Multi_Dimension_Flat_Bounds (Source_Type);
+            begin
+               Check_Equal_Array_Lengths (Block, Source_Bounds, Dest_Bounds);
+               Put_Line ("Dynamic assignment");
+               Copy_Array_Dynamic
+                 (Block       => Block,
+                  Source_Type => Source_Type,
+                  Dest_Low    => Dest_Bounds.Low_Dynamic,
+                  Dest_High   => Dest_Bounds.High_Dynamic,
+                  Source_Low  => Source_Bounds.Low_Dynamic,
+                  Source_High => Source_Bounds.High_Dynamic,
+                  Dest_Irep   => Target_Array,
+                  Source_Irep => Do_Expression (Source_Expr));
+            end;
+         end if;
       else
-         --  The rhs is an array object or a function call returning an array
-         declare
-            Dest_Bounds_Static : constant Boolean :=
-              All_Dimensions_Static (Array_Type);
-            Source_Bounds_Static : constant Boolean :=
-              All_Dimensions_Static (Etype (Source_Expr));
-            Source : constant Irep := Do_Expression (Source_Expr);
-         begin
-            if Dest_Bounds_Static and Source_Bounds_Static then
-               --  Both the destination and source arrays have static
-               --  bounds.  The front-end should check the arrays are the same
-               --  length.
-               --  A simple assignment can be used.
-               Put_Line (Node_Kind'Image (RHS_Node_Kind));
-               Put_Line ("<<<<<<<<< Simple assgnment");
-               Print_Node_Briefly (Array_Type);
-               Print_Node_Briefly (Source_Expr);
-               Append_Op (Block,
-                          Make_Code_Assign
-                            (Rhs             =>
-                               Typecast_If_Necessary
-                                 (Expr           => Source,
-                                  New_Type       => Get_Type (Target_Array),
-                                  A_Symbol_Table => Global_Symbol_Table),
-                             Lhs             => Target_Array,
-                             Source_Location => Source_Location,
-                             I_Type          => Get_Type (Target_Array),
-                             Range_Check     => False));
-            else
-               --  At least one of the arrays has non-static bounds.
-               --  cbmc goto does not seem to support entire array assignment
-               --  if at least one of the arrays has non-static bounds.
-               --  The array elements have to be copied one element at a time.
-               Put_Line ("++++++++= One at a time ?");
-               if Dest_Bounds_Static or Source_Bounds_Static then
-                  Put_Line ((if Dest_Bounds_Static then "LHS" else
-                               "RHS") & " is static array");
-                  --  The bounds of one of the arrays is static.
-                  --  The length of the arrays should be the same.
-                  --  TODO - this is a run time check and a ASVAT
-                  --  check should be generated here.
-                  --
-                  --  Since the arrays should be the same length
-                  --  the bounds of the array with the static bounds is
-                  --  used to determine the length of the arrays and
-                  --  a call to Copy_Array_Static can be used to translate the
-                  --  array assignment innto a sequence of assignment
-                  --  statements, one for each element of the arrays,
-                  --  in the goto program (not a loop in the goto translation).
-                  declare
-                     Array_To_Use : constant Entity_Id :=
-                       (if Dest_Bounds_Static then
-                           Array_Type
-                        else
-                           Etype (Init_Expr));
-
-                     Bounds : constant Node_Id :=
-                       Get_Range (First_Index (Array_To_Use));
-                     First  : constant Int := UI_To_Int
-                       (Expr_Value (Low_Bound (Bounds)));
-                     Last   : constant Int := UI_To_Int
-                       (Expr_Value (High_Bound (Bounds)));
-
-                  begin
-                     Copy_Array_Static
-                       (Block            => Block,
-                        Destination_Type => Array_Type,
-                        Source_Type      => Etype (Source_Expr),
-                        Zero_Based_High  => Last - First,
-                        Dest_Irep        => Target_Array,
-                        Source_Irep      => Source);
-                  end;
-               else
-                  --  Neither array has static bounds.
-                  --  A call to Copy_Array_Dynamic has to be used which will
-                  --  translate the array assignment into a loop in the
-                  --  goto program which assigns each element of the array
-                  --  individually.
-                  --  The arrays must be the same length.
-                  --  TODO - This is a run-time check and an ASVAT check
-                  --  should be inserted here.
-                  declare
-                     Dest_Bounds : constant Dimension_Bounds :=
-                       Get_Bounds (First_Index (Array_Type));
-                     Zero_Based_High : constant Irep :=
-                       Typecast_If_Necessary
-                         (Expr           =>
-                            Make_Op_Sub
-                              (Rhs             => Dest_Bounds.Low,
-                               Lhs             => Dest_Bounds.High,
-                               Source_Location => Internal_Source_Location,
-                               Overflow_Check  => False,
-                               I_Type          => Get_Type (Dest_Bounds.Low),
-                               Range_Check     => False),
-                          New_Type       => Index_T,
-                          A_Symbol_Table => Global_Symbol_Table);
-                  begin
-                     Copy_Array_Dynamic
-                       (Block            => Block,
-                        Destination_Type => Array_Type,
-                        Source_Type      => Etype (Source_Expr),
-                        Zero_Based_High  => Zero_Based_High,
-                        Dest_Irep        => Target_Array,
-                        Source_Irep      => Source);
-                  end;
-               end if;
-            end if;
-         end;
+         Report_Unhandled_Node_Empty
+           (N        => Dest_Node,
+            Fun_Name => "Array_Assignment_Op",
+            Message  => "Assignment to an unconstrained array object is " &
+              "Unsupported");
       end if;
    end Array_Assignment_Op;
 
@@ -567,7 +408,7 @@ package body Arrays is
                                           Init_Expr   : Node_Id)
    is
       Source_Loc     : constant Irep := Get_Source_Location (Dec_Node);
-      Target_Def     : constant Entity_Id := Do_Defining_Identifier (Dec_Node);
+      Target_Def     : constant Entity_Id := Defining_Identifier (Dec_Node);
       Array_Id       : constant Symbol_Id := Intern (Array_Name);
       Init_Expr_Irep : constant Irep :=
         (if Present (Init_Expr) then
@@ -623,19 +464,8 @@ package body Arrays is
    -- All_Dimensions_Static --
    ---------------------------
 
-   function All_Dimensions_Static (The_Array : Entity_Id) return Boolean is
-      Next_Dim : Node_Id := First_Index (The_Array);
-      Result : Boolean := True;
-   begin
-      while Present (Next_Dim) loop
-         if not Is_OK_Static_Range (Get_Range (Next_Dim)) then
-            Result := False;
-            exit;
-         end if;
-         Next_Dim := Next_Index (Next_Dim);
-      end loop;
-      return Result;
-   end All_Dimensions_Static;
+   function All_Dimensions_Static (The_Array : Entity_Id) return Boolean
+     renames Arrays.Low_Level.All_Dimensions_Static;
 
    ------------------------
    -- Add_Array_Friends --
@@ -2981,26 +2811,20 @@ package body Arrays is
    end Pass_Array_Friends;
 
    procedure Update_Array_From_Concatenation
-           (Block                : Irep;
-            Concat               : Node_Id;
-            Array_Irep           : Irep;
-            Zero_Based_Low       : Nat;
-            Zero_Based_High      : Nat;
-            Zero_Based_Low_Irep  : Irep;
-            Zero_Based_High_Irep : Irep)
+           (Block       : Irep;
+            Concat      : Node_Id;
+            Dest_Array  : Irep;
+            Dest_Bounds : Static_And_Dynamic_Bounds)
    is
    begin
       null;
    end Update_Array_From_Concatenation;
 
    procedure Update_Array_From_Slice
-           (Block                : Irep;
-            Slice                : Node_Id;
-            Array_Irep           : Irep;
-            Zero_Based_Low       : Nat;
-            Zero_Based_High      : Nat;
-            Zero_Based_Low_Irep  : Irep;
-            Zero_Based_High_Irep : Irep)
+           (Block       : Irep;
+            Slice       : Node_Id;
+            Dest_Array  : Irep;
+            Dest_Bounds : Static_And_Dynamic_Bounds)
    is
       --  Determine the type of the array from which the slice is taken.
       Underlying_Array_Type : constant Entity_Id :=
@@ -3017,11 +2841,7 @@ package body Arrays is
       Underlying_Array : constant Irep :=
         Do_Expression (Source_Expr);
    begin
-      if (Zero_Based_Low_Irep = Ireps.Empty and
-            Zero_Based_High_Irep = Ireps.Empty) and then
-        (Is_OK_Static_Range (Underlying_Range) and
-             Is_OK_Static_Range (Slice_Range))
-      then
+      if Bounds.Has_Static_Bounds and Is_OK_Static_Range (Slice_Range) then
          --  The target and source arrays, and the slice have static bounds.
          Put_Line ("Destination Underlying and Slice have static range");
          declare
@@ -3033,53 +2853,38 @@ package body Arrays is
               UI_To_Int (Expr_Value (High_Bound (Slice_Range)));
             Source_Low  : constant Int := Slice_Low - Underlying_Low;
             Source_High : constant Int := Slice_High - Underlying_Low;
-
          begin
             --  As all the bounds are static, but the front-end does
             --  not check the slice and destination are the same length.
             --  TODO - ASVAT check to be inserted here.
+            --
             --  A call to Copy_Array_With_Offset can be used.
-            Put_Line ("Dest_Low = " & Int'Image (Zero_Based_Low));
-                  Put_Line ("Dest_High = " & Int'Image (Zero_Based_High));
-                  Put_Line ("Src_Low = " & Int'Image (Source_Low));
-                  Put_Line ("Src_High = " & Int'Image (Source_High));
-                  Put_Line ("Dest_Len = " &
-                              Int'Image (Dest_High - Dest_Low + 1));
-                  Put_Line ("Src_Len = " &
-                              Int'Image (Source_High - Source_Low + 1));
-                  Print_Irep (Target_Array);
-                  Print_Irep (Underlying_Array);
+            Put_Line ("Dest_Low = " & Int'Image (Dest_Bounds.Low_Static));
+            Put_Line ("Dest_High = "
+                      & Int'Image (Dest_Bounds.High_Static));
+            Put_Line ("Src_Low = " & Int'Image (Source_Low));
+            Put_Line ("Src_High = " & Int'Image (Source_High));
+            Put_Line ("Dest_Len = " &
+                        Int'Image (Dest_Bounds.Low_Static -
+                          Dest_Bounds.High_Static + 1));
+            Put_Line ("Src_Len = " &
+                        Int'Image (Source_High - Source_Low + 1));
+            Print_Irep (Dest_Array);
+            Print_Irep (Underlying_Array);
             Copy_Array_Static
               (Block       => Block,
                Source_Type => Underlying_Array_Type,
-               Dest_Low    => Zero_Based_Low,
-               Dest_High   => Zero_Based_High,
+               Dest_Low    => Dest_Bounds.Low_Static,
+               Dest_High   => Dest_Bounds.High_Static,
                Source_Low  => Source_Low,
                Source_High => Source_High,
-               Dest_Irep   => Target_Array,
+               Dest_Irep   => Dest_Array,
                Source_Irep => Underlying_Array);
          end;
       else
          --  Need to copy dynamically using
          --  Copy_Array_Dynamic.
          declare
-            Dest_Zero_Low  : constant Irep :=
-              (if Zero_Based_Low_Irep = Ireps.Empty then
-                  Integer_Constant_To_Expr
-                 (Value           => Zero_Based_Low,
-                  Expr_Type       => Index_T,
-                  Source_Location => Source_Location)
-               else
-                  Zero_Based_Low_Irep);
-            Dest_Zero_High : constant Irep :=
-              (if Zero_Based_High_Irep = Ireps.Empty then
-                  Integer_Constant_To_Expr
-                 (Value           => Zero_Based_High,
-                  Expr_Type       => Index_T,
-                  Source_Location => Source_Location)
-               else
-                  Zero_Based_High_Irep);
-
             Underlying_Bounds : constant Dimension_Bounds :=
               Get_Bounds (Underlying_Range);
             Slice_Bounds : constant Dimension_Bounds :=
@@ -3099,11 +2904,11 @@ package body Arrays is
             Copy_Array_Dynamic
               (Block       => Block,
                Source_Type => Underlying_Array_Type,
-               Dest_Low    => Dest_Zero_Low,
-               Dest_High   => Dest_Zero_High,
+               Dest_Low    => Dest_Bounds.Low_Dynamic,
+               Dest_High   => Dest_Bounds.High_Dynamic,
                Source_Low  => Source_First,
                Source_High => Source_Last,
-               Dest_Irep   => Target_Array,
+               Dest_Irep   => Dest_Array,
                Source_Irep => Underlying_Array);
          end;
       end if;
