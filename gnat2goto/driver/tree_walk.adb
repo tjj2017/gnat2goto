@@ -5429,10 +5429,8 @@ package body Tree_Walk is
       New_Type       : constant Irep :=
         (if Is_Array_Type (Subtype_Entity) then
               Do_Array_Subtype
-           (Subtype_Node   => N,
-            Parent_Type    => Etype (Subtype_Entity),
-            Is_Constrained => Is_Constrained (Subtype_Entity),
-            First_Index    => First_Index (Subtype_Entity),
+           (Subtype_Node => N,
+            The_Entity   => Subtype_Entity,
             Block          => Block)
          else
             Do_Subtype_Indication (Subtype_Indication (N)));
