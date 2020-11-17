@@ -105,32 +105,20 @@ package Arrays.Low_Level is
      with Pre => Nkind (Given_Index) in N_Subexpr;
    --  Calculates the zero offset from an Index represented by an Atree node.
 
-   procedure Copy_Array_Dynamic
-     (Block            : Irep;
-      Source_Type      : Entity_Id;
-      Dest_Low         : Irep;
-      Dest_High        : Irep;
-      Source_Low       : Irep;
-      Source_High      : Irep;
-      Dest_Irep        : Irep;
-      Source_Irep      : Irep)
+   procedure Check_Equal_Array_Lengths
+     (Block         : Irep;
+      Source_Bounds : Static_And_Dynamic_Bounds;
+      Dest_Bounds   : Static_And_Dynamic_Bounds);
+
+   procedure Copy_Array (Block          : Irep;
+                         Source_Type    : Entity_Id;
+                         Dest_Bounds    : Static_And_Dynamic_Bounds;
+                         Source_Bounds  : Static_And_Dynamic_Bounds;
+                         Dest_Irep      : Irep;
+                         Source_Irep    : Irep)
      with Pre => Is_Array_Type (Source_Type) and
                  Kind (Get_Type (Dest_Irep))   = I_Array_Type and
                  Kind (Get_Type (Source_Irep)) = I_Array_Type;
-
-   procedure Copy_Array_Static
-     (Block            : Irep;
-      Source_Type      : Entity_Id;
-      Dest_Low         : Int;
-      Dest_High        : Int;
-      Source_Low       : Int;
-      Source_High      : Int;
-      Dest_Irep        : Irep;
-      Source_Irep      : Irep)
-     with Pre => Is_Array_Type (Source_Type) and
-                 Kind (Get_Type (Dest_Irep))   = I_Array_Type and
-                 Kind (Get_Type (Source_Irep)) = I_Array_Type and
-                 Dest_High - Dest_Low + 1 = Source_High - Source_Low + 1;
 
    function Get_Bounds (Index : Node_Id) return Dimension_Bounds;
    --  If the array is constrained, returns the lower and upper bounds of

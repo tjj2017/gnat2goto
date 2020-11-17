@@ -134,11 +134,9 @@ package body Gnat2goto_Itypes is
       Put_Line ("Do_Itype_Array_Subtype");
       return
         Do_Array_Subtype
-           (Subtype_Node   => N,
-            Parent_Type    => Etype (N),
-            Is_Constrained => Is_Constrained (N),
-            First_Index    => First_Index (N),
-            Block          => Block);
+          (Subtype_Node => N,
+           The_Entity   => N,
+           Block        => Block);
    end Do_Itype_Array_Subtype;
 
    -------------------------------------

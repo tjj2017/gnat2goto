@@ -62,12 +62,10 @@ package Arrays is
    --  have to be determined directly from the initialization expression
    --  and are use to define a goto array object of the correct length.
 
-   function Do_Array_Subtype (Subtype_Node   : Node_Id;
-                              Parent_Type    : Entity_Id;
-                              Is_Constrained : Boolean;
-                              First_Index    : Node_Id;
-                              Block : Irep) return Irep
-     with Pre => Is_Array_Type (Parent_Type),
+   function Do_Array_Subtype (Subtype_Node : Node_Id;
+                              The_Entity   : Entity_Id;
+                              Block        : Irep) return Irep
+     with Pre => Is_Array_Type (The_Entity),
      Post => Kind (Do_Array_Subtype'Result) = I_Array_Type;
    --  Create an array subtype.  If the array subtype is constrained
    --  but the constraint is not static a new variable is declared
