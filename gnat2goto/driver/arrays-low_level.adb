@@ -3,6 +3,7 @@ with Sem_Eval;                use Sem_Eval;
 with Follow;                  use Follow;
 with Tree_Walk;               use Tree_Walk;
 with ASVAT.Size_Model;        use ASVAT.Size_Model;
+with Treepr;                  use Treepr;
 with Ada.Text_IO; use Ada.Text_IO;
 package body Arrays.Low_Level is
 
@@ -504,6 +505,7 @@ package body Arrays.Low_Level is
         and then
           Dest_Bounds.High_Static - Dest_Bounds.Low_Static + 1 <= Static_Limit
       then
+         Put_Line ("About to copy static");
          Copy_Array_Static
            (Block       => Block,
             Source_Type => Source_Type,
@@ -514,6 +516,8 @@ package body Arrays.Low_Level is
             Dest_Irep   => Dest_Irep,
             Source_Irep => Source_Irep);
       else
+         Put_Line ("About to copy dynamic");
+         Print_Irep (Dest_Irep);
          Copy_Array_Dynamic
            (Block       => Block,
             Source_Type => Source_Type,
@@ -555,7 +559,7 @@ package body Arrays.Low_Level is
          else
             Component_Pre_Src);
 
-      Component_Dest : constant Irep := Get_Subtype (Dest_Irep);
+      Component_Dest : constant Irep := Get_Subtype (Get_Type (Dest_Irep));
 
       Loop_Var : constant Irep :=
         Fresh_Var_Symbol_Expr (Index_T, "loop_var");
@@ -719,6 +723,10 @@ package body Arrays.Low_Level is
                pragma Assert (Has_Init_Expression (Dec_Node));
                return Get_Constrained_Subtype (Expression (Dec_Node));
             end;
+         when N_Op_Concat =>
+            --  There will not be a constrained subtype.
+            --  return the unconstrained subtype.
+            return E_Type_N;
          when N_Function_Call =>
             Report_Unhandled_Node_Empty
               (N        => N,
@@ -840,101 +848,121 @@ package body Arrays.Low_Level is
       Static_Array_Size : Uint := Uint_0;
 
    begin
-      if Is_OK_Static_Range (Dimension_Range) then
-         Put_Line ("Ok static range");
-         Static_Array_Size := Calculate_Static_Dimension_Length
-           (Dimension_Range);
-         Put_Line ("The first dimension size is " &
-                     Int'Image (UI_To_Int (Static_Array_Size)));
-      else
-         Put_Line ("Variable bounds");
-         Var_Dim_Bounds := Calculate_Dimension_Length
-           (Get_Bounds (Dimension_Iter));
-      end if;
-
-      Put_Line ("Now for multi-dimensional");
-      --  Multidimensional arrays are converted into a a single
-      --  dimension of an appropriate length.
-      --  This needs to be considered when indexing into, or
-      --  assigning aggregates to a multidimensional array.
-      Dimension_Iter := Next (Dimension_Iter);
-      while Present (Dimension_Iter) loop
-         Dimension_Number := Dimension_Number + 1;
-         Dimension_Range := Get_Range (Dimension_Iter);
+      Put_Line ("Is constrained "
+                & Boolean'Image (Is_Constrained (Array_Type)));
+      if Is_Constrained (Array_Type) then
          if Is_OK_Static_Range (Dimension_Range) then
-            Static_Array_Size := Static_Array_Size *
-              Calculate_Static_Dimension_Length (Dimension_Range);
+            Put_Line ("Ok static range");
+            Static_Array_Size := Calculate_Static_Dimension_Length
+              (Dimension_Range);
+            Put_Line ("The first dimension size is " &
+                        Int'Image (UI_To_Int (Static_Array_Size)));
          else
-            if Var_Dim_Bounds = Ireps.Empty then
-               Var_Dim_Bounds := Calculate_Dimension_Length
-                 (Get_Bounds (Dimension_Iter));
+            Put_Line ("Variable bounds");
+            Var_Dim_Bounds := Calculate_Dimension_Length
+              (Get_Bounds (Dimension_Iter));
+         end if;
+
+         Put_Line ("Now for multi-dimensional");
+         --  Multidimensional arrays are converted into a a single
+         --  dimension of an appropriate length.
+         --  This needs to be considered when indexing into, or
+         --  assigning aggregates to a multidimensional array.
+         Dimension_Iter := Next (Dimension_Iter);
+         while Present (Dimension_Iter) loop
+            Dimension_Number := Dimension_Number + 1;
+            Dimension_Range := Get_Range (Dimension_Iter);
+            if Is_OK_Static_Range (Dimension_Range) then
+               Static_Array_Size := Static_Array_Size *
+                 Calculate_Static_Dimension_Length (Dimension_Range);
             else
-               Var_Dim_Bounds := Make_Op_Mul
-                 (Rhs             => Calculate_Dimension_Length
-                    (Get_Bounds (Dimension_Iter)),
+               if Var_Dim_Bounds = Ireps.Empty then
+                  Var_Dim_Bounds := Calculate_Dimension_Length
+                    (Get_Bounds (Dimension_Iter));
+               else
+                  Var_Dim_Bounds := Make_Op_Mul
+                    (Rhs             => Calculate_Dimension_Length
+                       (Get_Bounds (Dimension_Iter)),
+                     Lhs             => Var_Dim_Bounds,
+                     Source_Location => Internal_Source_Location,
+                     Overflow_Check  => False,
+                     I_Type          => Index_T,
+                     Range_Check     => False);
+               end if;
+            end if;
+            Dimension_Iter := Next (Dimension_Iter);
+         end loop;
+
+         Put_Line ("After loop");
+         if Static_Array_Size = Uint_0 then
+            Put_Line ("Static array size 0");
+         else
+            Put_Line ("Static array size " &
+                        Int'Image (UI_To_Int (Static_Array_Size)));
+         end if;
+         declare
+            Has_Static_Bounds : constant Boolean :=
+              Var_Dim_Bounds = Ireps.Empty;
+
+            Static_Size : constant Irep :=
+              (if Static_Array_Size /= Uint_0 then
+                  Integer_Constant_To_Expr
+                 (Value           => Static_Array_Size,
+                  Expr_Type       => Index_T,
+                  Source_Location => Internal_Source_Location)
+               else
+                  Ireps.Empty);
+
+            Array_Size : constant Irep :=
+              (if Var_Dim_Bounds = Ireps.Empty then
+                  Static_Size
+               elsif Static_Array_Size /= Uint_0 then
+                  Make_Op_Mul
+                 (Rhs             => Static_Size,
                   Lhs             => Var_Dim_Bounds,
                   Source_Location => Internal_Source_Location,
                   Overflow_Check  => False,
                   I_Type          => Index_T,
-                  Range_Check     => False);
-            end if;
-         end if;
-         Dimension_Iter := Next (Dimension_Iter);
-      end loop;
-
-      Put_Line ("After loop");
-      if Static_Array_Size = Uint_0 then
-         Put_Line ("Static array size 0");
+                  Range_Check     => False)
+               else
+                  Var_Dim_Bounds);
+         begin
+            --  Goto arrays are indexed from 0.
+            return Static_And_Dynamic_Bounds'
+              (Is_Unconstrained  => False,
+               Has_Static_Bounds => Has_Static_Bounds,
+               Low_Static        => 0,
+               High_Static       => (if Has_Static_Bounds then
+                                          UI_To_Int (Static_Array_Size - 1)
+                                     else
+                                        0),
+               Low_Dynamic       => Index_T_Zero,
+               High_Dynamic      =>
+                 Make_Op_Sub
+                   (Rhs             => Index_T_One,
+                    Lhs             => Array_Size,
+                    Source_Location => Internal_Source_Location,
+                    Overflow_Check  => False,
+                    I_Type          => Index_T,
+                    Range_Check     => False));
+         end;
       else
-         Put_Line ("Static array size " &
-                     Int'Image (UI_To_Int (Static_Array_Size)));
-      end if;
-      declare
-         Has_Static_Bounds : constant Boolean :=
-           Var_Dim_Bounds = Ireps.Empty;
-
-         Static_Size : constant Irep :=
-           (if Static_Array_Size /= Uint_0 then
-               Integer_Constant_To_Expr
-              (Value           => Static_Array_Size,
-               Expr_Type       => Index_T,
-               Source_Location => Internal_Source_Location)
-            else
-               Ireps.Empty);
-
-         Array_Size : constant Irep :=
-           (if Var_Dim_Bounds = Ireps.Empty then
-               Static_Size
-            elsif Static_Array_Size /= Uint_0 then
-               Make_Op_Mul
-              (Rhs             => Static_Size,
-               Lhs             => Var_Dim_Bounds,
-               Source_Location => Internal_Source_Location,
-               Overflow_Check  => False,
-               I_Type          => Index_T,
-               Range_Check     => False)
-            else
-               Var_Dim_Bounds);
-      begin
-         --  Goto arrays are indexed from 0.
-         return Static_And_Dynamic_Bounds'
-           (Is_Unconstrained  => False,
-            Has_Static_Bounds => Has_Static_Bounds,
-            Low_Static        => 0,
-            High_Static       => (if Has_Static_Bounds then
-                                       UI_To_Int (Static_Array_Size - 1)
-                                  else
-                                     0),
-            Low_Dynamic       => Index_T_Zero,
-            High_Dynamic      =>
-              Make_Op_Sub
-                (Rhs             => Index_T_One,
-                 Lhs             => Array_Size,
-                 Source_Location => Internal_Source_Location,
-                 Overflow_Check  => False,
+         declare
+            Nondet_Index : constant Irep :=
+              Make_Nondet_Expr
+                (Source_Location => Internal_Source_Location,
                  I_Type          => Index_T,
-                 Range_Check     => False));
-      end;
+                 Range_Check     => False);
+         begin
+            return Static_And_Dynamic_Bounds'
+              (Is_Unconstrained  => True,
+               Has_Static_Bounds => False,
+               Low_Static        => 0,
+               High_Static       => 0,
+               Low_Dynamic       => Nondet_Index,
+               High_Dynamic      => Nondet_Index);
+         end;
+      end if;
    end Multi_Dimension_Flat_Bounds;
 
    function Zero_Based_Bounds (The_Array : Node_Id)
@@ -943,12 +971,14 @@ package body Arrays.Low_Level is
       Array_Is_Slice    : constant Boolean := Nkind (The_Array) = N_Slice;
       Array_Type        : constant Entity_Id :=
         (if Array_Is_Slice then
-              Get_Constrained_Subtype (Etype (Prefix (The_Array)))
+              Get_Constrained_Subtype (Prefix (The_Array))
          else
             Get_Constrained_Subtype (Etype (The_Array)));
 
       Is_Unconstrained  : constant Boolean := not Is_Constrained (Array_Type);
    begin
+      Put_Line ("Zero based bounds " &
+                  Boolean'Image (Is_Unconstrained));
       if Is_Unconstrained then
          return Static_And_Dynamic_Bounds'
            (Is_Unconstrained  => True,
@@ -962,6 +992,10 @@ package body Arrays.Low_Level is
          return Multi_Dimension_Flat_Bounds (Array_Type);
       else
          --  It's a slice. A slice can only be one-dimensional.
+         Put_Line ("Its a slice");
+         Print_Node_Briefly (The_Array);
+         Print_Node_Briefly (Etype (The_Array));
+         Put_Line ("Calling Zero_Based_Slice_Bounds");
          return Zero_Based_Slice_Bounds
            (The_Slice        => The_Array,
             Underlying_Array => Array_Type);
@@ -973,17 +1007,19 @@ package body Arrays.Low_Level is
                                      return Static_And_Dynamic_Bounds
    is
       Source_Location : constant Irep := Get_Source_Location (The_Slice);
-      Slice_Type : constant Entity_Id := Etype (The_Slice);
+      Slice_Range : constant Entity_Id := Discrete_Range (The_Slice);
       Has_Static_Bounds : constant Boolean :=
         All_Dimensions_Static (Underlying_Array) and
-        All_Dimensions_Static (The_Slice);
+        Is_OK_Static_Range (Slice_Range);
    begin
+      Put_Line ("Zero_Based_Slice_Bounds " &
+                  Boolean'Image (Has_Static_Bounds));
       if Has_Static_Bounds then
          declare
             Slice_Low             : constant Uint :=
-              Expr_Value (Low_Bound (First_Index (Slice_Type)));
+              Expr_Value (Low_Bound (Slice_Range));
             Slice_High            : constant Uint :=
-              Expr_Value (High_Bound (First_Index (Slice_Type)));
+              Expr_Value (High_Bound (Slice_Range));
             Underlying_Array_Low  : constant Uint :=
               Expr_Value (Low_Bound (First_Index (Underlying_Array)));
             Low_Static            : constant Nat :=
@@ -1008,17 +1044,20 @@ package body Arrays.Low_Level is
                     Source_Location => Source_Location));
          end;
       else
+         Put_Line ("Zero_Based_Slice_Bounds - dynamic bounds");
+         Print_Node_Subtree (Slice_Range);
+         Print_Node_Briefly (First_Index (Underlying_Array));
          declare
             Slice_Low             : constant Irep :=
               Typecast_If_Necessary
                 (Expr           =>
-                   Do_Expression (Low_Bound (First_Index (Slice_Type))),
+                   Do_Expression (Low_Bound (Slice_Range)),
                  New_Type       => Index_T,
                  A_Symbol_Table => Global_Symbol_Table);
             Slice_High            : constant Irep :=
               Typecast_If_Necessary
                 (Expr           =>
-                   Do_Expression (High_Bound (First_Index (Slice_Type))),
+                   Do_Expression (High_Bound (Slice_Range)),
                  New_Type       => Index_T,
                  A_Symbol_Table => Global_Symbol_Table);
             Underlying_Array_Low  : constant Irep :=
