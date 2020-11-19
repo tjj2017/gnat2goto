@@ -141,7 +141,7 @@ package body Arrays is
             Concat      : Node_Id;
             Dest_Bounds : Static_And_Dynamic_Bounds;
             Dest_Array  : Irep)
-     with Pre => Nkind (Concat) = N_Slice and
+     with Pre => Nkind (Concat) = N_Op_Concat and
                  Kind (Get_Type (Dest_Array)) = I_Array_Type;
 
    procedure Update_Array_From_Slice
@@ -234,17 +234,23 @@ package body Arrays is
                                   Target_Array : Irep;
                                   Block        : Irep)
    is
-      Source_Location : constant Irep := Get_Source_Location (Source_Expr);
-      Dest_Is_Slice   : constant Boolean := Nkind (Dest_Node) = N_Slice;
-      Dest_Type       : constant Entity_Id := Etype (Dest_Node);
+      Source_Location  : constant Irep := Get_Source_Location (Source_Expr);
+      Dest_Is_Slice    : constant Boolean := Nkind (Dest_Node) = N_Slice;
+      pragma Assert (Print_Node (Dest_Node));
+      Dest_Type        : constant Entity_Id := Etype (Dest_Node);
 
-      RHS_Node_Kind   : constant Node_Kind := Nkind (Source_Expr);
-      Source_Type     : constant Entity_Id :=
+      RHS_Node_Kind    : constant Node_Kind := Nkind (Source_Expr);
+      Source_Type      : constant Entity_Id :=
         Get_Constrained_Subtype (Source_Expr);
-      pragma Assert (not Dest_Is_Slice or else
+      Source_Is_Concat : constant Boolean :=
+        Nkind (Source_Expr) = N_Op_Concat;
+      pragma Assert (not Dest_Is_Slice or else Source_Is_Concat or else
                      Is_Constrained (Get_Constrained_Subtype
-                         (Etype (Prefix (Source_Expr)))));
+                       (Etype (Prefix (Source_Expr)))));
+      Source_Bounds : constant Static_And_Dynamic_Bounds :=
+        Multi_Dimension_Flat_Bounds (Source_Type);
    begin
+      Put_Line ("Do_Assignment_Op after initial declarations");
       if RHS_Node_Kind = N_Aggregate then
          Update_Array_From_Aggregate
            (Block        => Block,
@@ -290,8 +296,10 @@ package body Arrays is
                   & "non-static bounds is unsupported");
             end if;
          end;
-      elsif Dest_Bounds.Has_Static_Bounds then
-         if All_Dimensions_Static (Source_Type) then
+      elsif not Dest_Bounds.Is_Unconstrained then
+         if Dest_Bounds.Has_Static_Bounds and
+           Source_Bounds.Has_Static_Bounds
+         then
             --  Both source and destination have static bounds.
             --   A simple assignment should work.
             declare
@@ -308,18 +316,25 @@ package body Arrays is
             end;
          else
             --  Components have to be copied one at a time
+            Put_Line ("From assinment op");
             declare
-               Source_Bounds : constant Static_And_Dynamic_Bounds :=
-                 Multi_Dimension_Flat_Bounds (Source_Type);
+               Constrained_Source_Bounds :
+               constant Static_And_Dynamic_Bounds :=
+                 (if Source_Bounds.Is_Unconstrained then
+                     Dest_Bounds
+                  else
+                     Source_Bounds);
             begin
                Check_Equal_Array_Lengths (Block, Source_Bounds, Dest_Bounds);
+               Put_Line ("Array_Assignment_Op Copy array");
                Copy_Array
                  (Block         => Block,
                   Source_Type   => Source_Type,
                   Dest_Bounds   => Dest_Bounds,
-                  Source_Bounds => Source_Bounds,
+                  Source_Bounds => Constrained_Source_Bounds,
                   Dest_Irep     => Target_Array,
                   Source_Irep   => Do_Expression (Source_Expr));
+               Put_Line ("Array_Copied");
             end;
          end if;
       else
@@ -405,8 +420,9 @@ package body Arrays is
          else
             Ireps.Empty);
 
+      Array_Bounds : Static_And_Dynamic_Bounds :=
+        Multi_Dimension_Flat_Bounds (Target_Type);
       The_Array    : Irep;
-      Array_Bounds : Static_And_Dynamic_Bounds;
    begin
       if Is_Constrained (Target_Type) then
          --  The destination array object is constrained.
@@ -442,24 +458,16 @@ package body Arrays is
 
       --  Now do its initialization, if any.
       if Present (Init_Expr) then
-         declare
-            Dest_Bounds : constant Static_And_Dynamic_Bounds :=
-              (if Is_Constrained (Target_Type) then
-                  --  The destination bounds can be determined from its subtype
-                  Multi_Dimension_Flat_Bounds (Target_Type)
-               else
-                  --  The destination bounds have to be obtained from the
-                  --  target array.
-                  Array_Bounds);
-         begin
-            Array_Assignment_Op
-              (Source_Expr  => Init_Expr,
-               Dest_Node    => Dec_Node,
-               Dest_Bounds  => Dest_Bounds,
-               Target_Array => The_Array,
-               Block        => Block);
-         end;
+         Put_Line ("From Do_Array_Object_Dec");
+         Array_Assignment_Op
+           (Source_Expr  => Init_Expr,
+            Dest_Node    => Target_Def,
+            Dest_Bounds  => Array_Bounds,
+            Target_Array => The_Array,
+            Block        => Block);
       end if;
+
+      Put_Line ("End Do_Array_Object_Declaration");
 
    end Do_Array_Object_Declaration;
 
@@ -1295,6 +1303,12 @@ package body Arrays is
                               The_Entity   : Entity_Id;
                               Block        : Irep) return Irep
    is
+   begin
+      Put_Line ("The entity is constrained " &
+                  Boolean'Image (Is_Constrained (The_Entity)));
+      Print_Node_Subtree (The_Entity);
+      Print_Node_Subtree (Subtype_Node);
+      return
       (if Is_Constrained (The_Entity) then
           Make_Constrained_Array_Subtype
          (Declaration    => Subtype_Node,
@@ -1303,6 +1317,7 @@ package body Arrays is
           Make_Unconstrained_Array_Subtype
          (Declaration    => Subtype_Node,
           Component_Type => Component_Type (Etype (The_Entity))));
+   end Do_Array_Subtype;
 
    -------------------------------------
    -- Do_Constrained_Array_Definition --
@@ -2518,8 +2533,8 @@ package body Arrays is
               Declaration
          else
             Defining_Identifier (Declaration));
-      Array_Type     : constant Entity_Id := Etype (Array_Entity);
-      Comp_Type      : constant Entity_Id := Component_Type (Array_Type);
+--      Array_Type     : constant Entity_Id := Etype (Array_Entity);
+      Comp_Type      : constant Entity_Id := Component_Type (Array_Entity);
 
       Comp_Irep_Pre  : constant Irep :=
         Do_Type_Reference (Comp_Type);
@@ -2539,8 +2554,10 @@ package body Arrays is
       --  dimensional arrays.
       --  All goto arrays are index from 0, so the length is
       --  upper bound + 1.
+      pragma Assert (Print_Msg ("From constrained_Array_Subtype"));
       Array_Bounds     : constant Static_And_Dynamic_Bounds :=
-        Multi_Dimension_Flat_Bounds (Array_Type);
+        Multi_Dimension_Flat_Bounds (Array_Entity);
+      pragma Assert (Print_Msg ("After"));
       Array_Length     : constant Irep :=
         (if Array_Bounds.Has_Static_Bounds then
             Integer_Constant_To_Expr
@@ -2777,21 +2794,28 @@ package body Arrays is
             Dest_Array  : Irep;
             Dest_Bounds : Static_And_Dynamic_Bounds)
    is
+      pragma Assert (Print_Msg ("Update_Array_From slice - Slice prefix"));
+      pragma Assert (Print_Node (Prefix (Slice)));
       Underlying_Array_Type : constant Entity_Id :=
         Get_Constrained_Subtype (Prefix (Slice));
-
+      pragma Assert (Print_Msg ("After Prefix"));
       --  Do expression of a slice returns the array from which the
       --  slice is taken.
+      pragma Assert (Print_Msg ("Update_Array_From slice - ExpressionSlice"));
       Underlying_Array : constant Irep := Do_Expression (Slice);
+      pragma Assert (Print_Msg ("After Expression"));
 
       --  Get the slice bounds which are represented as offsets from the
       --  start of the array upon which the slice is defined.
+      pragma Assert (Print_Msg ("Update_Array_From slice - Slice bounds"));
       Slice_Bounds : constant Static_And_Dynamic_Bounds :=
         Zero_Based_Bounds (Slice);
+      pragma Assert (Print_Msg ("Update_Array_From slice - After bounds"));
    begin
       --  A check that the source and destination arrays have the
       --  same length may be required.
       Check_Equal_Array_Lengths (Block, Slice_Bounds, Dest_Bounds);
+      Put_Line ("Copying from slice");
       Copy_Array
         (Block         => Block,
          Source_Type   => Underlying_Array_Type,
@@ -2799,6 +2823,7 @@ package body Arrays is
          Source_Bounds => Slice_Bounds,
          Dest_Irep     => Dest_Array,
          Source_Irep   => Underlying_Array);
+      Put_Line ("Copied from slice");
    end Update_Array_From_Slice;
 
 end Arrays;
