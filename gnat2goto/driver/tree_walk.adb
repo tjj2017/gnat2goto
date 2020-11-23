@@ -3535,6 +3535,7 @@ package body Tree_Walk is
             end if;
          end;
       end if;
+      Put_Line ("End Object_Declaration_Full");
    end Do_Object_Declaration_Full;
 
    ---------------------------------

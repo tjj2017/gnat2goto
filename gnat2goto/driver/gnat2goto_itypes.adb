@@ -71,6 +71,7 @@ package body Gnat2goto_Itypes is
                end;
             end if;
          end;
+         Put_Line ("End declare itype");
       end if;
    end Declare_Itype;
 

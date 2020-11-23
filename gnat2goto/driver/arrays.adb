@@ -302,10 +302,23 @@ package body Arrays is
          then
             --  Both source and destination have static bounds.
             --   A simple assignment should work.
+            Put_Line ("Simple assignment");
+            Print_Irep (Target_Array);
+            Print_Irep (Get_Type (Target_Array));
+            Print_Irep (Get_Subtype (Get_Type (Target_Array)));
+            Print_Irep (Do_Expression (Source_Expr));
+            Print_Irep
+              (Get_Type (Do_Expression (Source_Expr)));
+            Print_Irep
+              (Get_Subtype (Get_Type (Do_Expression (Source_Expr))));
             declare
                Assignment : constant Irep :=
                  Make_Code_Assign
-                   (Rhs             => Do_Expression (Source_Expr),
+                   (Rhs             =>
+                      Typecast_If_Necessary
+                        (Expr           => Do_Expression (Source_Expr),
+                         New_Type       => Get_Type (Target_Array),
+                         A_Symbol_Table => Global_Symbol_Table),
                     Lhs             => Target_Array,
                     Source_Location => Source_Location,
                     I_Type          => Get_Type (Target_Array),
@@ -414,32 +427,33 @@ package body Arrays is
       Source_Loc     : constant Irep := Get_Source_Location (Dec_Node);
       Target_Def     : constant Entity_Id := Defining_Identifier (Dec_Node);
       Array_Id       : constant Symbol_Id := Intern (Array_Name);
-      Init_Expr_Irep : constant Irep :=
-        (if Present (Init_Expr) then
-              Do_Expression (Init_Expr)
-         else
-            Ireps.Empty);
 
       Array_Bounds : Static_And_Dynamic_Bounds :=
         Multi_Dimension_Flat_Bounds (Target_Type);
       The_Array    : Irep;
    begin
+      Put_Line ("Array obj dec");
       if Is_Constrained (Target_Type) then
+         Put_Line ("Array obj dec: Is_Constrained " &
+                     Boolean'Image (Is_Constrained (Target_Type)));
          --  The destination array object is constrained.
-         --  Create the array symbol with the target type.
+         --  Create the array symbol with the target type
+         --  but do not perform initialization.
+         --  Array initialization is performed below after the if statement.
          The_Array :=
            Make_Symbol_Expr
              (Source_Location => Source_Loc,
               I_Type          => Do_Type_Reference (Target_Type),
               Identifier      => Array_Name);
 
+         --  Do not inintalize here, so Init_Expr_Irep = Ireps.Empty.
          Do_Plain_Object_Declaration
            (Block          => Block,
             Object_Sym     => The_Array,
             Object_Name    => Array_Name,
             Object_Def     => Target_Def,
             Object_Type    => Target_Type,
-            Init_Expr_Irep => Init_Expr_Irep);
+            Init_Expr_Irep => Ireps.Empty);
       else
          --  The array length, i.e. its goto I_Array_Type,
          --  for an unconstrained array object has to betermined from its
@@ -741,6 +755,7 @@ package body Arrays is
          Range_Check     => False);
 
    begin
+      Put_Line ("Do_Aggregate_Array_Literal");
       --  First add the aggregate array object to the symbol table.
       New_Object_Symbol_Entry
         (Object_Name       => Intern (Aggregate_Obj),
@@ -764,8 +779,8 @@ package body Arrays is
             if Positional_Assoc then
                Array_Static_Positional
                  (Block      => Result_Block,
-                  Low_Bound  => Low,
-                  High_Bound => High,
+                  Low_Bound  => 0,
+                  High_Bound => High - Low,
                   N          => N,
                   Target     => Obj_Irep,
                   Comp_Type  => Component_Irep);
@@ -773,8 +788,8 @@ package body Arrays is
                --  Named associations.
                Array_Static_Named_Assoc
                  (Block      => Result_Block,
-                  Low_Bound  => Low,
-                  High_Bound => High,
+                  Low_Bound  => 0,
+                  High_Bound => High - Low,
                   N          => N,
                   Target     => Obj_Irep,
                   Comp_Type  => Component_Irep);
@@ -794,16 +809,22 @@ package body Arrays is
             if Positional_Assoc then
                Array_Dynamic_Positional
                  (Block      => Result_Block,
-                  Low_Bound  => Bounds.Low,
-                  High_Bound => Bounds.High,
+                  Low_Bound  => Index_T_Zero,
+                  High_Bound => Make_Zero_Index
+                    (Index    => Bounds.High,
+                     First    => Bounds.Low,
+                     Location => Source_Location),
                   N          => N,
                   Target     => Obj_Irep,
                   Comp_Type  => Component_Irep);
             else
                Array_Dynamic_Named_Assoc
                  (Block      => Result_Block,
-                  Low_Bound  => Bounds.Low,
-                  High_Bound => Bounds.High,
+                  Low_Bound  => Index_T_Zero,
+                  High_Bound => Make_Zero_Index
+                    (Index    => Bounds.High,
+                     First    => Bounds.Low,
+                     Location => Source_Location),
                   N          => N,
                   Target     => Obj_Irep,
                   Comp_Type  => Component_Irep);
@@ -1306,8 +1327,8 @@ package body Arrays is
    begin
       Put_Line ("The entity is constrained " &
                   Boolean'Image (Is_Constrained (The_Entity)));
-      Print_Node_Subtree (The_Entity);
-      Print_Node_Subtree (Subtype_Node);
+      Print_Node_Briefly (The_Entity);
+      Print_Node_Briefly (Subtype_Node);
       return
       (if Is_Constrained (The_Entity) then
           Make_Constrained_Array_Subtype
@@ -1654,16 +1675,14 @@ package body Arrays is
             pragma Assert (Print_Msg ("Is a parameter (The_Entity) " &
                              Boolean'Image (Is_Formal (The_Entity))));
             Bounds      : constant Dimension_Bounds :=
-              (if Is_Formal (The_Entity) and then not
-                   Is_Constrained (The_Entity)
-               then
-               --  It must be an unconstrained array parameter.
-               --  Use the extra parameters associated with the array.
+              (if not Is_Constrained (The_Entity) then
+               --  It must be an unconstrained array.
+               --  Use the extra variables or parameters associated
+               --  with the array.
                   Do_Unconstrained_First_Last
                  (The_Entity, Dimension, Source_Loc)
                else
-               --  Use the subtype definition which will be constrained as
-               --  it is not a formal parameter.
+               --  Use the subtype definition which will be constrained.
                   Do_Constrained_First_Last (Arr_Subtype, Dimension));
 
             pragma Assert (Print_Irep_Func (Bounds.Low));
@@ -1943,7 +1962,7 @@ package body Arrays is
       Source_Loc   : constant Irep := Get_Source_Location (Init_Expr);
       Expr_Type    : constant Entity_Id := Etype (Init_Expr);
       Array_Type   : constant Entity_Id :=
-        (if Expr_Kind not in N_Op_Concat | N_Slice then
+        (if Expr_Kind not in N_Aggregate | N_Op_Concat | N_Slice then
               Get_Constrained_Subtype (Init_Expr)
          else
             Expr_Type);
@@ -2526,7 +2545,7 @@ package body Arrays is
    function Make_Constrained_Array_Subtype (Declaration : Node_Id;
                                             Block       : Irep)
        return Irep
-  is
+   is
       Source_Location : constant Irep := Get_Source_Location (Declaration);
       Array_Entity    : constant Entity_Id :=
         (if Nkind (Declaration) = N_Defining_Identifier then
@@ -2593,6 +2612,8 @@ package body Arrays is
       Print_Node_Briefly (Declaration);
       Print_Node_Briefly (Array_Entity);
       Print_Node_Briefly (Comp_Type);
+      Put_Line ("Has_Static_Bounds " &
+        Boolean'Image (Array_Bounds.Has_Static_Bounds));
       if not Array_Bounds.Has_Static_Bounds then
          --  The array has at least one dimension which has an
          --  Ada variable specifying a bound.
