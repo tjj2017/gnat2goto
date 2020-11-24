@@ -54,8 +54,7 @@ package Arrays is
    --  the symbol table is used to define the goto array object.
    --  If the object is an unconstrained array subtype, then its first, last
    --  and length attributes must be determined from its mandatory
-   --  initialization.  In such cases, if the initalization has a constrained
-   --  subtype, then it is used to define the goto array object.
+   --  initialization.
    --  If the initialization is not constrained it will not have a constrained
    --  subtype in the global symbol table and cannot be used to define the
    --  object.  In such cases the first, last and length attributes object
@@ -63,21 +62,15 @@ package Arrays is
    --  and are use to define a goto array object of the correct length.
 
    function Do_Array_Subtype (Subtype_Node : Node_Id;
-                              The_Entity   : Entity_Id;
-                              Block        : Irep) return Irep
+                              The_Entity   : Entity_Id) return Irep
      with Pre => Is_Array_Type (The_Entity),
      Post => Kind (Do_Array_Subtype'Result) = I_Array_Type;
    --  Create an array subtype.  If the array subtype is constrained
-   --  but the constraint is not static a new variable is declared
-   --  and intialised to the goto expression representing the length of the
-   --  array.  This is used to specify the array length of the subtype.
-   --  This is required because cbmc does not accept a general expression
-   --  for the array length specifier.
-   --  The declaration and intialisation of the new variable is appended
-   --  to the Block.
+   --  but the constraint is not static a new variable is inserted into the
+   --  symol table and its value set to the goto expression representing
+   --  the length of the array.
 
-   function Do_Constrained_Array_Definition (N     : Node_Id;
-                                             Block : Irep) return Irep
+   function Do_Constrained_Array_Definition (N     : Node_Id) return Irep
      with Pre  => Nkind (N) in N_Array_Type_Definition,
      Post => Kind (Do_Constrained_Array_Definition'Result) = I_Array_Type;
 

@@ -291,7 +291,7 @@ package body Tree_Walk is
                                N_Access_Function_Definition,
         Post => Kind (Do_Subprogram_Specification'Result) = I_Code_Type;
 
-   procedure Do_Subtype_Declaration (N : Node_Id; Block : Irep)
+   procedure Do_Subtype_Declaration (N : Node_Id)
    with Pre => Nkind (N) = N_Subtype_Declaration;
 
    function Do_Type_Conversion (N : Node_Id) return Irep
@@ -485,7 +485,7 @@ package body Tree_Walk is
                                         Message : String) return Irep is
    begin
       Report_Unhandled_Node_Empty (N, Fun_Name, Message);
-      return Create_Dummy_Irep;
+      return CProver_Nil;
    end Report_Unhandled_Node_Irep;
 
    function Report_Unhandled_Node_Kind (N : Node_Id;
@@ -749,7 +749,7 @@ package body Tree_Walk is
             if not Global_Symbol_Table.Contains (Intern
                                                  (Unique_Name (Lhs_Type)))
             then
-               Declare_Itype (Lhs_Type, Dummy_Block);
+               Declare_Itype (Lhs_Type);
             end if;
          end;
          return Do_Array_Assignment (N);
@@ -1291,7 +1291,15 @@ package body Tree_Walk is
    ----------------------------
 
    function Do_Defining_Identifier (E : Entity_Id) return Irep is
-      Result_Type  : constant Irep := Do_Type_Reference (Etype (E));
+      --  The Ada type of an array object may be unconstrained but
+      --  the object itself must be constrained.
+      --  For goto the constrained array object Itype is used rather than the
+      --  possibly unconstrained Ada type.
+      Result_Type  : constant Irep :=
+        (if Is_Object (E) and then Is_Array_Type (Etype (E)) then
+              Global_Symbol_Table (Intern (Unique_Name (E))).SymType
+         else
+            Do_Type_Reference (Etype (E)));
 
       Is_Out_Param : constant Boolean :=
         Ekind (E) in E_In_Out_Parameter | E_Out_Parameter;
@@ -1520,11 +1528,9 @@ package body Tree_Walk is
    -- Do_Expression --
    -------------------
 
-   function Create_Dummy_Irep return Irep is (CProver_Nil);
-
    function Do_Expression (N : Node_Id) return Irep is
    begin
-      Declare_Itype (Etype (N), Dummy_Block);
+      Declare_Itype (Etype (N));
       case Nkind (N) is
          when N_Identifier |
             N_Expanded_Name          => return Do_Identifier (N);
@@ -3598,17 +3604,20 @@ package body Tree_Walk is
             Object_Type       => Get_Type (Object_Sym),
             Object_Init_Value => Init_Expr_Irep,
             A_Symbol_Table    => Global_Symbol_Table);
-         --  The model size of the object hast to be recorded.
-         if ASVAT.Size_Model.Has_Static_Size (Object_Type) then
-            ASVAT.Size_Model.Set_Static_Size
-              (E          => Object_Def,
-               Model_Size =>
-                 ASVAT.Size_Model.Static_Size (Object_Type));
-         else
-            ASVAT.Size_Model.Set_Computed_Size
-              (E         => Object_Def,
-               Size_Expr =>
-                 ASVAT.Size_Model.Computed_Size (Object_Type));
+         --  The model size of the object hast to be recorded if it has
+         --  not already been set by an array object declaration.
+         if not ASVAT.Size_Model.Has_Size (Object_Def) then
+            if ASVAT.Size_Model.Has_Static_Size (Object_Type) then
+               ASVAT.Size_Model.Set_Static_Size
+                 (E          => Object_Def,
+                  Model_Size =>
+                    ASVAT.Size_Model.Static_Size (Object_Type));
+            else
+               ASVAT.Size_Model.Set_Computed_Size
+                 (E         => Object_Def,
+                  Size_Expr =>
+                    ASVAT.Size_Model.Computed_Size (Object_Type));
+            end if;
          end if;
 
       elsif Init_Expr_Irep /= Ireps.Empty then
@@ -4699,7 +4708,7 @@ package body Tree_Walk is
                                       Comp_Node : Node_Id;
                                       Add_To_List : Irep := Components) is
       begin
-         Declare_Itype (Comp_Type_Node, Dummy_Block);
+         Declare_Itype (Comp_Type_Node);
          Add_Record_Component_Raw (Comp_Name,
                                    Do_Type_Reference (Comp_Type_Node),
                                    Comp_Node,
@@ -5513,14 +5522,13 @@ package body Tree_Walk is
    -- Do_Subtype_Declaration --
    ----------------------------
 
-   procedure Do_Subtype_Declaration (N : Node_Id; Block : Irep) is
+   procedure Do_Subtype_Declaration (N : Node_Id) is
       Subtype_Entity : constant Entity_Id := Defining_Identifier (N);
       New_Type       : constant Irep :=
         (if Is_Array_Type (Subtype_Entity) then
               Do_Array_Subtype
            (Subtype_Node => N,
-            The_Entity   => Subtype_Entity,
-            Block          => Block)
+            The_Entity   => Subtype_Entity)
          else
             Do_Subtype_Indication (Subtype_Indication (N)));
    begin
@@ -5683,7 +5691,7 @@ package body Tree_Walk is
          when N_Enumeration_Type_Definition =>
             return Do_Enumeration_Definition (N);
          when N_Constrained_Array_Definition =>
-            return Do_Constrained_Array_Definition (N, Block);
+            return Do_Constrained_Array_Definition (N);
          when N_Unconstrained_Array_Definition =>
             return Do_Unconstrained_Array_Definition (N);
          when N_Modular_Type_Definition =>
@@ -5711,7 +5719,7 @@ package body Tree_Walk is
         (if Ekind (E) = E_Access_Subtype then Etype (E) else E);
       Type_Id : constant Symbol_Id := Intern (Type_Name);
    begin
-      Declare_Itype (E, Dummy_Block);
+      Declare_Itype (E);
       if Global_Symbol_Table.Contains (Type_Id) then
          if Kind (Global_Symbol_Table.Element (Type_Id).SymType) in Class_Type
          then
@@ -6080,7 +6088,7 @@ package body Tree_Walk is
             Do_Private_Type_Declaration (N, Block);
 
          when N_Subtype_Declaration =>
-            Do_Subtype_Declaration (N, Block);
+            Do_Subtype_Declaration (N);
 
          when N_Object_Declaration =>
             Do_Object_Declaration (N, Block);
