@@ -130,8 +130,7 @@ package body Arrays is
       The_Array    : out Irep;
       Array_Bounds : out Static_And_Dynamic_Bounds);
 
-   function Make_Constrained_Array_Subtype (Declaration : Node_Id;
-                                            Block       : Irep) return Irep;
+   function Make_Constrained_Array_Subtype (Declaration : Node_Id) return Irep;
 
    function Make_Unconstrained_Array_Subtype (Declaration    : Node_Id;
                                               Component_Type : Entity_Id)
@@ -312,16 +311,39 @@ package body Arrays is
             Print_Irep
               (Get_Subtype (Get_Type (Do_Expression (Source_Expr))));
             declare
+               Source_Irep  : constant Irep :=
+                 Do_Expression (Source_Expr);
+               Target_Itype : constant Irep :=
+                 Get_Type (Target_Array);
+               Source_Itype : constant Irep :=
+                 (if Is_Constrained (Etype (Source_Expr)) then
+                     Get_Type (Source_Irep)
+                  else
+                     Target_Itype);
+               pragma Assert (Kind (Target_Itype) = Kind (Source_Itype));
+               pragma Assert (Print_Msg ("Assignment_Op RHS Itype:"));
+               pragma Assert (Print_Irep_Func (Target_Itype));
+               pragma Assert (Print_Msg ("Assignment_Op LHS Itype:"));
+               pragma Assert (Print_Irep_Func (Source_Itype));
+
+               --  The source and target arrays may have equivalent types but
+               --  may have different Ireps for each type.
+               Source_Array : constant Irep :=
+                 (if Source_Itype /= Target_Itype then
+                     Make_Op_Typecast
+                    (Op0             => Source_Irep,
+                     Source_Location => Source_Location,
+                     I_Type          => Target_Itype,
+                     Range_Check     => False)
+                  else
+                     Source_Irep);
+
                Assignment : constant Irep :=
                  Make_Code_Assign
-                   (Rhs             =>
-                      Typecast_If_Necessary
-                        (Expr           => Do_Expression (Source_Expr),
-                         New_Type       => Get_Type (Target_Array),
-                         A_Symbol_Table => Global_Symbol_Table),
+                   (Rhs             => Source_Array,
                     Lhs             => Target_Array,
                     Source_Location => Source_Location,
-                    I_Type          => Get_Type (Target_Array),
+                    I_Type          => Target_Itype,
                     Range_Check     => False);
             begin
                Put_Line ("Static_Assignment");
@@ -366,7 +388,14 @@ package body Arrays is
    is
       Id           : constant Symbol_Id := Intern (Array_Name);
 
+      pragma Assert (Print_Msg ("Array_Object_And_Friends"));
+      pragma Assert (Print_Node (Array_Type));
+
       Array_Type_Irep : constant Irep := Do_Type_Reference (Array_Type);
+      pragma Assert (Print_Irep_Func (Array_Type_Irep));
+      pragma Assert (Print_Irep_Func (Get_Size (Array_Type_Irep)));
+      pragma Assert (Print_Irep_Func (Get_Subtype (Array_Type_Irep)));
+
       Array_Irep : constant Irep :=
         Make_Symbol_Expr
           (Source_Location => Source_Loc,
@@ -430,6 +459,22 @@ package body Arrays is
 
       Array_Bounds : Static_And_Dynamic_Bounds :=
         Multi_Dimension_Flat_Bounds (Target_Type);
+
+      Comp_Type        : constant Entity_Id :=
+        Component_Type (Target_Def);
+
+      Comp_Irep_Pre  : constant Irep :=
+        Do_Type_Reference (Comp_Type);
+      Comp_Irep      : constant Irep :=
+        (if Kind (Follow_Symbol_Type
+         (Comp_Irep_Pre, Global_Symbol_Table))
+         = I_C_Enum_Type
+         then
+            Make_Unsignedbv_Type
+           (ASVAT.Size_Model.Static_Size (Comp_Type))
+         else
+            Comp_Irep_Pre);
+
       The_Array    : Irep;
    begin
       Put_Line ("Array obj dec");
@@ -440,23 +485,106 @@ package body Arrays is
          --  Create the array symbol with the target type
          --  but do not perform initialization.
          --  Array initialization is performed below after the if statement.
-         The_Array :=
-           Make_Symbol_Expr
-             (Source_Location => Source_Loc,
-              I_Type          => Do_Type_Reference (Target_Type),
-              Identifier      => Array_Name);
+         declare
+            Array_Length     : constant Irep :=
+              (if Array_Bounds.Has_Static_Bounds then
+                  Integer_Constant_To_Expr
+                 (Value           => UI_From_Int
+                      (Array_Bounds.High_Static + 1),
+                  Expr_Type       => Index_T,
+                  Source_Location => Source_Loc)
+               else
+                  Make_Op_Add
+                 (Rhs             => Index_T_One,
+                  Lhs             => Array_Bounds.High_Dynamic,
+                  Source_Location => Source_Loc,
+                  Overflow_Check  => False,
+                  I_Type          => Index_T,
+                  Range_Check     => False));
 
-         --  Do not inintalize here, so Init_Expr_Irep = Ireps.Empty.
-         Do_Plain_Object_Declaration
-           (Block          => Block,
-            Object_Sym     => The_Array,
-            Object_Name    => Array_Name,
-            Object_Def     => Target_Def,
-            Object_Type    => Target_Type,
-            Init_Expr_Irep => Ireps.Empty);
+            --  If the bounds of the array are static then Array_Length is a
+            --  constant and can be used directly to define the size of the
+            --  array.  However, if the bounds of the array are not static,
+            --  goto requires that a variable, not an expresion,
+            --  is used to define the size of the array.
+            Arr_Len_Irep : constant Irep :=
+              (if Array_Bounds.Has_Static_Bounds then
+                  Array_Length
+               else
+                  Make_Symbol_Expr
+                 (Source_Location => Source_Loc,
+                  I_Type          => Make_Unsignedbv_Type (64),
+                  Range_Check     => False,
+                  Identifier      => Array_Name & "_$array_size"));
+
+            Array_Itype      : constant Irep :=
+              Make_Array_Type
+                (I_Subtype => Comp_Irep,
+                 Size      => Arr_Len_Irep);
+
+            Array_Model_Size : constant Irep :=
+              Make_Op_Mul
+                (Rhs             => Typecast_If_Necessary
+                   (Expr           =>
+                          ASVAT.Size_Model.Computed_Size (Comp_Type),
+                    New_Type       => Index_T,
+                    A_Symbol_Table => Global_Symbol_Table),
+                 Lhs             => Array_Length,
+                 Source_Location => Source_Loc,
+                 Overflow_Check  => False,
+                 I_Type          => Index_T,
+                 Range_Check     => False);
+            Arr_Len : constant String := Array_Name  & "_$array_size";
+
+            Decl : constant Irep := Make_Code_Decl
+              (Symbol => Arr_Len_Irep,
+               Source_Location => Source_Loc);
+         begin
+            --  Set the ASVAT.Size_Model size for the array.
+            ASVAT.Size_Model.Set_Computed_Size
+              (Target_Def, Array_Model_Size);
+
+            if not Array_Bounds.Has_Static_Bounds then
+               --  The auxilliary variable used to define the array size
+               --  has to be declared and initialised.
+               --  Declare the variable in the goto code
+               Append_Op (Block, Decl);
+               Put_Line ("Declaration appended to the block");
+               Print_Irep (Block);
+               --  and assign the array length expression.
+               Append_Op (Block,
+                          Make_Code_Assign
+                            (Rhs             =>
+                               Make_Op_Typecast
+                                 (Op0             => Array_Length,
+                                  Source_Location => Source_Loc,
+                                  I_Type          =>
+                                    Make_Unsignedbv_Type (64),
+                                  Range_Check     => False),
+                             Lhs             => Arr_Len_Irep,
+                             Source_Location => Source_Loc,
+                             I_Type          => Make_Unsignedbv_Type (64),
+                             Range_Check     => False));
+            end if;
+
+            The_Array :=
+              Make_Symbol_Expr
+                (Source_Location => Source_Loc,
+                 I_Type          => Array_Itype,
+                 Identifier      => Array_Name);
+
+            --  Do not inintalize here, so Init_Expr_Irep = Ireps.Empty.
+            Do_Plain_Object_Declaration
+              (Block          => Block,
+               Object_Sym     => The_Array,
+               Object_Name    => Array_Name,
+               Object_Def     => Target_Def,
+               Object_Type    => Array_Itype,
+               Init_Expr_Irep => Ireps.Empty);
+         end;
       else
          --  The array length, i.e. its goto I_Array_Type,
-         --  for an unconstrained array object has to betermined from its
+         --  for an unconstrained array object has to be determined from its
          --  initialization, which must be present.
          Make_Constrained_Array_From_Initialization
            (Block        => Block,
@@ -465,6 +593,12 @@ package body Arrays is
             Init_Expr    => Init_Expr,
             The_Array    => The_Array,
             Array_Bounds => Array_Bounds);
+
+         --  Set the model size for the array object.
+         ASVAT.Size_Model.Set_Computed_Size
+           (E         => Target_Def,
+            Size_Expr => Get_Size (Get_Type (The_Array)));
+
       end if;
 
       --  The array object should now be in the symbol table.
@@ -1321,8 +1455,7 @@ package body Arrays is
    ----------------------
 
    function Do_Array_Subtype (Subtype_Node : Node_Id;
-                              The_Entity   : Entity_Id;
-                              Block        : Irep) return Irep
+                              The_Entity   : Entity_Id) return Irep
    is
    begin
       Put_Line ("The entity is constrained " &
@@ -1332,8 +1465,7 @@ package body Arrays is
       return
       (if Is_Constrained (The_Entity) then
           Make_Constrained_Array_Subtype
-         (Declaration    => Subtype_Node,
-          Block          => Block)
+         (Declaration    => Subtype_Node)
        else
           Make_Unconstrained_Array_Subtype
          (Declaration    => Subtype_Node,
@@ -1344,13 +1476,11 @@ package body Arrays is
    -- Do_Constrained_Array_Definition --
    -------------------------------------
 
-   function Do_Constrained_Array_Definition (N     : Node_Id;
-                                             Block : Irep) return Irep is
+   function Do_Constrained_Array_Definition (N     : Node_Id) return Irep is
       --  The array type declaration node is the  parent of the
       --  array_definition node.
          (Make_Constrained_Array_Subtype
-        (Declaration    => Parent (N),
-         Block          => Block));
+        (Declaration    => Parent (N)));
 
    ---------------------------------------
    -- Do_Unconstrained_Array_Definition --
@@ -2542,8 +2672,7 @@ package body Arrays is
       return Result;
    end Get_Underlying_Array_From_Slice;
 
-   function Make_Constrained_Array_Subtype (Declaration : Node_Id;
-                                            Block       : Irep)
+   function Make_Constrained_Array_Subtype (Declaration : Node_Id)
        return Irep
    is
       Source_Location : constant Irep := Get_Source_Location (Declaration);
@@ -2617,9 +2746,9 @@ package body Arrays is
       if not Array_Bounds.Has_Static_Bounds then
          --  The array has at least one dimension which has an
          --  Ada variable specifying a bound.
-         --  A new goto variable has to be declared and intialised
-         --  to the array size expression to declare the array.
-         declare
+         --  A new variable is inserted into the symbol table with its value
+         --  set to the array size expression to declare the array.
+        declare
             Arr_Len : constant String :=
               Unique_Name (Array_Entity) &
               "_$array_size";
@@ -2630,13 +2759,11 @@ package body Arrays is
                  I_Type          => Make_Unsignedbv_Type (64),
                  Range_Check     => False,
                  Identifier      => Arr_Len);
-            Decl : constant Irep := Make_Code_Decl
-              (Symbol => Arr_Len_Irep,
-               Source_Location => Source_Location);
          begin
             Put_Line ("******** dynamic range");
             Put_Line (Arr_Len);
-            --  Add the new variable to the symbol table
+            --  Add the new variable to the symbol table and set its value
+            --  to the computed length.
             New_Object_Symbol_Entry
               (Object_Name       => Arr_Len_Id,
                Object_Type       => Make_Unsignedbv_Type (64),
@@ -2648,26 +2775,6 @@ package body Arrays is
                   Range_Check     => False),
                A_Symbol_Table    => Global_Symbol_Table);
             Put_Line ("New var added to symbol table");
-            --  Declare the variable in the goto code
-            Print_Irep (Block);
-            Append_Op (Block, Decl);
-            Put_Line ("Declaration appended to the block");
-            Print_Irep (Block);
-            --  and assign the array length expression.
-            Append_Op (Block,
-                       Make_Code_Assign
-                         (Rhs             =>
-                            Make_Op_Typecast
-                              (Op0             => Array_Length,
-                               Source_Location => Source_Location,
-                               I_Type          =>
-                                 Make_Unsignedbv_Type (64),
-                               Range_Check     => False),
-                          Lhs             => Arr_Len_Irep,
-                          Source_Location => Source_Location,
-                          I_Type          => Make_Unsignedbv_Type (64),
-                          Range_Check     => False));
-            Print_Irep (Block);
             Put_Line ("Done Make_Array_Subtype");
             --  Return the dynamic array type
             --  using the declared array length variable.
