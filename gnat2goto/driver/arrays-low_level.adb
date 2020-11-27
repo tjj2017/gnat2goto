@@ -559,7 +559,7 @@ package body Arrays.Low_Level is
          else
             Component_Pre_Src);
 
-      Component_Dest : constant Irep := Get_Subtype (Get_Type (Dest_Irep));
+      Component_Dest   : constant Irep := Get_Subtype (Get_Type (Dest_Irep));
 
       Loop_Var : constant Irep :=
         Fresh_Var_Symbol_Expr (Index_T, "loop_var");
@@ -588,28 +588,47 @@ package body Arrays.Low_Level is
         Make_Op_Sub
           (Rhs             => Dest_Low,
            Lhs             => Dest_High,
-           Source_Location => Internal_Source_Location,
+           Source_Location => Source_Location,
            Overflow_Check  => False,
            I_Type          => Index_T,
            Range_Check     => False);
+
+      Indexed_Source   : constant Irep :=
+        Make_Index_Expr
+          (I_Array         => Source_Irep,
+           Index           => Source_Idx,
+           Source_Location => Source_Location,
+           I_Type          => Component_Source,
+           Range_Check     => False);
+
+      Assign_Value     : constant Irep :=
+        (if Component_Source = Component_Dest then
+            Indexed_Source
+         else
+            Make_Op_Typecast
+           (Op0             => Indexed_Source,
+            Source_Location => Source_Location,
+            I_Type          => Component_Dest,
+            Range_Check     => False));
    begin
+      Put_Line ("assign_to_array_component");
+      Put_Line ("destination");
+      Print_Irep (Dest_Irep);
+      Print_Irep (Get_Type (Dest_Irep));
+      Print_Irep (Get_Subtype (Get_Type (Dest_Irep)));
+      Put_Line ("assign_to_array_component");
+      Put_Line ("Source");
+      Print_Irep (Source_Irep);
+      Print_Irep (Get_Type (Source_Irep));
+      Print_Irep (Get_Subtype (Get_Type (Source_Irep)));
+      Print_Irep (Assign_Value);
       --  The body of the loop is just the assignment of the indexed source
       --  element to the indexed destination element.
       Assign_To_Array_Component
         (Block      => Loop_Body,
          The_Array  => Dest_Irep,
          Zero_Index => Dest_Idx,
-         Value_Expr =>
-           Typecast_If_Necessary
-             (Expr           =>
-                  Make_Index_Expr
-                (I_Array         => Source_Irep,
-                 Index           => Source_Idx,
-                 Source_Location => Internal_Source_Location,
-                 I_Type          => Component_Source,
-                 Range_Check     => False),
-              New_Type       => Component_Dest,
-              A_Symbol_Table => Global_Symbol_Table),
+         Value_Expr => Assign_Value,
          I_Type     => Component_Dest,
          Location   => Source_Location);
 
@@ -774,10 +793,7 @@ package body Arrays.Low_Level is
    is
       Loop_Init : constant Irep := Make_Code_Assign
         (Lhs => Loop_Var,
-         Rhs => Typecast_If_Necessary
-           (First,
-            Get_Type (Loop_Var),
-            Global_Symbol_Table),
+         Rhs => First,
          Source_Location => Source_Location);
 
       Loop_Cond : constant Irep :=
@@ -793,7 +809,7 @@ package body Arrays.Low_Level is
         Make_Side_Effect_Expr_Assign
           (Lhs => Loop_Var,
            Rhs => Loop_Inc,
-           Source_Location => Internal_Source_Location,
+           Source_Location => Source_Location,
            I_Type => Get_Type (Loop_Var));
 
    begin
@@ -850,6 +866,8 @@ package body Arrays.Low_Level is
    begin
       Put_Line ("Is constrained "
                 & Boolean'Image (Is_Constrained (Array_Type)));
+      Print_Node_Briefly (Array_Type);
+      Print_Node_Briefly (Dimension_Range);
       if Is_Constrained (Array_Type) then
          if Is_OK_Static_Range (Dimension_Range) then
             Put_Line ("Ok static range");
@@ -947,6 +965,7 @@ package body Arrays.Low_Level is
                     Range_Check     => False));
          end;
       else
+         Put_Line ("Is unconstrained array");
          declare
             Nondet_Index : constant Irep :=
               Make_Nondet_Expr
@@ -954,6 +973,7 @@ package body Arrays.Low_Level is
                  I_Type          => Index_T,
                  Range_Check     => False);
          begin
+            Put_Line ("About to return");
             return Static_And_Dynamic_Bounds'
               (Is_Unconstrained  => True,
                Has_Static_Bounds => False,

@@ -3562,7 +3562,6 @@ package body Tree_Walk is
                Object_Sym  => Do_Defining_Identifier (Defined),
                Object_Name => Obj_Name,
                Object_Def  => Defined,
-               Object_Type => Defined_Type,
                Init_Expr_Irep => Init_Expr_Irep);
 
             --  Assign the initialization, if any.
@@ -3588,10 +3587,10 @@ package body Tree_Walk is
                                           Object_Sym     : Irep;
                                           Object_Name    : String;
                                           Object_Def     : Entity_Id;
-                                          Object_Type    : Entity_Id;
                                           Init_Expr_Irep : Irep)
    is
-      Object_Id : constant Symbol_Id := Intern (Object_Name);
+      Object_Id   : constant Symbol_Id := Intern (Object_Name);
+      Object_Type : constant Entity_Id := Etype (Object_Def);
       Decl      : constant Irep :=
         Make_Code_Decl
           (Symbol          => Object_Sym,

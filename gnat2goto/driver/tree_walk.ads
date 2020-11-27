@@ -87,7 +87,6 @@ package Tree_Walk is
                                           Object_Sym     : Irep;
                                           Object_Name    : String;
                                           Object_Def     : Entity_Id;
-                                          Object_Type    : Entity_Id;
                                           Init_Expr_Irep : Irep)
      with Pre => Get_Identifier (Object_Sym) = Object_Name;
 

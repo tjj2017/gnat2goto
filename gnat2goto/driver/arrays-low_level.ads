@@ -30,14 +30,14 @@ package Arrays.Low_Level is
      (Make_Op_Add
         (Rhs             => Index_T_One,
          Lhs             => Ix,
-         Source_Location => Internal_Source_Location,
+         Source_Location => Get_Source_Location (Ix),
          I_Type          => Index_T));
 
    function Dec_Index (Ix : Irep) return Irep is
      (Make_Op_Sub
         (Rhs             => Index_T_One,
          Lhs             => Ix,
-         Source_Location => Internal_Source_Location,
+         Source_Location => Get_Source_Location (Ix),
          I_Type          => Index_T));
 
    function All_Dimensions_Static (The_Array : Entity_Id) return Boolean
