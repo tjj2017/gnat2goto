@@ -386,12 +386,42 @@ package body Arrays is
                                        Source_Loc : Irep;
                                        Block      : Irep)
    is
-      Id           : constant Symbol_Id := Intern (Array_Name);
+      Id            : constant Symbol_Id := Intern (Array_Name);
+      Bounds        : constant Static_And_Dynamic_Bounds :=
+        Multi_Dimension_Flat_Bounds (Array_Type);
+      Needs_Size_Var : constant Boolean :=
+        not Bounds.Has_Static_Bounds and then Is_Itype (Array_Type);
 
       pragma Assert (Print_Msg ("Array_Object_And_Friends"));
       pragma Assert (Print_Node (Array_Type));
+      pragma Assert (Print_Msg ("Is_Itype " &
+                       Boolean'Image (Is_Itype (Array_Type))));
 
-      Array_Type_Irep : constant Irep := Do_Type_Reference (Array_Type);
+      Array_Type_Pre  : constant Irep := Do_Type_Reference (Array_Type);
+      Comp_Irep       : constant Irep := Get_Subtype (Array_Type_Pre);
+      Array_Size_Var  : constant Irep :=
+        (if Needs_Size_Var then
+            Make_Symbol_Expr
+           (Source_Location => Source_Loc,
+            I_Type          => Index_T,
+            Range_Check     => False,
+            Identifier      => Array_Name & "_$array_size")
+         else
+            Ireps.Empty);
+      Array_Type_Irep : constant Irep :=
+        (if Array_Size_Var = Ireps.Empty then
+         --  Does not need a size var, which means the array subtype has
+         --  static bounds or the zize variable has benn declared and
+         --  intialised in the goto code when the array subtype was declared.
+         --  In either case the Irep array type from the Do_Type_Reference
+         --  can be used.
+            Array_Type_Pre
+         else
+         --  A new variable has to be declared to represent the size of
+         --  the goto array object.
+            Make_Array_Type
+           (I_Subtype => Comp_Irep,
+            Size      => Array_Size_Var));
       pragma Assert (Print_Irep_Func (Array_Type_Irep));
       pragma Assert (Print_Irep_Func (Get_Size (Array_Type_Irep)));
       pragma Assert (Print_Irep_Func (Get_Subtype (Array_Type_Irep)));
@@ -407,6 +437,34 @@ package body Arrays is
          Source_Location => Source_Loc);
    begin
       if not Global_Symbol_Table.Contains (Id) then
+         --  If a size variable is needed to define the size of the
+         --  goto array object, declare it before the array.
+         if Needs_Size_Var then
+            declare
+               Size_Decl : constant Irep := Make_Code_Decl
+                 (Symbol          => Array_Size_Var,
+                  Source_Location => Source_Loc,
+                  I_Type          => Index_T,
+                  Range_Check     => False);
+               Size_Assg : constant Irep := Make_Code_Assign
+                 (Rhs             =>
+                    Make_Op_Add
+                      (Rhs             => Index_T_One,
+                       Lhs             => Bounds.High_Dynamic,
+                       Source_Location => Source_Loc,
+                       Overflow_Check  => False,
+                       I_Type          => Index_T,
+                       Range_Check     => False),
+                  Lhs             => Array_Size_Var,
+                  Source_Location => Source_Loc,
+                  I_Type          => Index_T,
+                  Range_Check     => False);
+            begin
+               Append_Op (Block, Size_Decl);
+               Append_Op (Block, Size_Assg);
+            end;
+         end if;
+
          Append_Op (Block, Decl);
          New_Object_Symbol_Entry
            (Object_Name       => Id,
@@ -461,7 +519,7 @@ package body Arrays is
         Multi_Dimension_Flat_Bounds (Target_Type);
 
       Comp_Type        : constant Entity_Id :=
-        Component_Type (Target_Def);
+        Component_Type (Target_Type);
 
       Comp_Irep_Pre  : constant Irep :=
         Do_Type_Reference (Comp_Type);
@@ -534,7 +592,6 @@ package body Arrays is
                  Overflow_Check  => False,
                  I_Type          => Index_T,
                  Range_Check     => False);
-            Arr_Len : constant String := Array_Name  & "_$array_size";
 
             Decl : constant Irep := Make_Code_Decl
               (Symbol => Arr_Len_Irep,
@@ -579,7 +636,6 @@ package body Arrays is
                Object_Sym     => The_Array,
                Object_Name    => Array_Name,
                Object_Def     => Target_Def,
-               Object_Type    => Array_Itype,
                Init_Expr_Irep => Ireps.Empty);
          end;
       else
@@ -2681,7 +2737,6 @@ package body Arrays is
               Declaration
          else
             Defining_Identifier (Declaration));
---      Array_Type     : constant Entity_Id := Etype (Array_Entity);
       Comp_Type      : constant Entity_Id := Component_Type (Array_Entity);
 
       Comp_Irep_Pre  : constant Irep :=
@@ -2746,12 +2801,11 @@ package body Arrays is
       if not Array_Bounds.Has_Static_Bounds then
          --  The array has at least one dimension which has an
          --  Ada variable specifying a bound.
-         --  A new variable is inserted into the symbol table with its value
-         --  set to the array size expression to declare the array.
-        declare
-            Arr_Len : constant String :=
-              Unique_Name (Array_Entity) &
-              "_$array_size";
+         --  A variable rather than an expression must be used to define the
+         --  length of the goto array.
+         declare
+            Array_Name   : constant String := Unique_Name (Array_Entity);
+            Arr_Len      : constant String := Array_Name & "_$array_size";
             Arr_Len_Id   : constant Symbol_Id := Intern (Arr_Len);
             Arr_Len_Irep : constant Irep :=
               Make_Symbol_Expr
@@ -2762,6 +2816,10 @@ package body Arrays is
          begin
             Put_Line ("******** dynamic range");
             Put_Line (Arr_Len);
+            --  If the array subtype is an Itype then there is no point
+            --  declaring the variable in the goto code as the type
+            --  declaration is anonymous and does not appear in the
+            --  goto code.
             --  Add the new variable to the symbol table and set its value
             --  to the computed length.
             New_Object_Symbol_Entry
@@ -2775,6 +2833,7 @@ package body Arrays is
                   Range_Check     => False),
                A_Symbol_Table    => Global_Symbol_Table);
             Put_Line ("New var added to symbol table");
+
             Put_Line ("Done Make_Array_Subtype");
             --  Return the dynamic array type
             --  using the declared array length variable.
