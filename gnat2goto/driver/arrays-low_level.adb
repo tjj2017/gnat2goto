@@ -583,7 +583,7 @@ package body Arrays.Low_Level is
            I_Type          => Index_T,
            Range_Check     => False);
 
-      Loop_First : constant Irep := Index_T_Zero;
+      Loop_First : constant Irep := Dest_Low;
       Loop_Last  : constant Irep :=
         Make_Op_Sub
           (Rhs             => Dest_Low,
@@ -826,22 +826,30 @@ package body Arrays.Low_Level is
    ---------------------
 
    function Make_Zero_Index (Index, First, Location : Irep) return Irep is
-     (Make_Op_Sub
-        (Rhs             =>
-              Typecast_If_Necessary
-           (Expr           => First,
-            New_Type       => Index_T,
-            A_Symbol_Table => Global_Symbol_Table),
-         Lhs             =>
-            Typecast_If_Necessary
-           (Expr           => Index,
-            New_Type       => Index_T,
-            A_Symbol_Table =>
-               Global_Symbol_Table),
-         Source_Location => Location,
-         Overflow_Check  => False,
-         I_Type          => Index_T,
-         Range_Check     => False));
+      Index_IT : constant Irep :=
+        (if Get_Type (First) = Index_T then
+              Index
+         else
+            Make_Op_Typecast
+           (Op0             => Index,
+            Source_Location => Location,
+            I_Type          => Index_T));
+      First_IT : constant Irep :=
+        (if Get_Type (First) = Index_T then
+              First
+         else
+            Make_Op_Typecast
+           (Op0             => First,
+            Source_Location => Location,
+            I_Type          => Index_T));
+   begin
+      return
+        Make_Op_Sub
+          (Rhs             => First_IT,
+           Lhs             => Index_IT,
+           Source_Location => Location,
+           I_Type          => Index_T);
+   end Make_Zero_Index;
 
    function Make_Zero_Index (Index : Irep; First : Int; Location : Irep)
                              return Irep is
@@ -1067,6 +1075,13 @@ package body Arrays.Low_Level is
          Put_Line ("Zero_Based_Slice_Bounds - dynamic bounds");
          Print_Node_Subtree (Slice_Range);
          Print_Node_Briefly (First_Index (Underlying_Array));
+         Put_Line ("Low bound slice");
+         Print_Node_Briefly (Low_Bound (Slice_Range));
+         Put_Line ("High bound slice");
+         Print_Node_Subtree (High_Bound (Slice_Range));
+         Put_Line ("Low bound underlying");
+         Print_Node_Briefly (Low_Bound (First_Index (Underlying_Array)));
+         Put_Line ("About to declare");
          declare
             Slice_Low             : constant Irep :=
               Typecast_If_Necessary
@@ -1103,6 +1118,14 @@ package body Arrays.Low_Level is
                  I_Type          => Index_T,
                  Range_Check     => False);
          begin
+            Put_Line ("The slice bounds");
+            Print_Irep (Slice_Low);
+            Print_Irep (Get_Op0 (Slice_Low));
+            Print_Irep (Slice_High);
+            Print_Irep (Get_Op0 (Slice_High));
+            Put_Line ("The underlying bounds");
+            Print_Irep (Underlying_Array_Low);
+            Print_Irep (Get_Op0 (Underlying_Array_Low));
             return Static_And_Dynamic_Bounds'
               (Is_Unconstrained  => False,
                Has_Static_Bounds => False,

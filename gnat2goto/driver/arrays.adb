@@ -1861,7 +1861,7 @@ package body Arrays is
             pragma Assert (Print_Msg ("Is a parameter (The_Entity) " &
                              Boolean'Image (Is_Formal (The_Entity))));
             Bounds      : constant Dimension_Bounds :=
-              (if not Is_Constrained (The_Entity) then
+              (if not Is_Constrained (Arr_Subtype) then
                --  It must be an unconstrained array.
                --  Use the extra variables or parameters associated
                --  with the array.
@@ -2486,6 +2486,10 @@ package body Arrays is
 --        Slice_Id : constant Irep := Base_Irep;
    begin
       Put_Line ("Do_Slice Body Start");
+      Print_Irep (Base_Irep);
+      Print_Irep (Get_Type (Base_Irep));
+      Print_Irep (Get_Size (Get_Type (Base_Irep)));
+      Print_Irep (Get_Subtype (Get_Type (Base_Irep)));
       return Base_Irep;
 --        return Slice_Array;
 --        return Make_Side_Effect_Expr_Function_Call (
