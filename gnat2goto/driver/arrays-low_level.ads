@@ -87,9 +87,10 @@ package Arrays.Low_Level is
 
    function Calculate_Dimension_Length (Bounds : Dimension_Bounds) return Irep;
 
-   function Calculate_Index_Offset (The_Array   : Entity_Id;
+   function Calculate_Index_Offset (Array_Node  : Node_Id;
                                     The_Indices : Node_Id) return Irep
-     with Pre => Is_Array_Type (The_Array) and
+     with Pre => (Nkind (Array_Node) in N_Has_Entity and then
+                      Is_Array_Type (Etype (Array_Node))) and
           Nkind (The_Indices) = N_Indexed_Component;
    --  Calculates the zero based index of a possibly multidimensional
    --  Ada array. Multidimensional Ada arrays are modelled as a
@@ -129,6 +130,21 @@ package Arrays.Low_Level is
    --  If no constrained subtype is found returns the unconstrained
    --  type of the expression.
 
+   function Get_Dimension_Bounds (N : Node_Id; Dim : Positive; Index : Node_Id)
+                                  return Dimension_Bounds
+     with Pre => (case Nkind (N) is
+                     when N_Object_Declaration |
+                          N_Object_Renaming_Declaration =>
+                        Is_Array_Type (Etype (Defining_Identifier (N))),
+                     when N_Subtype_Declaration | N_Full_Type_Declaration =>
+                        Is_Array_Type (Defining_Identifier (N)) and
+                        Is_Constrained (Defining_Identifier (N)),
+                     when others =>
+                        Is_Array_Type (Etype (N)) and
+                        Is_Constrained (Etype (N)));
+   --  Returns the bounds of a dimension of an array - the array may be of
+   --  unconstrained type but then N must refer to a (constrained) object.
+
    function Get_Range (Index : Node_Id) return Node_Id;
 
    function Make_Simple_For_Loop (Loop_Var,  --  The loop variable
@@ -144,9 +160,16 @@ package Arrays.Low_Level is
    --  Calculate a zero offset index from an Ada index represented as an Irep
    --  and the lower bound given as an Int constant.
 
-   function Multi_Dimension_Flat_Bounds (Array_Type : Entity_Id)
+   function Multi_Dimension_Flat_Bounds (Array_Node : Node_Id)
                                          return Static_And_Dynamic_Bounds
-     with Pre => Is_Array_Type (Array_Type);
+     with Pre => ((Nkind (Array_Node) in N_Full_Type_Declaration |
+                                      N_Subtype_Declaration and then
+                      Is_Array_Type (Defining_Identifier (Array_Node)))
+               or else (Nkind (Array_Node) in N_Object_Declaration |
+                      N_Object_Renaming_Declaration and then
+                 Is_Array_Type (Etype (Defining_Identifier (Array_Node))))
+               or else (Nkind (Array_Node) in N_Has_Etype and then
+                      Is_Array_Type (Etype (Array_Node))));
    --  In goto Ada multidimensional arrays are flattenned into one dimensional
    --  arrays. This function calculates the zero based bounds of a flattened
    --  multi-dimentional array
