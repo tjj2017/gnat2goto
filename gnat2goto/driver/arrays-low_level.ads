@@ -7,6 +7,11 @@ package Arrays.Low_Level is
    --  The subprograms are concerned with manipulating the low-level, zero
    --  based array representation used by ASVAT.
 
+   --  The strings for defining first and last variables of an unconstrained
+   --  array.
+   First_Var_Str : constant String := "___first_";
+   Last_Var_Str  : constant String := "___last_";
+
    --  Type for gathering the lower and upper bounds of an array dimension.
    type Dimension_Bounds is record
       Low, High : Irep;
@@ -39,6 +44,15 @@ package Arrays.Low_Level is
          Lhs             => Ix,
          Source_Location => Get_Source_Location (Ix),
          I_Type          => Index_T));
+
+   Unconstrained_Bounds : constant Static_And_Dynamic_Bounds :=
+     Static_And_Dynamic_Bounds'
+       (Is_Unconstrained  => True,
+        Has_Static_Bounds => False,
+        Low_Static        => 0,
+        High_Static       => 0,
+        Low_Dynamic       => Ireps.Empty,
+        High_Dynamic      => Ireps.Empty);
 
    function All_Dimensions_Static (The_Array : Entity_Id) return Boolean
      with Pre => Is_Array_Type (The_Array);
@@ -139,6 +153,9 @@ package Arrays.Low_Level is
                      when N_Subtype_Declaration | N_Full_Type_Declaration =>
                         Is_Array_Type (Defining_Identifier (N)) and
                         Is_Constrained (Defining_Identifier (N)),
+                     when N_Identifier | N_Expanded_Name =>
+                        --  This may be an object and unconstrained.
+                        Is_Array_Type (Etype (N)),
                      when others =>
                         Is_Array_Type (Etype (N)) and
                         Is_Constrained (Etype (N)));

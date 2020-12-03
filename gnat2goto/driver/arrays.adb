@@ -12,6 +12,52 @@ with Arrays.Low_Level;      use Arrays.Low_Level;
 with Treepr;                use Treepr;
 with Text_IO;               use Text_IO;
 package body Arrays is
+   function Defining_Identifier (N : Node_Id) return Entity_Id;
+   function Defining_Identifier (N : Node_Id) return Entity_Id is
+      NT : constant Node_Kind := Nkind (N);
+   begin
+      Put_Line ("Into Defining_Identifier");
+      Print_Node_Briefly (N);
+      if not
+        (NT = N_Component_Declaration
+        or else NT = N_Defining_Program_Unit_Name
+        or else NT = N_Discriminant_Specification
+        or else NT = N_Entry_Body
+        or else NT = N_Entry_Declaration
+        or else NT = N_Entry_Index_Specification
+        or else NT = N_Exception_Declaration
+        or else NT = N_Exception_Renaming_Declaration
+        or else NT = N_Formal_Object_Declaration
+        or else NT = N_Formal_Package_Declaration
+        or else NT = N_Formal_Type_Declaration
+        or else NT = N_Full_Type_Declaration
+        or else NT = N_Implicit_Label_Declaration
+        or else NT = N_Incomplete_Type_Declaration
+        or else NT = N_Iterated_Component_Association
+        or else NT = N_Iterator_Specification
+        or else NT = N_Loop_Parameter_Specification
+        or else NT = N_Number_Declaration
+        or else NT = N_Object_Declaration
+        or else NT = N_Object_Renaming_Declaration
+        or else NT = N_Package_Body_Stub
+        or else NT = N_Parameter_Specification
+        or else NT = N_Private_Extension_Declaration
+        or else NT = N_Private_Type_Declaration
+        or else NT = N_Protected_Body
+        or else NT = N_Protected_Body_Stub
+        or else NT = N_Protected_Type_Declaration
+        or else NT = N_Single_Protected_Declaration
+        or else NT = N_Single_Task_Declaration
+        or else NT = N_Subtype_Declaration
+        or else NT = N_Task_Body
+        or else NT = N_Task_Body_Stub
+         or else NT = N_Task_Type_Declaration)
+      then
+         Put_Line ("Illegal node to Defining_Identifier");
+      end if;
+
+      return Sinfo.Defining_Identifier (N);
+   end Defining_Identifier;
 
    package Debug_Help is
       function Print_Node (N : Node_Id; Subtree : Boolean := False)
@@ -384,9 +430,16 @@ package body Arrays is
                                        Source_Loc : Irep;
                                        Block      : Irep)
    is
+      pragma Assert (Print_Msg ("Array_Object_And_Friends"));
       Id            : constant Symbol_Id := Intern (Array_Name);
+      pragma Assert (Print_Node (Array_Type));
+      pragma Assert (Print_Msg ("Array_Object_And_Friends - Array_Type con: "
+                       & Boolean'Image (Is_Constrained (Array_Type))));
       Bounds        : constant Static_And_Dynamic_Bounds :=
         Multi_Dimension_Flat_Bounds (Array_Type);
+      pragma Assert (Print_Msg ("Bounds - Is_Unconstrained: " &
+                       Boolean'Image (Bounds.Is_Unconstrained)));
+      pragma Assert (Print_Irep_Func (Bounds.High_Dynamic));
       Needs_Size_Var : constant Boolean :=
         not Bounds.Has_Static_Bounds and then Is_Itype (Array_Type);
 
@@ -409,7 +462,7 @@ package body Arrays is
       Array_Type_Irep : constant Irep :=
         (if Array_Size_Var = Ireps.Empty then
          --  Does not need a size var, which means the array subtype has
-         --  static bounds or the zize variable has benn declared and
+         --  static bounds or the size variable has been declared and
          --  intialised in the goto code when the array subtype was declared.
          --  In either case the Irep array type from the Do_Type_Reference
          --  can be used.
@@ -514,7 +567,10 @@ package body Arrays is
       Array_Id       : constant Symbol_Id := Intern (Array_Name);
 
       Array_Bounds : Static_And_Dynamic_Bounds :=
-        Multi_Dimension_Flat_Bounds (Dec_Node);
+        (if Is_Constrained (Target_Type) then
+              Multi_Dimension_Flat_Bounds (Dec_Node)
+         else
+            Unconstrained_Bounds);
 
       Comp_Type        : constant Entity_Id :=
         Component_Type (Target_Type);
@@ -534,7 +590,7 @@ package body Arrays is
       The_Array    : Irep;
    begin
       Put_Line ("Array obj dec");
-      if Is_Constrained (Target_Type) then
+      if not Array_Bounds.Is_Unconstrained then
          Put_Line ("Array obj dec: Is_Constrained " &
                      Boolean'Image (Is_Constrained (Target_Type)));
          --  The destination array object is constrained.
@@ -734,10 +790,10 @@ package body Arrays is
    is
       Source_Loc      : constant Irep := Internal_Source_Location;
       First_Name      : constant String :=
-        Prefix & "___first_" & Dimension;
+        Prefix & First_Var_Str & Dimension;
       First_Name_Id   : constant Symbol_Id := Intern (First_Name);
       Last_Name       : constant String :=
-        Prefix & "___last_" & Dimension;
+        Prefix & Last_Var_Str & Dimension;
       Last_Name_Id    : constant Symbol_Id := Intern (Last_Name);
 
       Type_Irep : constant Irep :=
@@ -770,9 +826,27 @@ package body Arrays is
            I_Type          => Type_Irep,
            Range_Check     => False);
 
+      First_Val : constant Irep :=
+        (if Type_Irep = Index_T then
+            Bounds.Low
+         else
+            Make_Op_Typecast
+           (Op0             => Bounds.Low,
+            Source_Location => Source_Loc,
+            I_Type          => Type_Irep));
+
+      Last_Val : constant Irep :=
+        (if Type_Irep = Index_T then
+            Bounds.High
+         else
+            Make_Op_Typecast
+           (Op0             => Bounds.High,
+            Source_Location => Source_Loc,
+            I_Type          => Type_Irep));
+
       Assign_First : constant Irep :=
         Make_Code_Assign
-          (Rhs             => Bounds.Low,
+          (Rhs             => First_Val,
            Lhs             => First_Sym,
            Source_Location => Source_Loc,
            I_Type          => Type_Irep,
@@ -780,7 +854,7 @@ package body Arrays is
 
       Assign_Last : constant Irep :=
         Make_Code_Assign
-          (Rhs             => Bounds.High,
+          (Rhs             => Last_Val,
            Lhs             => Last_Sym,
            Source_Location => Source_Loc,
            I_Type          => Type_Irep,
@@ -820,10 +894,10 @@ package body Arrays is
       Number_Str      : constant String :=
         Number_Str_Raw (2 .. Number_Str_Raw'Last);
       First_Name      : constant String :=
-        Prefix & "___first_" & Number_Str;
+        Prefix & First_Var_Str & Number_Str;
       First_Name_Id   : constant Symbol_Id := Intern (First_Name);
       Last_Name       : constant String :=
-        Prefix & "___last_" & Number_Str;
+        Prefix & Last_Var_Str & Number_Str;
       Last_Name_Id    : constant Symbol_Id := Intern (Last_Name);
 
       Index_Type : constant Entity_Id :=
@@ -1884,6 +1958,8 @@ package body Arrays is
             Print_Node_Briefly (The_Entity);
             Print_Node_Briefly (Etype (The_Prefix));
             Print_Node_Briefly (Etype (The_Entity));
+            Put_Line ("The attribute is " &
+                        Attribute_Id'Image (Attr));
             return
               (case Attr is
                   when Attribute_First => Bounds.Low,

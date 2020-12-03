@@ -8,6 +8,53 @@ with Treepr;                  use Treepr;
 with Ada.Text_IO; use Ada.Text_IO;
 package body Arrays.Low_Level is
 
+   function Defining_Identifier (N : Node_Id) return Entity_Id;
+   function Defining_Identifier (N : Node_Id) return Entity_Id is
+      NT : constant Node_Kind := Nkind (N);
+   begin
+      Put_Line ("Into Defining_Identifier");
+      Print_Node_Briefly (N);
+      if not
+        (NT = N_Component_Declaration
+        or else NT = N_Defining_Program_Unit_Name
+        or else NT = N_Discriminant_Specification
+        or else NT = N_Entry_Body
+        or else NT = N_Entry_Declaration
+        or else NT = N_Entry_Index_Specification
+        or else NT = N_Exception_Declaration
+        or else NT = N_Exception_Renaming_Declaration
+        or else NT = N_Formal_Object_Declaration
+        or else NT = N_Formal_Package_Declaration
+        or else NT = N_Formal_Type_Declaration
+        or else NT = N_Full_Type_Declaration
+        or else NT = N_Implicit_Label_Declaration
+        or else NT = N_Incomplete_Type_Declaration
+        or else NT = N_Iterated_Component_Association
+        or else NT = N_Iterator_Specification
+        or else NT = N_Loop_Parameter_Specification
+        or else NT = N_Number_Declaration
+        or else NT = N_Object_Declaration
+        or else NT = N_Object_Renaming_Declaration
+        or else NT = N_Package_Body_Stub
+        or else NT = N_Parameter_Specification
+        or else NT = N_Private_Extension_Declaration
+        or else NT = N_Private_Type_Declaration
+        or else NT = N_Protected_Body
+        or else NT = N_Protected_Body_Stub
+        or else NT = N_Protected_Type_Declaration
+        or else NT = N_Single_Protected_Declaration
+        or else NT = N_Single_Task_Declaration
+        or else NT = N_Subtype_Declaration
+        or else NT = N_Task_Body
+        or else NT = N_Task_Body_Stub
+         or else NT = N_Task_Type_Declaration)
+      then
+         Put_Line ("Illegal node to Defining_Identifier");
+      end if;
+
+      return Sinfo.Defining_Identifier (N);
+   end Defining_Identifier;
+
    procedure Copy_Array_Dynamic
      (Block            : Irep;
       Source_Type      : Entity_Id;
@@ -396,6 +443,7 @@ package body Arrays.Low_Level is
       Offset      : Irep :=
         Calculate_Zero_Offset (Index_Iter, Bounds_Iter);
    begin
+      Put_Line ("Calculate_Index_Offset");
       Print_Node_Subtree (Dim_Iter);
       for I in 2 .. No_Of_Dims loop
          Index_Iter := Next (Index_Iter);
@@ -505,6 +553,9 @@ package body Arrays.Low_Level is
    is
       Static_Limit : constant := 16;
    begin
+      Put_Line ("Copy Array - Dest_Irep");
+      Print_Irep (Dest_Irep);
+
       if (Dest_Bounds.Has_Static_Bounds and Source_Bounds.Has_Static_Bounds)
         and then
           Dest_Bounds.High_Static - Dest_Bounds.Low_Static + 1 <= Static_Limit
@@ -803,23 +854,51 @@ package body Arrays.Low_Level is
    begin
       Put_Line ("Get_Dimension_Bounds");
       if Is_Constrained (Array_Type) then
+         Put_Line ("Constrained - returning");
          return Get_Bounds (Index);
       end if;
 
       Put_Line ("Not_Constrained");
       --  The array is unconstrained but N must refer to an array object that
       --  has first and last auxillary variables declared for each dimension.
+      Put_Line ("Trying Defining");
+      Print_Node_Briefly (N);
+      Print_Node_Briefly (Entity (N));
       declare
          Dim_String_Pre : constant String := Integer'Image (Dim);
          Dim_String     : constant String :=
            Dim_String_Pre (2 .. Dim_String_Pre'Last);
 
-         Object_Name    : constant String :=
-           Unique_Name (Defining_Identifier (N));
+         pragma Assert (Nkind (N) in N_Object_Declaration
+                          | N_Object_Renaming_Declaration
+                          | N_Identifier
+                          | N_Expanded_Name,
+                        "Get_Dimension_Bounds - Not an object");
+
+         Object_Entity : constant Entity_Id :=
+           (case Nkind (N) is
+               when N_Defining_Identifier =>
+                  N,
+               when N_Identifier | N_Expanded_Name =>
+                  Entity (N),
+               when others =>
+                  Defining_Identifier (N));
+
+         Index_Entity : constant Entity_Id :=
+           (case Nkind (Index) is
+               when N_Defining_Identifier =>
+                  Index,
+               when N_Identifier | N_Expanded_Name =>
+                  Entity (Index),
+               when others =>
+                  Defining_Identifier (Index));
+
+         Object_Name    : constant String := Unique_Name (Object_Entity);
+
          First_Var      : constant String :=
-           Object_Name & "___first_" & Dim_String;
+           Object_Name & First_Var_Str & Dim_String;
          Last_Var       : constant String :=
-           Object_Name & "___Last_" & Dim_String;
+           Object_Name & Last_Var_Str & Dim_String;
 
          pragma Assert (Global_Symbol_Table.Contains (Intern (First_Var)));
          pragma Assert (Global_Symbol_Table.Contains (Intern (Last_Var)));
@@ -827,14 +906,15 @@ package body Arrays.Low_Level is
          First_Sym      : constant Irep :=
            Make_Symbol_Expr
              (Source_Location => Source_Location,
-              I_Type          => Do_Type_Reference (Index),
+              I_Type          => Do_Type_Reference (Index_Entity),
               Identifier      => First_Var);
          Last_Sym      : constant Irep :=
            Make_Symbol_Expr
              (Source_Location => Source_Location,
-              I_Type          => Do_Type_Reference (Index),
+              I_Type          => Do_Type_Reference (Index_Entity),
               Identifier      => Last_Var);
       begin
+         Put_Line ("Returning from Get_Dimension_Bounds");
          return Dimension_Bounds'
            (Low  => Typecast_If_Necessary
               (Expr           => First_Sym,
@@ -952,10 +1032,14 @@ package body Arrays.Low_Level is
         Array_Node_Kind in N_Full_Type_Declaration | N_Subtype_Declaration;
       Array_Is_Object   : constant Boolean :=
         Array_Node_Kind in N_Object_Declaration |
-                           N_Object_Renaming_Declaration;
+                           N_Object_Renaming_Declaration |
+                           N_Identifier |
+                           N_Expanded_Name;
 
       Array_Type        : constant Entity_Id :=
-        (if Is_Type_Dec then
+        (if Nkind (Array_Node) = N_Defining_Identifier then
+              Array_Node
+         elsif Is_Type_Dec then
             Defining_Identifier (Array_Node)
          elsif Array_Is_Object then
             Etype (Defining_Identifier (Array_Node))

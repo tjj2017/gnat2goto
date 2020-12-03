@@ -2303,6 +2303,7 @@ package body Tree_Walk is
       Loop_Wrapper : constant Irep := Make_Code_Block
         (Get_Source_Location (N));
    begin
+      Put_Line ("Into Do_Loop");
       if not Present (Iter_Scheme) or else Present (Condition (Iter_Scheme))
       then
          --  The statements of the loop can be processed.
@@ -2324,6 +2325,7 @@ package body Tree_Walk is
                   Source_Location => Get_Source_Location (N));
          end;
       else
+         Put_Line ("A for loop");
          --  It's a FOR loop.
          --  The statements in the body of the loop cannot be processed
          --  until the loop variable has been inserted into the symbol table.
@@ -2331,6 +2333,7 @@ package body Tree_Walk is
          --   Ada 1995: loop_parameter_specification
          --   Ada 2012: +iterator_specification
          if Present (Loop_Parameter_Specification (Iter_Scheme)) then
+            Put_Line ("Present Loop_Parameter_Specification");
             declare
                Spec : constant Node_Id :=
                  Loop_Parameter_Specification (Iter_Scheme);
@@ -2446,6 +2449,7 @@ package body Tree_Walk is
                            I_Type => Get_Type (Loopvar_Numeric_Rep),
                           Source_Location => Internal_Source_Location);
                      begin
+                        Put_Line ("About to assign loop var");
                         Init := Make_Code_Assign
                           (Lhs => Sym_Loopvar,
                            Rhs => Typecast_If_Necessary
@@ -2467,6 +2471,7 @@ package body Tree_Walk is
                            I_Type          => Make_Bool_Type,
                            Range_Check     => False);
                         --  Assignment has the given type.
+                        Put_Line ("About define loop increment");
                         Post :=
                           Make_Side_Effect_Expr_Assign
                             (Lhs => Sym_Loopvar,
@@ -2498,6 +2503,7 @@ package body Tree_Walk is
                            Source_Location => Get_Source_Location (Spec));
                         --  Here the numeric representation of the loop
                         --  variable must be used for the relational operator.
+                        Put_Line ("About define loop condition");
                         Cond := Make_Op_Leq
                           (Rhs             =>
                              Typecast_If_Necessary
@@ -2522,6 +2528,7 @@ package body Tree_Walk is
                      end;
                   end if;
 
+                  Put_Line ("About to define loop body");
                   Set_Source_Location (Post, Get_Source_Location (Spec));
                   Loop_Irep := Make_Code_For
                     (Loop_Body => Body_Block,
@@ -2531,6 +2538,7 @@ package body Tree_Walk is
                      Source_Location => Get_Source_Location (N));
                end;
             end;
+            Put_Line ("Done loop parameter spec");
          else
             if not Present (Iterator_Specification (Iter_Scheme)) then
                Report_Unhandled_Node_Empty
@@ -2559,6 +2567,7 @@ package body Tree_Walk is
                        Label           => Get_Name_String
                          (Chars (Identifier (N))) & "_exit"));
       end if;
+      Put_Line ("About to return from Do_Loop");
       return Loop_Wrapper;
    end Do_Loop_Statement;
 
@@ -6178,6 +6187,7 @@ package body Tree_Walk is
          when N_Protected_Body_Stub =>
             Report_Unhandled_Node_Empty (N, "Process_Declaration",
                                          "Protected body stub declaration");
+            Put_Line ("It's a null statement");
 
          --  Pragmas may appear in declarations  --
 
@@ -6671,8 +6681,14 @@ package body Tree_Walk is
    --  Process_Statement  --
    -------------------------
 
+   Fudge : Boolean := False;
    procedure Process_Statement (N : Node_Id; Block : Irep) is
    begin
+      if Fudge then
+         Put_Line ("Fudge");
+         Print_Node_Briefly (N);
+      end if;
+
       --  Deal with the statement
       case Nkind (N) is
          -- Simple statements --
@@ -6732,6 +6748,7 @@ package body Tree_Walk is
 
          when N_Loop_Statement =>
             Append_Op (Block, Do_Loop_Statement (N));
+            Fudge := True;
 
          when N_Block_Statement =>
             Append_Op (Block, Do_N_Block_Statement (N));
@@ -6739,6 +6756,7 @@ package body Tree_Walk is
          when N_Handled_Sequence_Of_Statements =>  -- this seems incorrct
             --  It should be block_statement
             Append_Op (Block, Do_Handled_Sequence_Of_Statements (N));
+            Put_Line ("Done Handle statements");
 
          when N_Extended_Return_Statement =>
             Report_Unhandled_Node_Empty (N, "Process_Statement",
@@ -6806,6 +6824,7 @@ package body Tree_Walk is
       while Present (Stmt) loop
          begin
             Process_Statement (Stmt, Reps);
+            Put_Line ("Done Process_Statement");
          exception
             when Error : others =>
                IO.Put_Line (IO.Standard_Error, "<========================>");
@@ -6818,6 +6837,10 @@ package body Tree_Walk is
                IO.Put_Line (IO.Standard_Error, "<========================>");
          end;
          Next (Stmt);
+         if Fudge then
+            Put_Line ("Next stmt after fudge");
+            Print_Node_Briefly (Stmt);
+         end if;
       end loop;
 
       return Reps;
