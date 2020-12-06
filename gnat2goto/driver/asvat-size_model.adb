@@ -564,20 +564,39 @@ package body ASVAT.Size_Model is
    -------------------
 
    function Computed_Size (E : Entity_Id) return Irep is
-      (Computed_Size (Intern (Unique_Name (E))));
-
-   function Computed_Size (Id : Symbol_Id) return Irep is
-      (Extra_Entity_Info (Id).Computed_Model_Size);
+   begin
+      if Has_Size (E) then
+         return
+           (Extra_Entity_Info (Intern (Unique_Name (E))).Computed_Model_Size);
+      else
+         Report_Unhandled_Node_Empty
+           (N        => E,
+            Fun_Name => "Computed_Size",
+            Message  => "Entity does not have ASVAT model size");
+         return Integer_Constant_To_Expr
+           (Value           => Esize (E),
+            Expr_Type       => Make_Signedbv_Type (32),
+            Source_Location => Get_Source_Location (E));
+      end if;
+   end Computed_Size;
 
    -----------------
    -- Static_Size --
    -----------------
 
    function Static_Size (E : Entity_Id) return Natural is
-      (Static_Size (Intern (Unique_Name (E))));
-
-   function Static_Size (Id : Symbol_Id) return Natural is
-      (Extra_Entity_Info (Id).Model_Size);
+   begin
+      if Has_Static_Size (E) then
+         return
+           (Extra_Entity_Info (Intern (Unique_Name (E))).Model_Size);
+      else
+         Report_Unhandled_Node_Empty
+           (N        => E,
+            Fun_Name => "Static_Size",
+            Message  => "Entity does not have ASVAT static model size");
+         return Natural (UI_To_Int (Esize (E)));
+      end if;
+   end Static_Size;
 
    ----------------------------
    -- Make_Byte_Aligned_Size --
@@ -627,5 +646,41 @@ package body ASVAT.Size_Model is
          Extra_Entity_Info.Insert (Id, E_Info);
       end if;
    end Set_Static_Size;
+
+   procedure Accumumulate_Size (Is_Static     : in out Boolean;
+                                Accum_Static  : in out Natural;
+                                Accum_Dynamic : in out Irep;
+                                Entity_To_Add :        Entity_Id)
+   is
+      Source_Location : constant Irep := Get_Source_Location (Accum_Dynamic);
+      Accum_Type      : constant Irep := Get_Type (Accum_Dynamic);
+   begin
+      if Is_Static and then Has_Static_Size (Entity_To_Add) then
+         Accum_Static  := Accum_Static + Static_Size (Entity_To_Add);
+         Accum_Dynamic := Integer_Constant_To_Expr
+           (Value           => UI_From_Int (Int (Accum_Static)),
+            Expr_Type       => Accum_Type,
+            Source_Location => Source_Location);
+      else
+         Is_Static := False;
+         declare
+            Entity_Size : constant Irep := Computed_Size (Entity_To_Add);
+            RHS : constant Irep :=
+              (if Get_Type (Entity_Size) /= Accum_Type then
+                    Make_Op_Typecast
+                 (Op0             => Entity_Size,
+                  Source_Location => Source_Location,
+                  I_Type          => Accum_Type)
+               else
+                  Entity_Size);
+         begin
+            Accum_Dynamic := Make_Op_Add
+              (Rhs             => RHS,
+               Lhs             => Accum_Dynamic,
+               Source_Location => Source_Location,
+               I_Type          => Accum_Type);
+         end;
+      end if;
+   end Accumumulate_Size;
 
 end ASVAT.Size_Model;

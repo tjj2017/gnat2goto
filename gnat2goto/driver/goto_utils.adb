@@ -510,6 +510,10 @@ package body GOTO_Utils is
    function Typecast_If_Necessary (Expr : Irep; New_Type : Irep;
                                    A_Symbol_Table : Symbol_Table) return Irep
    is
+      pragma Assert (Kind (Expr) in Class_Expr);
+      pragma Assert (Kind (New_Type) in Class_Type,
+                    Irep_Kind'Image (Kind (New_Type)));
+
       Followed_Old_Type : constant Irep :=
         Follow_Symbol_Type (Get_Type (Expr), A_Symbol_Table);
       Followed_New_Type : constant Irep :=
@@ -1049,4 +1053,14 @@ package body GOTO_Utils is
             return Get_Context_Name (Parent (Intermediate_Node));
       end case;
    end Get_Context_Name;
+
+   function Non_Private_Ekind (E : Entity_Id) return Entity_Kind is
+     (Ekind (Non_Private_Type (E)));
+
+   function Non_Private_Type (E : Entity_Id) return Entity_Id is
+     (if Ekind (E) in Incomplete_Or_Private_Kind then
+           Non_Private_Type (Full_View (E))
+      else
+         E);
+
 end GOTO_Utils;

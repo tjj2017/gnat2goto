@@ -2,6 +2,7 @@ with Ireps;             use Ireps;
 with Types;             use Types;
 with Atree;             use Atree;
 with Sinfo;             use Sinfo;
+with Einfo;             use Einfo;
 with Symbol_Table_Info; use Symbol_Table_Info;
 with Uintp;                 use Uintp;
 
@@ -143,9 +144,9 @@ package GOTO_Utils is
      Post => Kind (Build_Array_Size'Result) = I_Op_Add;
 
    function Typecast_If_Necessary (Expr : Irep; New_Type : Irep;
-                                   A_Symbol_Table : Symbol_Table) return Irep
-     with Pre => (Kind (Expr) in Class_Expr
-                  and then Kind (New_Type) in Class_Type);
+                                   A_Symbol_Table : Symbol_Table) return Irep;
+--       with Pre => (Kind (Expr) in Class_Expr
+--                    and then Kind (New_Type) in Class_Type);
 
    type Float_Format is (IEEE_32_Bit, IEEE_64_Bit);
 
@@ -245,4 +246,15 @@ package GOTO_Utils is
    --  (whichever comes earlier)
    function Get_Context_Name (Intermediate_Node : Node_Id)
                               return String;
+
+   function Non_Private_Ekind (E : Entity_Id) return Entity_Kind;
+   --  If Ekind (E) is not in E_Incomplete_Or_Private_Kind, returns Ekind (E),
+   --  otherwise recurses through private type entities until the entity of the
+   --  full type is located and returns Ekind (full type).
+
+   function Non_Private_Type (E : Entity_Id) return Entity_Id;
+   --  If Ekind (E) is not in E_Incomplete_Or_Private_Kind, returns E,
+   --  otherwise recurses through private type declarations until a full type
+   --  declaration is encountered then Etype (full type) is returned.
+
 end GOTO_Utils;
