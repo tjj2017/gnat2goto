@@ -563,7 +563,8 @@ package body Tree_Walk is
    begin
       Put_Line ("Do_Aggregate_Literal");
       Print_Node_Briefly (N);
-      case Ekind (N_Type) is
+
+      case Non_Private_Ekind (N_Type) is
          when E_Array_Type =>
             return Do_Aggregate_Literal_Array (N);
          when E_Array_Subtype =>
@@ -586,9 +587,16 @@ package body Tree_Walk is
    ---------------------------------
 
    function Do_Aggregate_Literal_Record (N : Node_Id) return Irep is
-      N_Type : constant Entity_Id := Etype (N);
-      N_Underlying_Type : constant Node_Id := Etype (N_Type);
+      N_Type_Raw        : constant Entity_Id := Etype (N);
+      N_Type : constant Entity_Id := Non_Private_Type (Etype (N));
+      N_Underlying_Type : constant Node_Id :=
+        (if Ekind (N_Type_Raw) in Incomplete_Or_Private_Kind then
+              N_Type
+         else
+            Etype (N_Type_Raw));
    begin
+      Put_Line ("Do_Aggregate_Literal_Record");
+      Print_Node_Briefly (N);
       --  It appears GNAT sorts the aggregate members for us into the order
       --  discriminant (if any), common members, variant members.
       --  However, let's check.
@@ -4669,6 +4677,7 @@ package body Tree_Walk is
                                       Comp_Node : Node_Id;
                                       Add_To_List : Irep := Components) is
       begin
+         --  Not sure why this declaration is required?
          Declare_Itype (Comp_Type_Node);
          Add_Record_Component_Raw (Comp_Name,
                                    Do_Type_Reference (Comp_Type_Node),

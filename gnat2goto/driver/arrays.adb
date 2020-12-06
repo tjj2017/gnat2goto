@@ -2856,6 +2856,12 @@ package body Arrays is
             I_Type          => Index_T,
             Range_Check     => False));
 
+      pragma Assert
+        (if not ASVAT.Size_Model.Has_Size (Comp_Type) then
+             (Print_Msg ("The missing size is:") and Print_Node (Comp_Type))
+         else
+             True);
+
       Array_Model_Size : constant Irep :=
         Make_Op_Mul
           (Rhs             => Typecast_If_Necessary

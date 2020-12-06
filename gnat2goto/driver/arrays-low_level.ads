@@ -103,9 +103,8 @@ package Arrays.Low_Level is
 
    function Calculate_Index_Offset (Array_Node  : Node_Id;
                                     The_Indices : Node_Id) return Irep
-     with Pre => (Nkind (Array_Node) in N_Has_Entity and then
-                      Is_Array_Type (Etype (Array_Node))) and
-          Nkind (The_Indices) = N_Indexed_Component;
+   with Pre => Is_Array_Type (Etype (Array_Node)) and
+               Nkind (The_Indices) = N_Indexed_Component;
    --  Calculates the zero based index of a possibly multidimensional
    --  Ada array. Multidimensional Ada arrays are modelled as a
    --  one-dimensional array in row major order in ASVAT.

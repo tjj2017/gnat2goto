@@ -54,17 +54,33 @@ package ASVAT.Size_Model is
    function Has_Static_Size (Id : Symbol_Id) return Boolean;
    function Has_Size (E : Entity_Id) return Boolean;
    function Has_Size (Id : Symbol_Id) return Boolean;
-   function Static_Size (E : Entity_Id) return Natural
-     with Pre => Has_Static_Size (E);
-   function Static_Size (Id : Symbol_Id) return Natural
-     with Pre => Has_Static_Size (Id);
-   function Computed_Size (E : Entity_Id) return Irep
-     with Pre => Has_Size (E);
-   function Computed_Size (Id : Symbol_Id) return Irep
-     with Pre => Has_Size (Id);
+   function Static_Size (E : Entity_Id) return Natural;
+   --       with Pre => Has_Static_Size (E);
+   --       Temporarily remove precondition and report unhamdled node.
+   function Computed_Size (E : Entity_Id) return Irep;
+   --       with Pre => Has_Size (E);
+   --       Temporarily remove precondition and report unhamdled node.
 
    --  Model representations of entities are byte aligned.
    function Make_Byte_Aligned_Size (S : Uint) return Uint;
    function Make_Byte_Aligned_Size (S : Integer) return Integer;
+
+   procedure Accumumulate_Size (Is_Static     : in out Boolean;
+                                Accum_Static  : in out Natural;
+                                Accum_Dynamic : in out Irep;
+                                Entity_To_Add :        Entity_Id);
+   --  Accumulates a size.  Basically performs the operation
+   --  Accum := Accum + Size (Entity_To_Add).
+   --  However, while the sum is statically determinable, indicated by
+   --  Is_Static, the summation uses simple arithmetic operators but if
+   --  If Is_Static is False, or the Entity_To_Add does not have a staic size,
+   --  then the addition has to be performed at analysis time using Irep
+   --  operations.
+   --  If Is_Static is True but the Entity to add does not have a static size,
+   --  Is_Static is set to False and the value in Accum_Static is converted
+   --  to an Irep constant and used in the Irep add operation.
+   --  After each call, Is_Static True indicates the accumulated sum is
+   --  available in Accum_Static and Is_Static False indicates the result
+   --  is available from Accum_Dynamic.
 
 end ASVAT.Size_Model;
