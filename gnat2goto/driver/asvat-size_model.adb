@@ -647,6 +647,15 @@ package body ASVAT.Size_Model is
       end if;
    end Set_Static_Size;
 
+   procedure Set_Size_From_Entity (Target, Source : Entity_Id) is
+   begin
+      if Has_Static_Size (Source) then
+         Set_Static_Size (Target, Static_Size (Source));
+      else
+         Set_Computed_Size (Target, Computed_Size (Source));
+      end if;
+   end Set_Size_From_Entity;
+
    procedure Accumumulate_Size (Is_Static     : in out Boolean;
                                 Accum_Static  : in out Natural;
                                 Accum_Dynamic : in out Irep;

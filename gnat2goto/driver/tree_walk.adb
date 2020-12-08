@@ -1539,7 +1539,7 @@ package body Tree_Walk is
          when N_Selected_Component   => return Do_Selected_Component (N);
          when N_Op                   => return Do_Operator_General (N);
          when N_Integer_Literal      => return Do_Constant (N);
-         when N_String_Literal       => return Do_String_Constant (N);
+         when N_String_Literal       => return Do_String_Literal (N);
          when N_Character_Literal    => return Do_Character_Constant (N);
          when N_Type_Conversion      => return Do_Type_Conversion (N);
          when N_Function_Call        => return Do_Function_Call (N);
@@ -3587,17 +3587,7 @@ package body Tree_Walk is
          --  The model size of the object hast to be recorded if it has
          --  not already been set by an array object declaration.
          if not ASVAT.Size_Model.Has_Size (Object_Def) then
-            if ASVAT.Size_Model.Has_Static_Size (Object_Type) then
-               ASVAT.Size_Model.Set_Static_Size
-                 (E          => Object_Def,
-                  Model_Size =>
-                    ASVAT.Size_Model.Static_Size (Object_Type));
-            else
-               ASVAT.Size_Model.Set_Computed_Size
-                 (E         => Object_Def,
-                  Size_Expr =>
-                    ASVAT.Size_Model.Computed_Size (Object_Type));
-            end if;
+            ASVAT.Size_Model.Set_Size_From_Entity (Object_Def, Object_Type);
          end if;
 
       elsif Init_Expr_Irep /= Ireps.Empty then
@@ -4655,6 +4645,14 @@ package body Tree_Walk is
       Components : constant Irep := Make_Struct_Union_Components;
       Disc_Iter : Node_Id := First (Discs);
 
+      --  Set up accumulators to record ASVAT.Model_Size.
+      Is_Static    : Boolean := True;
+      Static_Size  : Natural := 0;
+      Dynamic_Size : Irep := Integer_Constant_To_Expr
+        (Value           => Uint_0,
+         Expr_Type       => Make_Signedbv_Type (32),
+         Source_Location => Get_Source_Location (N));
+
       procedure Add_Record_Component (Comp_Name : String;
                                       Comp_Type_Node : Node_Id;
                                       Comp_Node : Node_Id;
@@ -4683,6 +4681,13 @@ package body Tree_Walk is
                                    Do_Type_Reference (Comp_Type_Node),
                                    Comp_Node,
                                    Add_To_List);
+
+         ASVAT.Size_Model.Accumumulate_Size
+           (Is_Static     => Is_Static,
+            Accum_Static  => Static_Size,
+            Accum_Dynamic => Dynamic_Size,
+            Entity_To_Add => Comp_Type_Node);
+
       end Add_Record_Component;
 
       ------------------------------
@@ -4825,6 +4830,25 @@ package body Tree_Walk is
             end;
          end;
       end if;
+
+      Print_Node_Briefly (Parent (N));
+      if Is_Static then
+         ASVAT.Size_Model.Set_Static_Size
+           (E          => Defining_Identifier (Parent (N)),
+            Model_Size => Static_Size);
+      else
+         ASVAT.Size_Model.Set_Computed_Size
+        (E         =>  Defining_Identifier (Parent (N)),
+         Size_Expr => Dynamic_Size);
+      end if;
+
+      Put_Line ("ASVAT.Size_Model record Size");
+      Put_Line (Unique_Name (Defining_Identifier (Parent (N))));
+      if Is_Static then
+         Put_Line ("Static size " & Natural'Image (Static_Size));
+      end if;
+      Put_Line ("Dynamic size");
+      Print_Irep (Dynamic_Size);
 
       return Make_Struct_Type
         (Tag => "This will be filled in later by Do_Type_Declaration",
@@ -5474,16 +5498,22 @@ package body Tree_Walk is
 
    function Do_Subtype_Indication (N : Node_Id) return Irep
    is
+      Subtype_Def_Id : constant Entity_Id := Defining_Identifier (Parent (N));
+
       Underlying : Irep;
       Constr : Node_Id;
    begin
       Put_Line ("Subtype_Indication");
+      Print_Node_Briefly (Subtype_Def_Id);
       case Nkind (N) is
          when N_Subtype_Indication =>
             declare
                Sub_Type : constant Entity_Id :=
                  Etype (Subtype_Mark (N));
             begin
+               ASVAT.Size_Model.Set_Size_From_Entity
+                 (Subtype_Def_Id, Sub_Type);
+
                Underlying := Do_Type_Reference (Sub_Type);
                Constr := Constraint (N);
                if Present (Constr) then
@@ -5506,7 +5536,8 @@ package body Tree_Walk is
          when N_Identifier |
               N_Expanded_Name =>
             --  subtype indications w/o constraint are given only as identifier
-               Underlying := Do_Type_Reference (Etype (N));
+            ASVAT.Size_Model.Set_Size_From_Entity (Subtype_Def_Id, Etype (N));
+            Underlying := Do_Type_Reference (Etype (N));
                return Underlying;
          when others =>
             return Report_Unhandled_Node_Irep (N, "Do_Subtype_Indication",
@@ -5648,6 +5679,9 @@ package body Tree_Walk is
         (if Ekind (E) = E_Access_Subtype then Etype (E) else E);
       Type_Id : constant Symbol_Id := Intern (Type_Name);
    begin
+      Put_Line ("Do_Type_Reference - Type_Name " & Type_Name);
+      Put_Line ("Symbol table contains " &
+                  Boolean'Image (Global_Symbol_Table.Contains (Type_Id)));
       Declare_Itype (E);
       if Global_Symbol_Table.Contains (Type_Id) then
          if Kind (Global_Symbol_Table.Element (Type_Id).SymType) in Class_Type
@@ -5668,9 +5702,7 @@ package body Tree_Walk is
 
    procedure Do_Withed_Unit_Spec (N : Node_Id) is
    begin
-      if Defining_Entity (N) = Stand.Standard_Standard or else
-        Unique_Name (Defining_Entity (N)) = "system"
-      then
+      if Defining_Entity (N) = Stand.Standard_Standard then
          --  TODO: github issue #252
          --  At the moment Standard is not processed
          null;
