@@ -60,6 +60,7 @@ package body Gnat2goto_Itypes is
             Ty_Cursor : Symbol_Maps.Cursor;
             Ty_New : Boolean;
          begin
+            Put_Line ("Declare_Itype " & Unique_Name (Ty));
             Global_Symbol_Table.Insert (Ty_Name, Ty_Symbol, Ty_Cursor, Ty_New);
             if Ty_New then
                declare
@@ -90,9 +91,10 @@ package body Gnat2goto_Itypes is
       Print_Node_Briefly (N);
       Put_Line ("Ekind: " & Entity_Kind'Image (Ekind (N)));
       return (case Ekind (N) is
-         when E_Array_Subtype => Do_Itype_Array_Subtype (N),
-         when E_Array_Type => Do_Itype_Array_Type (N),
-         when E_String_Literal_Subtype => Do_Itype_String_Literal_Subtype (N),
+         when Array_Kind => Do_Itype_Array_Subtype (N),
+--           when E_Array_Type => Do_Itype_Array_Type (N),
+--      when E_String_Literal_Subtype =>
+--                Do_Itype_String_Literal_Subtype (N),
          when E_Signed_Integer_Subtype => Do_Itype_Integer_Subtype (N),
          when E_Record_Subtype => Do_Itype_Record_Subtype (N),
          when E_Signed_Integer_Type => Do_Itype_Integer_Type (N),
@@ -133,6 +135,7 @@ package body Gnat2goto_Itypes is
    function Do_Itype_Array_Subtype (N : Node_Id) return Irep is
    begin
       Put_Line ("Do_Itype_Array_Subtype");
+      Print_Node_Briefly (N);
       return
         Do_Array_Subtype
           (Subtype_Node => N,

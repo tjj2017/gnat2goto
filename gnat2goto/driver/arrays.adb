@@ -1,6 +1,7 @@
 with Nlists;                use Nlists;
 with Uintp;                 use Uintp;
 with Namet;                 use Namet;
+with Stringt;               use Stringt;
 with Tree_Walk;             use Tree_Walk;
 with Aggregates;            use Aggregates;
 with Follow;                use Follow;
@@ -108,11 +109,11 @@ package body Arrays is
 
    procedure Declare_First_Last_From_Bounds (Prefix     : String;
                                              Dimension  : String;
-                                             Index_Type : Entity_Id;
+                                             Index_Type : Irep;
                                              Bounds     : Dimension_Bounds;
                                              Block      : Irep);
    --  This is similar to Declare_First_Last_Vars but is called at a slightly
-   --  lower-level with the index node replaced by the Index_Type node and
+   --  lower-level with the index node replaced by the Index_Type Irep and
    --  the dimension Bounds.
 
    procedure Declare_First_Last_Params (Prefix     : String;
@@ -195,7 +196,13 @@ package body Arrays is
             Dest_Array  : Irep;
             Dest_Bounds : Static_And_Dynamic_Bounds)
      with Pre => Nkind (Slice) = N_Slice and
-                 Kind (Get_Type (Dest_Array)) = I_Array_Type;
+     Kind (Get_Type (Dest_Array)) = I_Array_Type;
+
+   procedure Update_Array_From_String_Literal
+     (Block        : Irep;
+      Str_Lit      : Node_Id;
+      Dest_Array   : Irep)
+     with Pre => Nkind (Str_Lit) = N_String_Literal;
 
 --     procedure Array_Assignment_Op (Source_Node : Node_Id;
 --                                    Target_Node : Node_Id;
@@ -301,6 +308,11 @@ package body Arrays is
             N_Dimensions => Number_Dimensions (Dest_Type),
             Dest_Bounds  => Dest_Bounds,
             Dest_Array   => Target_Array);
+      elsif RHS_Node_Kind = N_String_Literal then
+         Update_Array_From_String_Literal
+            (Block        => Block,
+             Str_Lit      => Source_Expr,
+             Dest_Array   => Target_Array);
       elsif RHS_Node_Kind = N_Slice then
          Put_Line ("RHS is a slice");
          Print_Node_Briefly (Source_Expr);
@@ -430,7 +442,7 @@ package body Arrays is
                                        Source_Loc : Irep;
                                        Block      : Irep)
    is
-      pragma Assert (Print_Msg ("Array_Object_And_Friends"));
+      pragma Assert (Print_Msg ("Array_Object_And_Friends - definitely"));
       Id            : constant Symbol_Id := Intern (Array_Name);
       pragma Assert (Print_Node (Array_Type));
       pragma Assert (Print_Msg ("Array_Object_And_Friends - Array_Type con: "
@@ -443,12 +455,17 @@ package body Arrays is
       Needs_Size_Var : constant Boolean :=
         not Bounds.Has_Static_Bounds and then Is_Itype (Array_Type);
 
-      pragma Assert (Print_Msg ("Array_Object_And_Friends"));
+      pragma Assert (Print_Msg ("Array_Object_And_Friends - Secondly"));
       pragma Assert (Print_Node (Array_Type));
       pragma Assert (Print_Msg ("Is_Itype " &
                        Boolean'Image (Is_Itype (Array_Type))));
 
+      pragma Assert (Print_Msg ("The array type node"));
+      pragma Assert (Print_Node (Array_Type));
       Array_Type_Pre  : constant Irep := Do_Type_Reference (Array_Type);
+      pragma Assert (Print_Msg ("Array_Type_Pre"));
+      pragma Assert (Print_Irep_Func (Array_Type_Pre));
+
       Comp_Irep       : constant Irep := Get_Subtype (Array_Type_Pre);
       Array_Size_Var  : constant Irep :=
         (if Needs_Size_Var then
@@ -765,17 +782,80 @@ package body Arrays is
                                     Array_Type : Entity_Id;
                                     Block      : Irep)
    is
-      Index_Iter : Node_Id := First_Index (Array_Type);
+      Source_Location    : constant Irep := Get_Source_Location (Block);
    begin
-      for Dimension in 1 .. Integer (Number_Dimensions (Array_Type)) loop
-         pragma Assert (Present (Index_Iter));
-         Declare_First_Last_Vars
-           (Prefix     => Array_Name,
-            Dimension  => Dimension,
-            Index      => Index_Iter,
-            Block      => Block);
-         Index_Iter := Next_Index (Index_Iter);
-      end loop;
+      if Ekind (Array_Type) = E_String_Literal_Subtype then
+         --  A string literal can only have 1 dimension but
+         --  gnat does not give a first index in the atree for string literals.
+         declare
+            --  The index subtype of a string is Positive
+            Str_Index_Type     : constant Irep := Make_Signedbv_Type (32);
+            Str_Lit_Low        : constant Node_Id :=
+              String_Literal_Low_Bound (Array_Type);
+            Str_Lit_Is_Static  : constant Boolean :=
+              Is_OK_Static_Expression (Str_Lit_Low);
+            Str_Lit_Low_Static : constant Uint :=
+              (if Str_Lit_Is_Static then
+                    Expr_Value (Str_Lit_Low)
+               else
+                  Uint_1);
+            Str_Lit_Low_Irep   : constant Irep := Do_Expression (Str_Lit_Low);
+
+            Str_Lit_Length     : constant Uint :=
+              String_Literal_Length (Array_Type);
+
+            Str_Lit_High_Irep  : constant Irep :=
+              (if Str_Lit_Is_Static then
+                  Integer_Constant_To_Expr
+                 (Value           =>
+                      Str_Lit_Low_Static + Str_Lit_Length - Uint_1,
+                  Expr_Type       => Str_Index_Type,
+                  Source_Location => Source_Location)
+               else
+                  Make_Op_Sub
+                 (Rhs             =>
+                      Integer_Constant_To_Expr
+                    (Value           => Uint_1,
+                     Expr_Type       => Str_Index_Type,
+                     Source_Location => Source_Location),
+                  Lhs             => Make_Op_Add
+                    (Rhs             =>
+                         Integer_Constant_To_Expr
+                       (Value           => Str_Lit_Length,
+                        Expr_Type       => Str_Index_Type,
+                        Source_Location => Source_Location),
+                     Lhs             => Str_Lit_Low_Irep,
+                     Source_Location => Source_Location,
+                     I_Type          => Str_Index_Type),
+                  Source_Location => Source_Location,
+                  I_Type          => Str_Index_Type));
+
+            Bounds : constant Dimension_Bounds := Dimension_Bounds'
+              (Low  => Str_Lit_Low_Irep,
+               High => Str_Lit_High_Irep);
+         begin
+            Declare_First_Last_From_Bounds
+              (Prefix     => Array_Name,
+               Dimension  => "1",
+               Index_Type => Str_Index_Type,
+               Bounds     => Bounds,
+               Block      => Block);
+         end;
+      else
+         declare
+            Index_Iter : Node_Id := First_Index (Array_Type);
+         begin
+            for Dimension in 1 .. Integer (Number_Dimensions (Array_Type)) loop
+               pragma Assert (Present (Index_Iter));
+               Declare_First_Last_Vars
+                 (Prefix     => Array_Name,
+                  Dimension  => Dimension,
+                  Index      => Index_Iter,
+                  Block      => Block);
+               Index_Iter := Next_Index (Index_Iter);
+            end loop;
+         end;
+      end if;
    end Declare_Array_Friends;
 
    ----------------------------------------
@@ -784,7 +864,7 @@ package body Arrays is
 
    procedure Declare_First_Last_From_Bounds (Prefix     : String;
                                              Dimension  : String;
-                                             Index_Type : Node_Id;
+                                             Index_Type : Irep;
                                              Bounds     : Dimension_Bounds;
                                              Block      : Irep)
    is
@@ -796,19 +876,16 @@ package body Arrays is
         Prefix & Last_Var_Str & Dimension;
       Last_Name_Id    : constant Symbol_Id := Intern (Last_Name);
 
-      Type_Irep : constant Irep :=
-        Do_Type_Reference (Index_Type);
-
       First_Sym : constant Irep :=
         Make_Symbol_Expr
           (Source_Location => Source_Loc,
-           I_Type          => Type_Irep,
+           I_Type          => Index_Type,
            Range_Check     => False,
            Identifier      => First_Name);
       Last_Sym : constant Irep :=
         Make_Symbol_Expr
           (Source_Location => Source_Loc,
-           I_Type          => Type_Irep,
+           I_Type          => Index_Type,
            Range_Check     => False,
            Identifier      => Last_Name);
 
@@ -816,40 +893,40 @@ package body Arrays is
         Make_Code_Decl
           (Symbol          => First_Sym,
            Source_Location => Source_Loc,
-           I_Type          => Type_Irep,
+           I_Type          => Index_Type,
            Range_Check     => False);
 
       Dec_Last : constant Irep :=
         Make_Code_Decl
           (Symbol          => Last_Sym,
            Source_Location => Source_Loc,
-           I_Type          => Type_Irep,
+           I_Type          => Index_Type,
            Range_Check     => False);
 
       First_Val : constant Irep :=
-        (if Type_Irep = Index_T then
+        (if Index_Type = Index_T then
             Bounds.Low
          else
             Make_Op_Typecast
            (Op0             => Bounds.Low,
             Source_Location => Source_Loc,
-            I_Type          => Type_Irep));
+            I_Type          => Index_Type));
 
       Last_Val : constant Irep :=
-        (if Type_Irep = Index_T then
+        (if Index_Type = Index_T then
             Bounds.High
          else
             Make_Op_Typecast
            (Op0             => Bounds.High,
             Source_Location => Source_Loc,
-            I_Type          => Type_Irep));
+            I_Type          => Index_Type));
 
       Assign_First : constant Irep :=
         Make_Code_Assign
           (Rhs             => First_Val,
            Lhs             => First_Sym,
            Source_Location => Source_Loc,
-           I_Type          => Type_Irep,
+           I_Type          => Index_Type,
            Range_Check     => False);
 
       Assign_Last : constant Irep :=
@@ -857,18 +934,18 @@ package body Arrays is
           (Rhs             => Last_Val,
            Lhs             => Last_Sym,
            Source_Location => Source_Loc,
-           I_Type          => Type_Irep,
+           I_Type          => Index_Type,
            Range_Check     => False);
    begin
       --  Add the first and last variables to the symbol table.
       New_Object_Symbol_Entry
         (Object_Name       => First_Name_Id,
-         Object_Type       => Type_Irep,
+         Object_Type       => Index_Type,
          Object_Init_Value => Bounds.Low,
          A_Symbol_Table    => Global_Symbol_Table);
       New_Object_Symbol_Entry
         (Object_Name       => Last_Name_Id,
-         Object_Type       => Type_Irep,
+         Object_Type       => Index_Type,
          Object_Init_Value => Bounds.High,
          A_Symbol_Table    => Global_Symbol_Table);
 
@@ -967,7 +1044,7 @@ package body Arrays is
       Declare_First_Last_From_Bounds
         (Prefix     => Prefix,
          Dimension  => Number_Str,
-         Index_Type => Index_Type,
+         Index_Type => Do_Type_Reference (Index_Type),
          Bounds     => Bounds,
          Block      => Block);
    end Declare_First_Last_Vars;
@@ -1064,6 +1141,10 @@ package body Arrays is
             end if;
          end;
       else
+         Report_Unhandled_Node_Empty
+           (N        => N,
+            Fun_Name => "Do_Aggregate_Array_Literal",
+            Message  => "Aggregates with non-static bounds unsupported");
          declare
             Bounds : constant Dimension_Bounds :=
               Get_Dimension_Bounds (N, 1, Aggregate_Bounds (N));
@@ -1118,6 +1199,93 @@ package body Arrays is
          return Func_Call;
       end;
    end Do_Aggregate_Literal_Array;
+
+   -----------------------
+   -- Do_String_Literal --
+   -----------------------
+
+   function Do_String_Literal (N : Node_Id) return Irep is
+      Source_Location   : constant Irep := Get_Source_Location (N);
+      --  String literals are stored in string constants table described
+      --  Stringst.
+      --  Their lower bound is always 1 and therefore the string length
+      --  is also the string litera['s high bound.
+      Str_Id            : constant String_Id := Strval (N);
+      Str_Lit_High      : constant Nat := String_Length (Str_Id);
+      Str_Lit_Size_Irep : constant Irep :=
+        Integer_Constant_To_Expr
+          (Value           => UI_From_Int (Str_Lit_High),
+           Expr_Type       => Index_T,
+           Source_Location => Source_Location);
+      --  To Do: This needs to changed to Make_Char_Type ...
+      Component_Irep    : constant Irep := Make_Unsignedbv_Type (8);
+      Str_Subtype       : constant Irep :=
+        Make_Array_Type
+          (I_Subtype => Component_Irep,
+           Size      => Str_Lit_Size_Irep);
+
+      New_Name          : constant String := Fresh_Var_Name ("string_");
+      String_Obj        : constant String := New_Name & "_obj";
+      String_Func       : constant String := New_Name & "_fun";
+      Obj_Irep          : constant Irep := Make_Symbol_Expr
+        (Source_Location => Source_Location,
+         I_Type          => Str_Subtype,
+         Range_Check     => False,
+         Identifier      => String_Obj);
+      Func_Irep         : constant Irep :=
+        Make_Code_Type (Parameters  => Make_Parameter_List,  -- No parameters.
+                        Ellipsis    => False,
+                        Return_Type => Str_Subtype,
+                        Inlined     => False,
+                        Knr         => False);
+      Result_Block      : constant Irep := Make_Code_Block (Source_Location);
+      Obj_Dec           : constant Irep := Make_Code_Decl
+        (Symbol          => Obj_Irep,
+         Source_Location => Source_Location,
+         I_Type          => Str_Subtype,
+         Range_Check     => False);
+   begin
+      Put_Line ("Do_String_Literal");
+      --  First add the array object for the string to the symbol table.
+      New_Object_Symbol_Entry
+        (Object_Name       => Intern (String_Obj),
+               Object_Type       => Str_Subtype,
+               Object_Init_Value => Ireps.Empty,
+               A_Symbol_Table    => Global_Symbol_Table);
+
+      --  Make the body of the function that builds the aggregate
+      --  First the declaration of the aggregate array;
+      Append_Op (Result_Block, Obj_Dec);
+
+      Update_Array_From_String_Literal
+        (Block        => Result_Block,
+         Str_Lit      => N,
+         Dest_Array   => Obj_Irep);
+
+      --  Now add the return statement.
+      Append_Op (Result_Block,
+                 Make_Code_Return (Return_Value    => Obj_Irep,
+                                   Source_Location => Source_Location));
+      --  Create the aggregate function from the body
+      --  and return a call to the function.
+      declare
+         Str_Func_Symbol : constant Symbol :=
+           New_Function_Symbol_Entry
+             (Name           => String_Func,
+              Symbol_Type    => Func_Irep,
+              Value          => Result_Block,
+              A_Symbol_Table => Global_Symbol_Table);
+         Func_Call : constant Irep :=
+           Make_Side_Effect_Expr_Function_Call
+             (Arguments       => Make_Argument_List,  -- Null arg list.
+              I_Function      => Symbol_Expr (Str_Func_Symbol),
+              Source_Location => Source_Location,
+              I_Type          => Str_Subtype,
+              Range_Check     => False);
+      begin
+         return Func_Call;
+      end;
+   end Do_String_Literal;
 
 --     function Do_Aggregate_Literal_Array (N : Node_Id) return Irep is
 --        Result_Type : constant Irep := Do_Type_Reference (Etype (N));
@@ -2189,7 +2357,8 @@ package body Arrays is
          Declare_First_Last_From_Bounds
            (Prefix     => Array_Name,
             Dimension  => "1",
-            Index_Type => Etype (First_Index (Target_Type)),
+            Index_Type =>
+              Do_Type_Reference (Etype (First_Index (Target_Type))),
             Bounds     => Array_Bounds,
             Block      => Block);
 
@@ -2223,15 +2392,6 @@ package body Arrays is
       Expr_Type    : constant Entity_Id := Etype (Init_Expr);
       Array_I_Type : constant Irep := Do_Type_Reference (Target_Type);
    begin
-      --  The default array symbol is determined from the target type.
-      --  If the target type is unconstrained and a constraint is determined
-      --  from its initialization the array symbol will be updated once
-      --  the constraints have been determined.
-      The_Array := Make_Symbol_Expr
-        (Source_Location => Source_Loc,
-         I_Type          => Array_I_Type,
-         Identifier      => Array_Name);
-
       Put_Line ("Make_Constrained_Array_From_Initialization");
       Put_Line (Array_Name);
       Put_Line (Node_Kind'Image (Nkind (Expr_Type)));
@@ -2273,14 +2433,63 @@ package body Arrays is
       elsif Is_Constrained (Expr_Type) then
          Put_Line ("Is constrained");
          Print_Node_Briefly (Init_Expr);
-         --  Add the array object to the symbol table and declare it.
-         Array_Object_And_Friends
-           (Array_Name => Array_Name,
-            Array_Type => Expr_Type,
-            Source_Loc => Source_Loc,
-            Block      => Block);
-               Array_Bounds :=
-                 Multi_Dimension_Flat_Bounds (Init_Expr);
+         declare
+            Comp_Type        : constant Entity_Id :=
+              Component_Type (Target_Type);
+
+            Comp_Irep_Pre  : constant Irep :=
+              Do_Type_Reference (Comp_Type);
+            Comp_Irep      : constant Irep :=
+              (if Kind (Follow_Symbol_Type
+               (Comp_Irep_Pre, Global_Symbol_Table))
+               = I_C_Enum_Type
+               then
+                  Make_Unsignedbv_Type
+                 (ASVAT.Size_Model.Static_Size (Comp_Type))
+               else
+                  Comp_Irep_Pre);
+
+            Bounds : constant Static_And_Dynamic_Bounds :=
+              Multi_Dimension_Flat_Bounds (Expr_Type);
+            Array_Size : constant Irep :=
+              (if Bounds.Has_Static_Bounds then
+                  Integer_Constant_To_Expr
+                 (Value           => UI_From_Int
+                      (Bounds.Low_Static + Bounds.High_Static - 1),
+                  Expr_Type       => Index_T,
+                  Source_Location => Source_Loc)
+               else
+                  Make_Op_Sub
+                 (Rhs             => Integer_Constant_To_Expr
+                      (Value           => Uint_1,
+                       Expr_Type       => Index_T,
+                       Source_Location => Source_Loc),
+                  Lhs             => Make_Op_Add
+                    (Rhs             => Bounds.High_Dynamic,
+                     Lhs             => Bounds.Low_Dynamic,
+                     Source_Location => Source_Loc,
+                     I_Type          => Index_T),
+                  Source_Location => Source_Loc,
+                  I_Type          => Index_T));
+            Array_Subtype : constant Irep :=
+              Make_Array_Type
+                (I_Subtype => Comp_Irep,
+                 Size      => Array_Size);
+         begin
+            --  Add the array object to the symbol table and declare it.
+            Array_Object_And_Friends
+              (Array_Name => Array_Name,
+               Array_Type => Expr_Type,
+               Source_Loc => Source_Loc,
+               Block      => Block);
+
+            --  Don't forget to set the out parameters
+            Array_Bounds := Bounds;
+            The_Array := Make_Symbol_Expr
+              (Source_Location => Source_Loc,
+               I_Type          => Array_Subtype,
+               Identifier      => Array_Name);
+         end;
       elsif Expr_Kind = N_Function_Call then
          --  A call to a funcion which returns an unconstrained array.
          Report_Unhandled_Node_Empty
@@ -2297,12 +2506,17 @@ package body Arrays is
             Block      => Block);
                Array_Bounds :=
                  Multi_Dimension_Flat_Bounds (Expr_Type);
+         --  The default array symbol is determined from the target type.
+         The_Array := Make_Symbol_Expr
+           (Source_Location => Source_Loc,
+            I_Type          => Array_I_Type,
+            Identifier      => Array_Name);
       else
-            Report_Unhandled_Node_Empty
-              (Init_Expr,
-               "Make_Constrained_Array_From_Initialization",
-               "Unsupported unconstrained array initialization by " &
-                 Node_Kind'Image (Nkind (Init_Expr)));
+         Report_Unhandled_Node_Empty
+           (Init_Expr,
+            "Make_Constrained_Array_From_Initialization",
+            "Unsupported unconstrained array initialization by " &
+              Node_Kind'Image (Nkind (Init_Expr)));
          --  For to allow coninuation of translation an unconstrained object
          --  is declared.
          Array_Object_And_Friends
@@ -2312,6 +2526,11 @@ package body Arrays is
             Block      => Block);
                Array_Bounds :=
                  Multi_Dimension_Flat_Bounds (Expr_Type);
+         --  The default array symbol is determined from the target type.
+         The_Array := Make_Symbol_Expr
+           (Source_Location => Source_Loc,
+            I_Type          => Array_I_Type,
+            Identifier      => Array_Name);
       end if;
    end Make_Constrained_Array_From_Initialization;
 
@@ -3110,5 +3329,44 @@ package body Arrays is
          Source_Irep   => Underlying_Array);
       Put_Line ("Copied from slice");
    end Update_Array_From_Slice;
+
+   procedure Update_Array_From_String_Literal
+     (Block        : Irep;
+      Str_Lit      : Node_Id;
+      Dest_Array   : Irep)
+   is
+      Source_Location   : constant Irep := Get_Source_Location (Str_Lit);
+      --  String literals are stored in string constants table described
+      --  Stringst.
+      --  Their lower bound is always 1 and therefore the string length
+      --  is also the string litera['s high bound.
+      Str_Id            : constant String_Id := Strval (Str_Lit);
+      Str_Lit_High      : constant Nat := String_Length (Str_Id);
+      Str_Lit_Low       : constant Pos := 1;
+      Component_Itype   : constant Irep :=
+        Get_Subtype (Get_Type (Dest_Array));
+   begin
+      Put_Line ("Update_Array_From_String_Literal");
+      Print_Irep (Dest_Array);
+      Print_Irep (Get_Type (Dest_Array));
+      Print_Irep (Component_Itype);
+      for I in Str_Lit_Low .. Str_Lit_High loop
+         Assign_To_Array_Component
+              (Block      => Block,
+               The_Array  => Dest_Array,
+               Zero_Index =>
+                 Integer_Constant_To_Expr
+                   (Value           => UI_From_Int (I - 1),
+                    Expr_Type       => Index_T,
+                    Source_Location => Source_Location),
+               Value_Expr => Integer_Constant_To_Expr
+                 (Value           => UI_From_Int
+                      (Nat (Get_String_Char (Str_Id, I))),
+                  Expr_Type       => Component_Itype,
+                  Source_Location => Source_Location),
+               I_Type     => Component_Itype,
+               Location   => Source_Location);
+      end loop;
+   end Update_Array_From_String_Literal;
 
 end Arrays;

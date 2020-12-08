@@ -563,13 +563,27 @@ package body Driver is
    ------------------------------
 
    procedure Translate_Standard_Types is
+      function Make_Char_Type return Irep is (Make_Unsignedbv_Type (8));
       procedure Add_Standard_String;
       procedure Add_Standard_String is
+         function Make_Ada_String_Type return Irep is
+           (Make_Array_Type
+              (I_Subtype => Make_Char_Type,
+               Size      => Make_Nondet_Expr
+                 (Source_Location => Internal_Source_Location,
+                  I_Type          => CProver_Size_T)));
          Builtin   : Symbol;
          Builtin_Node : constant Node_Id := Standard_String;
-         Type_Irep : constant Irep := Make_String_Type;
+         Type_Irep : constant Irep := Make_Ada_String_Type;
+
+         Str_Name       : constant String := Unique_Name (Builtin_Node);
+
+         --  The variabes representing String'First and String'Last
+         --  should be declared here.  Their value will be nondet.
+--           Str_First_Name : constant String := Str_Name & "___first_1";
+--           Str_Last_Name  : constant String := Str_Name & "___last_1");
       begin
-         Builtin.Name       := Intern (Unique_Name (Builtin_Node));
+         Builtin.Name       := Intern (Str_Name);
          Builtin.PrettyName := Builtin.Name;
          Builtin.BaseName   := Builtin.Name;
          Builtin.SymType    := Type_Irep;

@@ -38,6 +38,9 @@ package Arrays is
    function Do_Aggregate_Literal_Array (N : Node_Id) return Irep
      with Pre  => Nkind (N) = N_Aggregate;
 
+   function Do_String_Literal (N : Node_Id) return Irep
+     with Pre  => Nkind (N) = N_String_Literal;
+
    procedure Do_Array_Object_Declaration (Block       : Irep;
                                           Dec_Node    : Node_Id;
                                           Target_Type : Entity_Id;
@@ -46,7 +49,10 @@ package Arrays is
 
      with Pre => Nkind (Dec_Node) = N_Object_Declaration and
                  Is_Array_Type (Target_Type) and
-                 Is_Array_Type (Etype (Init_Expr));
+                 (if Present (Init_Expr) then
+                      Is_Array_Type (Etype (Init_Expr))
+                    else
+                      True);
    --  In goto an array is not a type, objects may be arrays.
    --  Array types are entered into the global symbol. Some of these may
    --  be anonomous types introduced by the gnat front-end.
