@@ -1,6 +1,6 @@
 with Nlists;                use Nlists;
 with Uintp;                 use Uintp;
-with Namet;                 use Namet;
+--  with Namet;                 use Namet;
 with Stringt;               use Stringt;
 with Tree_Walk;             use Tree_Walk;
 with Aggregates;            use Aggregates;
@@ -1214,7 +1214,7 @@ package body Arrays is
       Str_Lit_High      : constant Nat := String_Length (Str_Id);
       Str_Lit_Size_Irep : constant Irep :=
         Integer_Constant_To_Expr
-          (Value           => UI_From_Int (Str_Lit_High),
+          (Value           => UI_From_Int (Str_Lit_High - 1),
            Expr_Type       => Index_T,
            Source_Location => Source_Location);
       --  To Do: This needs to changed to Make_Char_Type ...
@@ -2812,18 +2812,18 @@ package body Arrays is
          Print_Node_Briefly (Etype (Prefix (The_Prefix)));
       end if;
 
-      Print_Node_Briefly (Prefix_Etype);
-      if (if Nkind (Prefix_Etype) = N_Defining_Identifier then
-             Get_Name_String (Chars (Etype (Etype (Prefix (N)))))
-          elsif Is_Implicit_Deref then
-             Get_Name_String (Chars (Designated_Type (Prefix_Etype)))
-          else
-             "")
-        = "string"
-      then
-         return Report_Unhandled_Node_Irep (N, "Do_Expression",
-                                            "Index of string unsupported");
-      end if;
+--        Print_Node_Briefly (Prefix_Etype);
+--        if (if Nkind (Prefix_Etype) = N_Defining_Identifier then
+--               Get_Name_String (Chars (Etype (Etype (Prefix (N)))))
+--            elsif Is_Implicit_Deref then
+--               Get_Name_String (Chars (Designated_Type (Prefix_Etype)))
+--            else
+--               "")
+--          = "string"
+--        then
+--           return Report_Unhandled_Node_Irep (N, "Do_Expression",
+--                                              "Index of string unsupported");
+--        end if;
 
       declare
          Array_Type : constant Entity_Id :=
@@ -3341,7 +3341,7 @@ package body Arrays is
       --  Their lower bound is always 1 and therefore the string length
       --  is also the string litera['s high bound.
       Str_Id            : constant String_Id := Strval (Str_Lit);
-      Str_Lit_High      : constant Nat := String_Length (Str_Id);
+      Str_Lit_Length     : constant Nat := String_Length (Str_Id);
       Str_Lit_Low       : constant Pos := 1;
       Component_Itype   : constant Irep :=
         Get_Subtype (Get_Type (Dest_Array));
@@ -3350,7 +3350,7 @@ package body Arrays is
       Print_Irep (Dest_Array);
       Print_Irep (Get_Type (Dest_Array));
       Print_Irep (Component_Itype);
-      for I in Str_Lit_Low .. Str_Lit_High loop
+      for I in Str_Lit_Low .. Str_Lit_Length loop
          Assign_To_Array_Component
               (Block      => Block,
                The_Array  => Dest_Array,

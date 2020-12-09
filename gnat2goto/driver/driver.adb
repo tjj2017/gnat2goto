@@ -569,9 +569,11 @@ package body Driver is
          function Make_Ada_String_Type return Irep is
            (Make_Array_Type
               (I_Subtype => Make_Char_Type,
-               Size      => Make_Nondet_Expr
-                 (Source_Location => Internal_Source_Location,
-                  I_Type          => CProver_Size_T)));
+               Size      =>
+                  Integer_Constant_To_Expr
+                 (Value           => Uint_0,
+                  Expr_Type       => Make_Signedbv_Type (64),
+                  Source_Location => Internal_Source_Location)));
          Builtin   : Symbol;
          Builtin_Node : constant Node_Id := Standard_String;
          Type_Irep : constant Irep := Make_Ada_String_Type;
