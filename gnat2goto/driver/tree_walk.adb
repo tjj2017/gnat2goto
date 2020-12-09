@@ -33,6 +33,63 @@ with ASVAT.Size_Model;
 with ASVAT.Modelling;
 
 package body Tree_Walk is
+   function Defining_Identifier (N : Node_Id) return Entity_Id;
+   function Defining_Identifier (N : Node_Id) return Entity_Id is
+      NT : constant Node_Kind := Nkind (N);
+   begin
+      Put_Line ("Into Defining_Identifier - Tree_Walk");
+      Print_Node_Briefly (N);
+      if not
+        (NT = N_Component_Declaration
+        or else NT = N_Defining_Program_Unit_Name
+        or else NT = N_Discriminant_Specification
+        or else NT = N_Entry_Body
+        or else NT = N_Entry_Declaration
+        or else NT = N_Entry_Index_Specification
+        or else NT = N_Exception_Declaration
+        or else NT = N_Exception_Renaming_Declaration
+        or else NT = N_Formal_Object_Declaration
+        or else NT = N_Formal_Package_Declaration
+        or else NT = N_Formal_Type_Declaration
+        or else NT = N_Full_Type_Declaration
+        or else NT = N_Implicit_Label_Declaration
+        or else NT = N_Incomplete_Type_Declaration
+        or else NT = N_Iterated_Component_Association
+        or else NT = N_Iterator_Specification
+        or else NT = N_Loop_Parameter_Specification
+        or else NT = N_Number_Declaration
+        or else NT = N_Object_Declaration
+        or else NT = N_Object_Renaming_Declaration
+        or else NT = N_Package_Body_Stub
+        or else NT = N_Parameter_Specification
+        or else NT = N_Private_Extension_Declaration
+        or else NT = N_Private_Type_Declaration
+        or else NT = N_Protected_Body
+        or else NT = N_Protected_Body_Stub
+        or else NT = N_Protected_Type_Declaration
+        or else NT = N_Single_Protected_Declaration
+        or else NT = N_Single_Task_Declaration
+        or else NT = N_Subtype_Declaration
+        or else NT = N_Task_Body
+        or else NT = N_Task_Body_Stub
+         or else NT = N_Task_Type_Declaration)
+      then
+         Put_Line ("Illegal node to Defining_Identifier");
+         Print_Node_Subtree (Parent (N));
+      end if;
+      Put_Line (Unique_Name (Sinfo.Defining_Identifier (N)));
+      return Sinfo.Defining_Identifier (N);
+   end Defining_Identifier;
+
+   function Component_Items (N : Node_Id) return List_Id;
+   function Component_Items (N : Node_Id) return List_Id is
+   begin
+      if Nkind (N) /= N_Component_List then
+         Put_Line ("Component_Items - Tree_Walk");
+         Print_Node_Briefly (N);
+      end if;
+      return Sinfo.Component_Items (N);
+   end Component_Items;
 
    --  Used to provide a dummy block for Itype delarations
    --  where such declarations cannot produce a block, e.g., in expressions.
@@ -612,6 +669,7 @@ package body Tree_Walk is
            (Source_Location => Get_Source_Location (N),
             I_Type => Do_Type_Reference (N_Underlying_Type));
          Non_Discriminant_Components_Seen : Int := 0;
+         pragma Assert (Present (Components));
          Non_Discriminant_Components_Expected : constant Int :=
            List_Length (Component_Items (Components));
          Variant_Disc_Value : Node_Id := Types.Empty;
@@ -686,6 +744,7 @@ package body Tree_Walk is
                  Find_Record_Variant (Variant_Node, Variant_Disc_Value);
                Union_Literal : Irep;
                Variant_Substruct : Irep;
+               pragma Assert (Present (Component_List (Variant_Found)));
                Substruct_Component_List : Node_Id :=
                  First (Component_Items (Component_List (Variant_Found)));
             begin
@@ -708,6 +767,12 @@ package body Tree_Walk is
                      return Struct_Expr;
                   end if;
 
+                  pragma Assert
+                    (Nkind (Defining_Identifier (Substruct_Component_List)) in
+                       N_Has_Chars);
+                  pragma Assert
+                    (Nkind (Entity (First (Choices (Actual_Iter)))) in
+                       N_Has_Chars);
                   if Get_Name_String
                     (Chars (Defining_Identifier (Substruct_Component_List))) /=
                     Get_Name_String
@@ -953,12 +1018,12 @@ package body Tree_Walk is
            (N,
             "Do_First_Last_Length",
             "Dynamic subtypes are unsupported");
-      elsif Nkind (Etype (Prefix (N))) = N_Defining_Identifier and then
-        Get_Name_String (Chars (Etype (Etype (Prefix (N))))) = "string"
-      then
-         return Report_Unhandled_Node_Irep
-           (N, "First_Last_Length",
-            "Attribute applied to string is unsupported");
+--        elsif Nkind (Etype (Prefix (N))) = N_Defining_Identifier and then
+--          Get_Name_String (Chars (Etype (Etype (Prefix (N))))) = "string"
+--        then
+--           return Report_Unhandled_Node_Irep
+--             (N, "First_Last_Length",
+--              "Attribute applied to string is unsupported");
       else
          Put_Line ("Do_First_Last_Length - It's an array");
          Print_Node_Briefly (N);
@@ -1344,7 +1409,8 @@ package body Tree_Walk is
                                         Block : Irep)
                                         return Irep is
       Subtype_Irep : constant Irep :=
-        Do_Subtype_Indication (Subtype_Indication (N));
+        Do_Subtype_Indication (Defining_Identifier (Parent (N)),
+                               Subtype_Indication (N));
       pragma Unreferenced (Block);
    begin
       if Present (Record_Extension_Part (N)) then
@@ -1391,6 +1457,7 @@ package body Tree_Walk is
             Val_String : constant String :=
               UI_Image (Enumeration_Pos (Member));
             Val_Name : constant String := Unique_Name (Member);
+            pragma Assert (Nkind (Member) in N_Has_Chars);
             Base_Name : constant String := Get_Name_String (Chars (Member));
             Member_Size : constant Int := UI_To_Int (Esize (Etype (Member)));
             Element : constant Irep := Make_C_Enum_Member
@@ -1990,6 +2057,7 @@ package body Tree_Walk is
    function Do_Exit_Statement (N : Node_Id) return Irep is
       Jump_Irep : Irep;
    begin
+      pragma Assert (Nkind (Name (N)) in N_Has_Chars);
       if Present (Name (N)) then
          Jump_Irep := Make_Code_Goto
            (Source_Location => Get_Source_Location (N),
@@ -2530,6 +2598,7 @@ package body Tree_Walk is
       --  if GNAT has created the loop identifier, we do not
       --  need a label because the user cannot reference it
       if not Has_Created_Identifier (N) then
+         pragma Assert (Nkind (Identifier (N)) in N_Has_Chars);
          Append_Op (Loop_Wrapper,
                     Make_Code_Label
                       (Code            => Make_Code_Skip
@@ -2822,6 +2891,7 @@ package body Tree_Walk is
               Arg_Pos = 1 and then
               Nkind (Expr) = N_Identifier
             then
+               pragma Assert (Nkind (Expr) in N_Has_Chars);
                Suppress_Scope := Chars (Expr);
             else
                Report_Unhandled_Node_Empty (N, "Do_Pragma_Suppress",
@@ -3257,6 +3327,7 @@ package body Tree_Walk is
                                          "Record definition of wrong nkind");
             return False;
          end if;
+         pragma Assert (Present (Component_List (Record_Def)));
          Component_Iter :=
            First (Component_Items (Component_List (Record_Def)));
          while Present (Component_Iter) loop
@@ -3289,6 +3360,7 @@ package body Tree_Walk is
          procedure Add_Components (Components : Node_Id; Result : Irep);
          procedure Add_Components (Components : Node_Id; Result : Irep)
          is
+            pragma Assert (Present (Components));
             Component_Iter : Node_Id :=
               First (Component_Items (Components));
             New_Expr : Irep;
@@ -4779,8 +4851,17 @@ package body Tree_Walk is
       end Do_Variant_Struct;
 
       --  Local variables
-      Component_Iter : Node_Id := First (Component_Items (Component_List (N)));
-      Variants_Node  : constant Node_Id := Variant_Part (Component_List (N));
+      Comp_List      : constant Node_Id := Component_List (N);
+      Component_Iter : Node_Id :=
+        (if Present (Comp_List) then
+              First (Component_Items (Comp_List))
+         else
+            Types.Empty);
+      Variants_Node  : constant Node_Id :=
+        (if Present (Comp_List) then
+              Variant_Part (Comp_List)
+         else
+            Types.Empty);
 
    --  Start of processing for Do_Record_Definition
 
@@ -4923,6 +5004,7 @@ package body Tree_Walk is
             begin
                while Present (Variant_Iter) loop
                   declare
+                     pragma Assert (Present (Component_List (Variant_Iter)));
                      Item_Iter : Node_Id :=
                        First (Component_Items (Component_List (Variant_Iter)));
                   begin
@@ -5483,7 +5565,7 @@ package body Tree_Walk is
            (Subtype_Node => N,
             The_Entity   => Subtype_Entity)
          else
-            Do_Subtype_Indication (Subtype_Indication (N)));
+            Do_Subtype_Indication (Subtype_Entity, Subtype_Indication (N)));
    begin
       Put_Line ("Subtype_Declaration");
       Print_Irep (New_Type);
@@ -5496,16 +5578,25 @@ package body Tree_Walk is
    -- Do_Subtype_Indication --
    ---------------------------
 
-   function Do_Subtype_Indication (N : Node_Id) return Irep
+   function Do_Subtype_Indication (Subtype_Entity : Entity_Id;
+                                   N : Node_Id) return Irep
    is
-      Subtype_Def_Id : constant Entity_Id := Defining_Identifier (Parent (N));
-
-      Underlying : Irep;
-      Constr : Node_Id;
    begin
-      Put_Line ("Subtype_Indication");
-      Print_Node_Briefly (Subtype_Def_Id);
-      case Nkind (N) is
+      if Nkind (Parent (N)) = N_Derived_Type_Definition then
+         Put_Line ("Do_Subtype_Indication with derived type");
+         Print_Node_Briefly (N);
+         Print_Node_Briefly (Subtype_Entity);
+      end if;
+      declare
+         Subtype_Def_Id : constant Entity_Id := Subtype_Entity;
+--             Defining_Identifier (Parent (N));
+
+         Underlying : Irep;
+         Constr : Node_Id;
+      begin
+         Put_Line ("Subtype_Indication");
+         Print_Node_Briefly (Subtype_Def_Id);
+         case Nkind (N) is
          when N_Subtype_Indication =>
             declare
                Sub_Type : constant Entity_Id :=
@@ -5538,11 +5629,12 @@ package body Tree_Walk is
             --  subtype indications w/o constraint are given only as identifier
             ASVAT.Size_Model.Set_Size_From_Entity (Subtype_Def_Id, Etype (N));
             Underlying := Do_Type_Reference (Etype (N));
-               return Underlying;
+            return Underlying;
          when others =>
             return Report_Unhandled_Node_Irep (N, "Do_Subtype_Indication",
                                                "Unknown expression kind");
-      end case;
+         end case;
+      end;
    end Do_Subtype_Indication;
 
    ------------------------
@@ -5684,6 +5776,10 @@ package body Tree_Walk is
                   Boolean'Image (Global_Symbol_Table.Contains (Type_Id)));
       Declare_Itype (E);
       if Global_Symbol_Table.Contains (Type_Id) then
+         Print_Irep (Global_Symbol_Table.Element (Type_Id).SymType);
+         Put_Line ("Kind " &
+                     Irep_Kind'Image
+                     (Kind (Global_Symbol_Table.Element (Type_Id).SymType)));
          if Kind (Global_Symbol_Table.Element (Type_Id).SymType) in Class_Type
          then
             return Global_Symbol_Table.Element (Type_Id).SymType;
@@ -5821,6 +5917,7 @@ package body Tree_Walk is
       --  the first parameter.
       Conv_Assoc : constant Node_Id :=
         First (Pragma_Argument_Associations (N));
+      pragma Assert (Nkind (Expression (Conv_Assoc)) in N_Has_Chars);
       Conv_Name  : constant Name_Id := Chars (Conv_Assoc);
       Convention : constant String  := Get_Name_String
         (Chars (Expression (Conv_Assoc)));
@@ -5841,6 +5938,7 @@ package body Tree_Walk is
       Variant_Name : Unbounded_String;
    begin
       while Present (Constraint_Iter) loop
+         pragma Assert (Nkind (Constraint_Iter) in N_Has_Chars);
          Append (Variant_Name,
                  "_" & Get_Name_String (Chars (Constraint_Iter)));
          Next (Constraint_Iter);
@@ -5981,7 +6079,11 @@ package body Tree_Walk is
    procedure Process_Declaration (N : Node_Id; Block : Irep) is
       procedure Handle_Representation_Clause (N : Node_Id);
       procedure Handle_Representation_Clause (N : Node_Id) is
-         Attr_Id : constant String := Get_Name_String (Chars (N));
+         Attr_Id : constant String :=
+           (if Nkind (N) in N_Has_Chars then
+                 Get_Name_String (Chars (N))
+            else
+               "___no_name");
       begin
          --  First check if it is an address clause which gnat2goto does not
          --  currently handle
@@ -6480,6 +6582,7 @@ package body Tree_Walk is
                      else
                         Types.Empty);
 
+                  pragma Assert (Nkind (First_Expr) in N_Has_Chars);
                   Anno_Id : constant String :=
                     (if Present (First_Expr) and then
                      Nkind (First_Expr) = N_Identifier

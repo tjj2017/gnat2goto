@@ -1048,73 +1048,53 @@ package body Arrays.Low_Level is
             Etype (Array_Node));
    begin
       --  Check to see if the array is  string literal
-      --  Process and eturn if it is.
+      --  Process and return if it is.
       if Ekind (Array_Type) = E_String_Literal_Subtype then
          declare
-            Str_Lit_Low_Bound        : constant Node_Id :=
-              String_Literal_Low_Bound (Array_Type);
-            Low_Bound_Is_Static      : constant Boolean :=
-              Is_OK_Static_Expression (Str_Lit_Low_Bound);
-            Str_Lit_Low_Bound_Static : constant Uint :=
-              (if Low_Bound_Is_Static then
-                  Expr_Value (Str_Lit_Low_Bound)
-               else
-                  Uint_1);
-            Str_Lit_Low_Bound_Irep   : constant Irep :=
-              Typecast_If_Necessary
-                (Expr           => Do_Expression (Str_Lit_Low_Bound),
-                 New_Type       => Index_T,
-                 A_Symbol_Table => Global_Symbol_Table);
-
-            Str_Lit_Len               : constant Uint :=
+            Str_Lit_Length          : constant Uint :=
               String_Literal_Length (Array_Type);
 
-            Str_Lit_High_Bound_Static : constant Uint :=
-              (if Low_Bound_Is_Static then
-                  Str_Lit_Low_Bound_Static + Str_Lit_Len - Uint_1
-               else
-                  Uint_0);
-            Str_Lit_High_Bound_Irep   : constant Irep :=
-              (if Low_Bound_Is_Static then
-                  Integer_Constant_To_Expr
-                 (Value           => Str_Lit_High_Bound_Static,
-                  Expr_Type       => Index_T,
-                  Source_Location => Source_Location)
-               else
-                  Make_Op_Sub
-                 (Rhs             => Index_T_One,
-                  Lhs             => Make_Op_Add
-                    (Rhs             => Integer_Constant_To_Expr
-                         (Value           => Str_Lit_Len,
-                          Expr_Type       => Index_T,
-                          Source_Location => Source_Location),
-                     Lhs             => Str_Lit_Low_Bound_Irep,
-                     Source_Location => Source_Location,
-                     I_Type          => Index_T),
-                  Source_Location => Source_Location,
-                  I_Type          => Index_T));
+            --  The goto array representing the string literal must
+            --  index from 0.
+            Char_Array_Low_Static    : constant Uint := Uint_0;
+
+            --  As string literals are always stored by the front-end starting
+            --  at index 1, the string length is the number of charaters in
+            --  the string.  Since goto arrays are indexed from 0
+            --  the high bound of the char array representing the string
+            --  literal is the string literal lenght - 1.
+            Char_Array_High_Static   : constant Uint :=
+                  Str_Lit_Length - Uint_1;
+
+            --  All goto arrays are indexed from 0
+            Char_Array_Low_Irep      : constant Irep := Index_T_Zero;
+
+            Char_Array_High_Irep   : constant Irep :=
+              Integer_Constant_To_Expr
+                (Value           => Char_Array_High_Static,
+                 Expr_Type       => Index_T,
+                 Source_Location => Source_Location);
          begin
             Put_Line ("Multi_Dimension_Flat_Bounds - it's a string");
             Put_Line ("Length " &
-                        Natural'Image (Natural (UI_To_Int (Str_Lit_Len))));
-            if Low_Bound_Is_Static then
-               Put_Line ("Low bound " &
-                           Natural'Image
-                           (Natural (UI_To_Int (Str_Lit_Low_Bound_Static))));
-               Put_Line ("High bound " &
-                           Natural'Image
-                           (Natural (UI_To_Int (Str_Lit_High_Bound_Static))));
-            end if;
-            Print_Irep (Str_Lit_Low_Bound_Irep);
-            Print_Irep (Str_Lit_High_Bound_Irep);
+                        Natural'Image (Natural
+                        (UI_To_Int (Str_Lit_Length))));
+            Put_Line ("Low bound " &
+                        Natural'Image
+                        (Natural (UI_To_Int (Char_Array_Low_Static))));
+            Put_Line ("High bound " &
+                        Natural'Image
+                        (Natural (UI_To_Int (Char_Array_High_Static))));
+            Print_Irep (Char_Array_Low_Irep);
+            Print_Irep (Char_Array_High_Irep);
 
             return Static_And_Dynamic_Bounds'
               (Is_Unconstrained  => False,
-               Has_Static_Bounds => Low_Bound_Is_Static,
-               Low_Static        => UI_To_Int (Str_Lit_Low_Bound_Static),
-               High_Static       => UI_To_Int (Str_Lit_High_Bound_Static),
-               Low_Dynamic       => Str_Lit_Low_Bound_Irep,
-               High_Dynamic      => Str_Lit_High_Bound_Irep);
+               Has_Static_Bounds => True,
+               Low_Static        => UI_To_Int (Char_Array_Low_Static),
+               High_Static       => UI_To_Int (Char_Array_High_Static),
+               Low_Dynamic       => Char_Array_Low_Irep,
+               High_Dynamic      => Char_Array_High_Irep);
          end;
       end if;
 
