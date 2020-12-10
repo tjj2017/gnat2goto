@@ -12,8 +12,6 @@ package body Arrays.Low_Level is
    function Defining_Identifier (N : Node_Id) return Entity_Id is
       NT : constant Node_Kind := Nkind (N);
    begin
-      Put_Line ("Into Defining_Identifier");
-      Print_Node_Briefly (N);
       if not
         (NT = N_Component_Declaration
         or else NT = N_Defining_Program_Unit_Name
@@ -50,6 +48,7 @@ package body Arrays.Low_Level is
          or else NT = N_Task_Type_Declaration)
       then
          Put_Line ("Illegal node to Defining_Identifier");
+         Print_Node_Briefly (N);
       end if;
 
       return Sinfo.Defining_Identifier (N);
@@ -148,19 +147,6 @@ package body Arrays.Low_Level is
          I_Type     => I_Type,
          Location   => Location);
 
-      Put_Line ("££££££££££££ Making Loop");
-      Print_Irep (Zero_Based_First);
-      Print_Irep (Zero_Based_Last);
-      Print_Irep (Value_Expr);
-      Print_Irep (Loop_Body);
-      Print_Irep (Block);
-      Print_Irep (Make_Simple_For_Loop
-                   (Loop_Var        => Loop_Var,
-                    First           => Zero_Based_First,
-                    Last            => Zero_Based_Last,
-                    Loop_Body       => Loop_Body,
-                    Source_Location => Location));
-
       --  Now the loop can be constructed.
       Append_Op (Block,
                  Make_Simple_For_Loop
@@ -169,8 +155,6 @@ package body Arrays.Low_Level is
                     Last            => Zero_Based_Last,
                     Loop_Body       => Loop_Body,
                     Source_Location => Location));
-      Put_Line ("Assign_To_Dyn");
-      Print_Irep (Block);
    end Assign_Value_To_Dynamic_Array_Components;
 
    ---------------------------------------------
@@ -359,22 +343,17 @@ package body Arrays.Low_Level is
       Dynamic_Length : Irep := Ireps.Empty;
       Result : Irep;
    begin
-      Put_Line ("Calculate_Cocat_Length");
       Calc_Length
         (N              => N,
          Is_Static      => Is_Static,
          Static_Length  => Static_Length,
          Dynamic_Length => Dynamic_Length);
       if Is_Static then
-         Put_Line ("Result is static: " &
-                  Int'Image (UI_To_Int (Static_Length)));
          Result := Integer_Constant_To_Expr
            (Value           => Static_Length,
             Expr_Type       => Index_T,
             Source_Location => Internal_Source_Location);
       else
-         Put_Line ("The_Result is dynamic:");
-         Print_Irep (Dynamic_Length);
          Result := Dynamic_Length;
       end if;
       return Result;
@@ -443,8 +422,6 @@ package body Arrays.Low_Level is
       Offset      : Irep :=
         Calculate_Zero_Offset (Index_Iter, Bounds_Iter);
    begin
-      Put_Line ("Calculate_Index_Offset");
-      Print_Node_Subtree (Dim_Iter);
       for I in 2 .. No_Of_Dims loop
          Index_Iter := Next (Index_Iter);
          Dim_Iter := Next_Index (Dim_Iter);
@@ -524,7 +501,6 @@ package body Arrays.Low_Level is
       pragma Unreferenced (Block);
    begin
       if Source_Bounds.Has_Static_Bounds and Dest_Bounds.Has_Static_Bounds then
-         Put_Line ("Static length check");
          declare
             Source_Length : constant Nat :=
               Source_Bounds.High_Static - Source_Bounds.Low_Static + 1;
@@ -532,11 +508,9 @@ package body Arrays.Low_Level is
               Dest_Bounds.High_Static - Dest_Bounds.Low_Static + 1;
          begin
             if Source_Length /= Dest_Length then
-               Put_Line ("??? Length check failed");
+               Put_Line ("Dynamic_Length check failed");
             end if;
          end;
-      else
-         Put_Line ("Dynamic length check");
       end if;
    end Check_Equal_Array_Lengths;
 
@@ -553,19 +527,10 @@ package body Arrays.Low_Level is
    is
       Static_Limit : constant := 16;
    begin
-      Put_Line ("Copy Array - Dest_Irep");
-      Print_Irep (Dest_Irep);
-
       if (Dest_Bounds.Has_Static_Bounds and Source_Bounds.Has_Static_Bounds)
         and then
           Dest_Bounds.High_Static - Dest_Bounds.Low_Static + 1 <= Static_Limit
       then
-         Put_Line ("About to copy static");
-         Put_Line ("Dest_Low " & Int'Image (Dest_Bounds.Low_Static));
-         Put_Line ("Dest_High " & Int'Image (Dest_Bounds.High_Static));
-         Put_Line ("Source_Low " & Int'Image (Source_Bounds.Low_Static));
-         Put_Line ("Source_High " & Int'Image (Source_Bounds.High_Static));
-
          Copy_Array_Static
            (Block       => Block,
             Source_Type => Source_Type,
@@ -576,8 +541,6 @@ package body Arrays.Low_Level is
             Dest_Irep   => Dest_Irep,
             Source_Irep => Source_Irep);
       else
-         Put_Line ("About to copy dynamic");
-         Print_Irep (Dest_Irep);
          Copy_Array_Dynamic
            (Block       => Block,
             Source_Type => Source_Type,
@@ -671,17 +634,6 @@ package body Arrays.Low_Level is
             I_Type          => Component_Dest,
             Range_Check     => False));
    begin
-      Put_Line ("assign_to_array_component");
-      Put_Line ("destination");
-      Print_Irep (Dest_Irep);
-      Print_Irep (Get_Type (Dest_Irep));
-      Print_Irep (Get_Subtype (Get_Type (Dest_Irep)));
-      Put_Line ("assign_to_array_component");
-      Put_Line ("Source");
-      Print_Irep (Source_Irep);
-      Print_Irep (Get_Type (Source_Irep));
-      Print_Irep (Get_Subtype (Get_Type (Source_Irep)));
-      Print_Irep (Assign_Value);
       --  The body of the loop is just the assignment of the indexed source
       --  element to the indexed destination element.
       Assign_To_Array_Component
@@ -734,7 +686,6 @@ package body Arrays.Low_Level is
 
       Component_Dest : constant Irep := Get_Subtype (Get_Type (Dest_Irep));
    begin
-      Put_Line ("Into Copy_Static");
       for I in 0 .. Dest_High - Dest_Low  loop
          Assign_To_Array_Component
            (Block      => Block,
@@ -852,18 +803,12 @@ package body Arrays.Low_Level is
             when others =>
                Etype (N));
    begin
-      Put_Line ("Get_Dimension_Bounds");
       if Is_Constrained (Array_Type) then
-         Put_Line ("Constrained - returning");
          return Get_Bounds (Index);
       end if;
 
-      Put_Line ("Not_Constrained");
       --  The array is unconstrained but N must refer to an array object that
       --  has first and last auxillary variables declared for each dimension.
-      Put_Line ("Trying Defining");
-      Print_Node_Briefly (N);
-      Print_Node_Briefly (Entity (N));
       declare
          Dim_String_Pre : constant String := Integer'Image (Dim);
          Dim_String     : constant String :=
@@ -914,7 +859,6 @@ package body Arrays.Low_Level is
               I_Type          => Do_Type_Reference (Index_Entity),
               Identifier      => Last_Var);
       begin
-         Put_Line ("Returning from Get_Dimension_Bounds");
          return Dimension_Bounds'
            (Low  => Typecast_If_Necessary
               (Expr           => First_Sym,
@@ -1075,19 +1019,6 @@ package body Arrays.Low_Level is
                  Expr_Type       => Index_T,
                  Source_Location => Source_Location);
          begin
-            Put_Line ("Multi_Dimension_Flat_Bounds - it's a string");
-            Put_Line ("Length " &
-                        Natural'Image (Natural
-                        (UI_To_Int (Str_Lit_Length))));
-            Put_Line ("Low bound " &
-                        Natural'Image
-                        (Natural (UI_To_Int (Char_Array_Low_Static))));
-            Put_Line ("High bound " &
-                        Natural'Image
-                        (Natural (UI_To_Int (Char_Array_High_Static))));
-            Print_Irep (Char_Array_Low_Irep);
-            Print_Irep (Char_Array_High_Irep);
-
             return Static_And_Dynamic_Bounds'
               (Is_Unconstrained  => False,
                Has_Static_Bounds => True,
@@ -1108,32 +1039,19 @@ package body Arrays.Low_Level is
          Static_Array_Size : Uint := Uint_0;
 
       begin
-         Put_Line ("Is constrained "
-                   & Boolean'Image (Is_Constrained (Array_Type)));
-         Print_Node_Briefly (Array_Type);
-         Print_Node_Briefly (Dimension_Range);
          if Constrained_Array or Array_Is_Object then
             if Constrained_Array and then Is_OK_Static_Range (Dimension_Range)
             then
-               Put_Line ("Ok static range");
                Static_Array_Size := Calculate_Static_Dimension_Length
                  (Dimension_Range);
-               Put_Line ("The first dimension size is " &
-                           Int'Image (UI_To_Int (Static_Array_Size)));
             else
                --  Bounds are variable or it is an array object of an
                --  unconstrained subtype.
-               Put_Line ("Variable bounds or unconstrained object type");
-               Print_Node_Briefly (Array_Node);
-               Print_Irep (Get_Dimension_Bounds
-                           (Array_Node, Dimension_Number, Dimension_Iter).Low);
                Var_Dim_Bounds := Calculate_Dimension_Length
                  (Get_Dimension_Bounds
                     (Array_Node, Dimension_Number, Dimension_Iter));
-               Put_Line ("Got dimension bounds");
             end if;
 
-            Put_Line ("Now for multi-dimensional");
             --  Multidimensional arrays are converted into a a single
             --  dimension of an appropriate length.
             --  This needs to be considered when indexing into, or
@@ -1167,13 +1085,6 @@ package body Arrays.Low_Level is
                Dimension_Iter := Next (Dimension_Iter);
             end loop;
 
-            Put_Line ("After loop");
-            if Static_Array_Size = Uint_0 then
-               Put_Line ("Static array size 0");
-            else
-               Put_Line ("Static array size " &
-                           Int'Image (UI_To_Int (Static_Array_Size)));
-            end if;
             declare
                Has_Static_Bounds : constant Boolean :=
                  Var_Dim_Bounds = Ireps.Empty;
@@ -1221,15 +1132,13 @@ package body Arrays.Low_Level is
                        Range_Check     => False));
             end;
          else
-            Put_Line ("Is unconstrained array type and not an object");
             declare
-               Nondet_Index : constant Irep :=
-                 Make_Nondet_Expr
-                   (Source_Location => Internal_Source_Location,
-                    I_Type          => Index_T,
-                    Range_Check     => False);
+               Nondet_Index : constant Irep := Index_T_Zero;
+--                   Make_Nondet_Expr
+--                     (Source_Location => Internal_Source_Location,
+--                      I_Type          => Index_T,
+--                      Range_Check     => False);
             begin
-               Put_Line ("About to return");
                return Static_And_Dynamic_Bounds'
                  (Is_Unconstrained  => True,
                   Has_Static_Bounds => False,
@@ -1254,8 +1163,6 @@ package body Arrays.Low_Level is
 
       Is_Unconstrained  : constant Boolean := not Is_Constrained (Array_Type);
    begin
-      Put_Line ("Zero based bounds " &
-                  Boolean'Image (Is_Unconstrained));
       if Is_Unconstrained then
          return Static_And_Dynamic_Bounds'
            (Is_Unconstrained  => True,
@@ -1269,10 +1176,6 @@ package body Arrays.Low_Level is
          return Multi_Dimension_Flat_Bounds (Array_Type);
       else
          --  It's a slice. A slice can only be one-dimensional.
-         Put_Line ("Its a slice");
-         Print_Node_Briefly (The_Array);
-         Print_Node_Briefly (Etype (The_Array));
-         Put_Line ("Calling Zero_Based_Slice_Bounds");
          return Zero_Based_Slice_Bounds
            (The_Slice        => The_Array,
             Underlying_Array => Array_Type);
@@ -1289,8 +1192,6 @@ package body Arrays.Low_Level is
         All_Dimensions_Static (Underlying_Array) and
         Is_OK_Static_Range (Slice_Range);
    begin
-      Put_Line ("Zero_Based_Slice_Bounds " &
-                  Boolean'Image (Has_Static_Bounds));
       if Has_Static_Bounds then
          declare
             Slice_Low             : constant Uint :=
@@ -1321,16 +1222,6 @@ package body Arrays.Low_Level is
                     Source_Location => Source_Location));
          end;
       else
-         Put_Line ("Zero_Based_Slice_Bounds - dynamic bounds");
-         Print_Node_Subtree (Slice_Range);
-         Print_Node_Briefly (First_Index (Underlying_Array));
-         Put_Line ("Low bound slice");
-         Print_Node_Briefly (Low_Bound (Slice_Range));
-         Put_Line ("High bound slice");
-         Print_Node_Subtree (High_Bound (Slice_Range));
-         Put_Line ("Low bound underlying");
-         Print_Node_Briefly (Low_Bound (First_Index (Underlying_Array)));
-         Put_Line ("About to declare");
          declare
             Slice_Low             : constant Irep :=
               Typecast_If_Necessary
@@ -1367,14 +1258,6 @@ package body Arrays.Low_Level is
                  I_Type          => Index_T,
                  Range_Check     => False);
          begin
-            Put_Line ("The slice bounds");
-            Print_Irep (Slice_Low);
-            Print_Irep (Get_Op0 (Slice_Low));
-            Print_Irep (Slice_High);
-            Print_Irep (Get_Op0 (Slice_High));
-            Put_Line ("The underlying bounds");
-            Print_Irep (Underlying_Array_Low);
-            Print_Irep (Get_Op0 (Underlying_Array_Low));
             return Static_And_Dynamic_Bounds'
               (Is_Unconstrained  => False,
                Has_Static_Bounds => False,

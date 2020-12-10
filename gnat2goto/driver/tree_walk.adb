@@ -37,8 +37,6 @@ package body Tree_Walk is
    function Defining_Identifier (N : Node_Id) return Entity_Id is
       NT : constant Node_Kind := Nkind (N);
    begin
-      Put_Line ("Into Defining_Identifier - Tree_Walk");
-      Print_Node_Briefly (N);
       if not
         (NT = N_Component_Declaration
         or else NT = N_Defining_Program_Unit_Name
@@ -77,19 +75,8 @@ package body Tree_Walk is
          Put_Line ("Illegal node to Defining_Identifier");
          Print_Node_Subtree (Parent (N));
       end if;
-      Put_Line (Unique_Name (Sinfo.Defining_Identifier (N)));
       return Sinfo.Defining_Identifier (N);
    end Defining_Identifier;
-
-   function Component_Items (N : Node_Id) return List_Id;
-   function Component_Items (N : Node_Id) return List_Id is
-   begin
-      if Nkind (N) /= N_Component_List then
-         Put_Line ("Component_Items - Tree_Walk");
-         Print_Node_Briefly (N);
-      end if;
-      return Sinfo.Component_Items (N);
-   end Component_Items;
 
    --  Used to provide a dummy block for Itype delarations
    --  where such declarations cannot produce a block, e.g., in expressions.
@@ -618,9 +605,6 @@ package body Tree_Walk is
       N_Type : constant Entity_Id := Etype (N);
       --  TOCHECK: Parent type may be more than one step away?
    begin
-      Put_Line ("Do_Aggregate_Literal");
-      Print_Node_Briefly (N);
-
       case Non_Private_Ekind (N_Type) is
          when E_Array_Type =>
             return Do_Aggregate_Literal_Array (N);
@@ -652,8 +636,6 @@ package body Tree_Walk is
          else
             Etype (N_Type_Raw));
    begin
-      Put_Line ("Do_Aggregate_Literal_Record");
-      Print_Node_Briefly (N);
       --  It appears GNAT sorts the aggregate members for us into the order
       --  discriminant (if any), common members, variant members.
       --  However, let's check.
@@ -806,8 +788,6 @@ package body Tree_Walk is
    function Do_Assignment_Statement (N : Node_Id) return Irep
    is
    begin
-      Put_Line ("Assignment_Statement");
-      Print_Node_Briefly (Etype (Name (N)));
       if Ekind (Etype (Name (N))) in Array_Kind then
          declare
             Lhs_Type : constant Entity_Id := Etype (Name (N));
@@ -826,29 +806,12 @@ package body Tree_Walk is
       end if;
 
       declare
-         function Print_Node (N : Node_Id; Subtree : Boolean := False)
-                              return Boolean;
-         function Print_Node (N : Node_Id; Subtree : Boolean := False)
-                              return Boolean
-         is
-         begin
-            if Subtree then
-               Print_Node_Subtree (N);
-            else
-               Print_Node_Briefly (N);
-            end if;
-            return True;
-         end Print_Node;
-
          LHS : constant Irep := Do_Expression (Name (N));
          function RHS return Irep;
          function RHS return Irep is
-            pragma Assert (Print_Node (N));
             N_RHS : constant Node_Id := Expression (N);
-            pragma Assert (Print_Node (N_RHS));
             Bare_RHS : constant Irep := Do_Expression (N_RHS);
          begin
-            Put_Line ("In function RHS");
             return
               (if Do_Range_Check (N_RHS)
                then Make_Range_Assert_Expr
@@ -858,10 +821,6 @@ package body Tree_Walk is
                else Bare_RHS);
          end RHS;
       begin
-         Put_Line ("About to Assign");
-         Print_Irep (LHS);
-         Put_Line ("About to call RHS");
-         Print_Irep (RHS);
          return Make_Code_Assign
            (Lhs => LHS,
             Rhs => Typecast_If_Necessary
@@ -946,15 +905,6 @@ package body Tree_Walk is
                --  the First, Last and Length array friend variables
                --  have to be added to the argument list.
                if not Is_Constrained (Formal_Ada_Type) then
-                  Put_Line
-                    ("Subprogram call with unconstrained array parameter");
-                  Put_Line
-                    ("????");
-                  Print_Node_Briefly (Formal);
-                  Print_Node_Briefly (Etype (Formal));
-                  Print_Node_Briefly (Actual);
-                  Print_Node_Briefly (Entity (Actual));
-                  Print_Irep (Expression);
                   Pass_Array_Friends (Actual_Array, Args);
                end if;
                --  Now handle the array parameter.  The front-end ensures that
@@ -1025,9 +975,6 @@ package body Tree_Walk is
 --             (N, "First_Last_Length",
 --              "Attribute applied to string is unsupported");
       else
-         Put_Line ("Do_First_Last_Length - It's an array");
-         Print_Node_Briefly (N);
-         Print_Node_Briefly (Prefix (N));
          --  It is an array.
          return Do_Array_First_Last_Length (N, Attr);
       end if;
@@ -1612,8 +1559,6 @@ package body Tree_Walk is
          when N_Function_Call        => return Do_Function_Call (N);
          when N_Or_Else              => return Do_Or_Else (N);
          when N_Attribute_Reference  =>
-            Put_Line (Attribute_Id'Image
-                      (Get_Attribute_Id (Attribute_Name (N))));
             case Get_Attribute_Id (Attribute_Name (N)) is
                when Attribute_Access => return Do_Address_Of (N);
                when Attribute_Address =>
@@ -1842,9 +1787,6 @@ package body Tree_Walk is
 
          --  Declare the implicit initial subtype too
          if Etype (E) /= E then
-            Put_Line ("First_Subtype");
-            Print_Node_Briefly (E);
-            Print_Node_Briefly (Etype (E));
             Do_Type_Declaration (New_Type, Etype (E));
          end if;
       end if;
@@ -2343,7 +2285,6 @@ package body Tree_Walk is
       Loop_Wrapper : constant Irep := Make_Code_Block
         (Get_Source_Location (N));
    begin
-      Put_Line ("Into Do_Loop");
       if not Present (Iter_Scheme) or else Present (Condition (Iter_Scheme))
       then
          --  The statements of the loop can be processed.
@@ -2365,7 +2306,6 @@ package body Tree_Walk is
                   Source_Location => Get_Source_Location (N));
          end;
       else
-         Put_Line ("A for loop");
          --  It's a FOR loop.
          --  The statements in the body of the loop cannot be processed
          --  until the loop variable has been inserted into the symbol table.
@@ -2373,7 +2313,6 @@ package body Tree_Walk is
          --   Ada 1995: loop_parameter_specification
          --   Ada 2012: +iterator_specification
          if Present (Loop_Parameter_Specification (Iter_Scheme)) then
-            Put_Line ("Present Loop_Parameter_Specification");
             declare
                Spec : constant Node_Id :=
                  Loop_Parameter_Specification (Iter_Scheme);
@@ -2532,7 +2471,6 @@ package body Tree_Walk is
                            I_Type => Get_Type (Loopvar_Numeric_Rep),
                           Source_Location => Internal_Source_Location);
                      begin
-                        Put_Line ("About to assign loop var");
                         Init := Make_Code_Assign
                           (Lhs => Sym_Loopvar,
                            Rhs => Typecast_If_Necessary
@@ -2542,7 +2480,6 @@ package body Tree_Walk is
                            Source_Location => Get_Source_Location (Spec));
                         --  Here the numeric representation of the loop
                         --  variable must be used for the relational operator.
-                        Put_Line ("About define loop condition");
                         Cond := Make_Op_Leq
                           (Rhs             =>
                              Typecast_If_Necessary
@@ -2555,7 +2492,6 @@ package body Tree_Walk is
                            I_Type          => Make_Bool_Type,
                            Range_Check     => False);
                         --  Assignment has the given type.
-                        Put_Line ("About define loop increment");
                         Post :=
                           Make_Side_Effect_Expr_Assign
                             (Lhs => Sym_Loopvar,
@@ -2568,7 +2504,6 @@ package body Tree_Walk is
                      end;
                   end if;
 
-                  Put_Line ("About to define loop body");
                   Set_Source_Location (Post, Get_Source_Location (Spec));
                   Loop_Irep := Make_Code_For
                     (Loop_Body => Body_Block,
@@ -2578,7 +2513,6 @@ package body Tree_Walk is
                      Source_Location => Get_Source_Location (N));
                end;
             end;
-            Put_Line ("Done loop parameter spec");
          else
             if not Present (Iterator_Specification (Iter_Scheme)) then
                Report_Unhandled_Node_Empty
@@ -2608,7 +2542,6 @@ package body Tree_Walk is
                        Label           => Get_Name_String
                          (Chars (Identifier (N))) & "_exit"));
       end if;
-      Put_Line ("About to return from Do_Loop");
       return Loop_Wrapper;
    end Do_Loop_Statement;
 
@@ -3574,11 +3507,6 @@ package body Tree_Walk is
 
       --  Begin processing for Do_Object_Declaration_Full_Declaration
    begin
-      Put_Line ("Do_Object_Declaration_Full");
-      Print_Node_Briefly (N);
-      Print_Node_Briefly (Defined);
-      Print_Node_Briefly (Defined_Type);
-
       if Is_Array_Type (Defined_Type) then
          Do_Array_Object_Declaration
            (Block       => Block,
@@ -3629,7 +3557,6 @@ package body Tree_Walk is
             end if;
          end;
       end if;
-      Put_Line ("End Object_Declaration_Full");
    end Do_Object_Declaration_Full;
 
    ---------------------------------
@@ -4912,7 +4839,6 @@ package body Tree_Walk is
          end;
       end if;
 
-      Print_Node_Briefly (Parent (N));
       if Is_Static then
          ASVAT.Size_Model.Set_Static_Size
            (E          => Defining_Identifier (Parent (N)),
@@ -4922,14 +4848,6 @@ package body Tree_Walk is
         (E         =>  Defining_Identifier (Parent (N)),
          Size_Expr => Dynamic_Size);
       end if;
-
-      Put_Line ("ASVAT.Size_Model record Size");
-      Put_Line (Unique_Name (Defining_Identifier (Parent (N))));
-      if Is_Static then
-         Put_Line ("Static size " & Natural'Image (Static_Size));
-      end if;
-      Put_Line ("Dynamic size");
-      Print_Irep (Dynamic_Size);
 
       return Make_Struct_Type
         (Tag => "This will be filled in later by Do_Type_Declaration",
@@ -5567,11 +5485,7 @@ package body Tree_Walk is
          else
             Do_Subtype_Indication (Subtype_Entity, Subtype_Indication (N)));
    begin
-      Put_Line ("Subtype_Declaration");
-      Print_Irep (New_Type);
-      Print_Node_Briefly (Defining_Identifier (N));
       Do_Type_Declaration (New_Type, Defining_Identifier (N));
-      Put_Line ("Done subtype_declaration");
    end Do_Subtype_Declaration;
 
    ---------------------------
@@ -5581,22 +5495,13 @@ package body Tree_Walk is
    function Do_Subtype_Indication (Subtype_Entity : Entity_Id;
                                    N : Node_Id) return Irep
    is
-   begin
-      if Nkind (Parent (N)) = N_Derived_Type_Definition then
-         Put_Line ("Do_Subtype_Indication with derived type");
-         Print_Node_Briefly (N);
-         Print_Node_Briefly (Subtype_Entity);
-      end if;
-      declare
-         Subtype_Def_Id : constant Entity_Id := Subtype_Entity;
---             Defining_Identifier (Parent (N));
+      Subtype_Def_Id : constant Entity_Id := Subtype_Entity;
+      --             Defining_Identifier (Parent (N));
 
-         Underlying : Irep;
-         Constr : Node_Id;
-      begin
-         Put_Line ("Subtype_Indication");
-         Print_Node_Briefly (Subtype_Def_Id);
-         case Nkind (N) is
+      Underlying : Irep;
+      Constr : Node_Id;
+   begin
+      case Nkind (N) is
          when N_Subtype_Indication =>
             declare
                Sub_Type : constant Entity_Id :=
@@ -5633,8 +5538,7 @@ package body Tree_Walk is
          when others =>
             return Report_Unhandled_Node_Irep (N, "Do_Subtype_Indication",
                                                "Unknown expression kind");
-         end case;
-      end;
+      end case;
    end Do_Subtype_Indication;
 
    ------------------------
@@ -5668,19 +5572,6 @@ package body Tree_Walk is
                Bounds_Type => New_Type)
             else To_Convert);
       begin
-         Put_Line ("Do_Type_Conversion");
-         Print_Node_Briefly (N);
-         Print_Node_Briefly (Expression (N));
-         Print_Node_Briefly (Etype (N));
-         Put_Line ("To convert");
-         Print_Irep (To_Convert);
-         Put_Line ("Convert to");
-         Print_Irep (New_Type);
-         Put_Line ("Return value");
-         Print_Irep (Make_Op_Typecast
-                     (Op0 => Maybe_Checked_Op,
-                      I_Type => New_Type,
-                      Source_Location => Get_Source_Location (N)));
          return Make_Op_Typecast
            (Op0 => Maybe_Checked_Op,
             I_Type => New_Type,
@@ -5771,21 +5662,15 @@ package body Tree_Walk is
         (if Ekind (E) = E_Access_Subtype then Etype (E) else E);
       Type_Id : constant Symbol_Id := Intern (Type_Name);
    begin
-      Put_Line ("Do_Type_Reference - Type_Name " & Type_Name);
-      Put_Line ("Symbol table contains " &
-                  Boolean'Image (Global_Symbol_Table.Contains (Type_Id)));
       Declare_Itype (E);
       if Global_Symbol_Table.Contains (Type_Id) then
-         Print_Irep (Global_Symbol_Table.Element (Type_Id).SymType);
-         Put_Line ("Kind " &
-                     Irep_Kind'Image
-                     (Kind (Global_Symbol_Table.Element (Type_Id).SymType)));
          if Kind (Global_Symbol_Table.Element (Type_Id).SymType) in Class_Type
          then
             return Global_Symbol_Table.Element (Type_Id).SymType;
          else
-            return Report_Unhandled_Node_Type (E, "Do_Type_Reference",
-                                               "Type of type not a type");
+            return Report_Unhandled_Node_Type
+              (E, "Do_Type_Reference",
+               "Ada entity is not an Irep type");
          end if;
       else
          return Make_Symbol_Type (Type_Name);
@@ -6233,7 +6118,6 @@ package body Tree_Walk is
          when N_Protected_Body_Stub =>
             Report_Unhandled_Node_Empty (N, "Process_Declaration",
                                          "Protected body stub declaration");
-            Put_Line ("It's a null statement");
 
          --  Pragmas may appear in declarations  --
 
@@ -6728,14 +6612,8 @@ package body Tree_Walk is
    --  Process_Statement  --
    -------------------------
 
-   Fudge : Boolean := False;
    procedure Process_Statement (N : Node_Id; Block : Irep) is
    begin
-      if Fudge then
-         Put_Line ("Fudge");
-         Print_Node_Briefly (N);
-      end if;
-
       --  Deal with the statement
       case Nkind (N) is
          -- Simple statements --
@@ -6795,7 +6673,6 @@ package body Tree_Walk is
 
          when N_Loop_Statement =>
             Append_Op (Block, Do_Loop_Statement (N));
-            Fudge := True;
 
          when N_Block_Statement =>
             Append_Op (Block, Do_N_Block_Statement (N));
@@ -6803,7 +6680,6 @@ package body Tree_Walk is
          when N_Handled_Sequence_Of_Statements =>  -- this seems incorrct
             --  It should be block_statement
             Append_Op (Block, Do_Handled_Sequence_Of_Statements (N));
-            Put_Line ("Done Handle statements");
 
          when N_Extended_Return_Statement =>
             Report_Unhandled_Node_Empty (N, "Process_Statement",
@@ -6871,7 +6747,6 @@ package body Tree_Walk is
       while Present (Stmt) loop
          begin
             Process_Statement (Stmt, Reps);
-            Put_Line ("Done Process_Statement");
          exception
             when Error : others =>
                IO.Put_Line (IO.Standard_Error, "<========================>");
@@ -6884,10 +6759,6 @@ package body Tree_Walk is
                IO.Put_Line (IO.Standard_Error, "<========================>");
          end;
          Next (Stmt);
-         if Fudge then
-            Put_Line ("Next stmt after fudge");
-            Print_Node_Briefly (Stmt);
-         end if;
       end loop;
 
       return Reps;
@@ -6958,7 +6829,6 @@ package body Tree_Walk is
 
       --  Declare the implicit initial subtype too
       if Etype (E) /= E then
-         Put_Line ("Register_Type_Declaration - First Subtype");
          Do_Type_Declaration (New_Type, Etype (E));
       end if;
    end Register_Type_Declaration;

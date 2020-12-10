@@ -510,29 +510,19 @@ package body GOTO_Utils is
    function Typecast_If_Necessary (Expr : Irep; New_Type : Irep;
                                    A_Symbol_Table : Symbol_Table) return Irep
    is
+      Followed_Old_Type : constant Irep :=
+        Follow_Symbol_Type (Get_Type (Expr), A_Symbol_Table);
+      Followed_New_Type : constant Irep :=
+        Follow_Symbol_Type (New_Type, A_Symbol_Table);
    begin
-      if Kind (New_Type) not in Class_Type then
-         Put_Line ("Typecast_If_Necessary");
-         Print_Irep (New_Type);
-         Print_Irep (Expr);
-         pragma Assert (False);
+      if Followed_Old_Type = Followed_New_Type then
+         return Expr;
+      else
+         return Make_Op_Typecast
+           (Op0             => Expr,
+            Source_Location => Get_Source_Location (Expr),
+            I_Type          => New_Type);
       end if;
-
-      declare
-         Followed_Old_Type : constant Irep :=
-           Follow_Symbol_Type (Get_Type (Expr), A_Symbol_Table);
-         Followed_New_Type : constant Irep :=
-           Follow_Symbol_Type (New_Type, A_Symbol_Table);
-      begin
-         if Followed_Old_Type = Followed_New_Type then
-            return Expr;
-         else
-            return Make_Op_Typecast
-              (Op0             => Expr,
-               Source_Location => Get_Source_Location (Expr),
-               I_Type          => New_Type);
-         end if;
-      end;
    end Typecast_If_Necessary;
 
    function Build_Function (Name : String; RType : Irep; Func_Params : Irep;
