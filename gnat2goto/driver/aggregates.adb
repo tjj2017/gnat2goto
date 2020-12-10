@@ -5,8 +5,8 @@ with GOTO_Utils;          use GOTO_Utils;
 with Tree_Walk;           use Tree_Walk;
 with Follow;              use Follow;
 with ASVAT.Size_Model;    use ASVAT.Size_Model;
-with Ada.Text_IO; use Ada.Text_IO;
-with Treepr;            use Treepr;
+--  with Ada.Text_IO; use Ada.Text_IO;
+--  with Treepr;            use Treepr;
 package body Aggregates is
 
    -------------------------------
@@ -80,7 +80,6 @@ package body Aggregates is
       --  Now assign the expressions for each choice list.
       --  Iterate through the component associations.
       while Present (Next_Comp_Assoc) loop
-         Put_Line ("Dynamic outer loop");
          --  Get the associated expression and iterate through the choices
          --  specifying this expression.
          declare
@@ -93,7 +92,6 @@ package body Aggregates is
             while Present (Next_Choice) and then
               Nkind (Next_Choice) /= N_Others_Choice
             loop
-               Put_Line ("Dynamic Inner Loop");
                --  A choice may be a range of indices.
                if Nkind (Next_Choice) in
                  N_Range | N_Subtype_Indication or else
@@ -104,9 +102,6 @@ package body Aggregates is
                      Bounds : constant Dimension_Bounds :=
                        Get_Bounds (Next_Choice);
                   begin
-                     Put_Line ("Dynamic choices");
-                     Print_Irep (Bounds.Low);
-                     Print_Irep (Bounds.High);
                      Assign_Value_To_Dynamic_Array_Components
                        (Block            => Block,
                         The_Array        => Target,
@@ -195,15 +190,8 @@ package body Aggregates is
       --  All goto arrays are indexed from 0
       I : Int := 0;
    begin
-      Put_Line ("Dyn_Pos");
-      Print_Node_Briefly (N);
       --  First do the positional arguments.
       while Present (Next_Expr) loop
-         Print_Irep (Integer_Constant_To_Expr
-                (Value           => UI_From_Int (I),
-                 Expr_Type       => Index_T,
-                 Source_Location => Source_Location));
-         Print_Irep (Do_Expression (Next_Expr));
          Assign_To_Array_Component
            (Block      => Block,
             The_Array  => Target,
@@ -228,8 +216,6 @@ package body Aggregates is
 
       --  Now check for an others => expression.
       if Others_Present then
-         Put_Line ("$$$$$$$$$$$ others present");
-         Print_Irep (Others_Expr);
          if Others_Expr /= Ireps.Empty then
             --  Set the remaining elements (if any) to the others expression.
             declare
@@ -270,8 +256,6 @@ package body Aggregates is
             null;
          end if;
       end if;
-
-      Print_Irep (Block);
    end Array_Dynamic_Positional;
 
    ------------------------------
@@ -482,7 +466,6 @@ package body Aggregates is
          else
             --  Otherwise assign the next expression to the i'th
             --  element of the aggregate array object.
-            Print_Irep (Target);
             Assign_To_Array_Component
               (Block      => Block,
                The_Array  => Target,
@@ -537,7 +520,6 @@ package body Aggregates is
          --  The target array and
          --  The aggregate have static bounds.
          if Positional_Assoc then
-            Put_Line ("Positional static");
             Array_Static_Positional
               (Block      => Block,
                Low_Bound  => Dest_Bounds.Low_Static,
@@ -546,7 +528,6 @@ package body Aggregates is
                Target     => Dest_Array,
                Comp_Type  => Component_Irep);
          elsif Present (Component_Associations (Agg)) then
-            Put_Line ("Named static");
             --  Named associations.
             Array_Static_Named_Assoc
               (Block      => Block,
@@ -564,7 +545,6 @@ package body Aggregates is
          end if;
       else
          if Positional_Assoc then
-            Put_Line ("Positional dynamic");
             Array_Dynamic_Positional
               (Block      => Block,
                Low_Bound  => Dest_Bounds.Low_Dynamic,
@@ -573,7 +553,6 @@ package body Aggregates is
                Target     => Dest_Array,
                Comp_Type  => Component_Irep);
          else
-            Put_Line ("Named dynamic");
             Array_Dynamic_Named_Assoc
               (Block      => Block,
                Low_Bound  => Dest_Bounds.Low_Dynamic,
