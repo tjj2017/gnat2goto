@@ -1579,9 +1579,25 @@ package body Tree_Walk is
                when Attribute_Pos =>
                   return Do_Attribute_Pos_Val (N);
                when Attribute_Pred =>
-                  return Do_Attribute_Pred_Discrete (N);
+                  if Ekind (Etype (N)) in Discrete_Kind then
+                     return Do_Attribute_Pred_Discrete (N);
+                  else
+                     return Report_Unhandled_Node_Irep
+                       (N        => N,
+                        Fun_Name => "Do_Expression",
+                        Message  =>
+                          "Pred and Succ of non-scalar subtypes unsupported");
+                  end if;
                when Attribute_Succ =>
-                  return Do_Attribute_Succ_Discrete (N);
+                  if Ekind (Etype (N)) in Discrete_Kind then
+                     return Do_Attribute_Succ_Discrete (N);
+                  else
+                     return Report_Unhandled_Node_Irep
+                       (N        => N,
+                        Fun_Name => "Do_Expression",
+                        Message  =>
+                          "Pred and Succ of non-scalar subtypes unsupported");
+                  end if;
                when Attribute_Size |
                     Attribute_Value_Size | Attribute_VADS_Size =>
                   --  S'Size and X'Size are optimised into a simple literal
@@ -4566,9 +4582,11 @@ package body Tree_Walk is
       begin
          if Get_Attribute_Id (Attribute_Name (Bound_Node)) =  Attribute_First
          then
-            return Bound_Type_Symbol (Do_Array_First (Bound_Node));
+            return Bound_Type_Symbol
+              (Do_Array_First_Last_Length (Bound_Node, Attribute_First));
          else
-            return Bound_Type_Symbol (Do_Array_Last (Bound_Node));
+            return Bound_Type_Symbol
+              (Do_Array_First_Last_Length (Bound_Node, Attribute_Last));
          end if;
       end Get_Array_Attr_Bound_Symbol;
 
@@ -4652,10 +4670,11 @@ package body Tree_Walk is
          Upper_Bound_Value :=
            Store_Symbol_Bound (Get_Array_Attr_Bound_Symbol (Upper_Bound));
       else
-         return Report_Unhandled_Node_Type
+         Report_Unhandled_Node_Empty
            (Lower_Bound,
             "Do_Range_Constraint",
             "only static ranges are supported");
+         return Make_Signedbv_Type (32);
       end if;
 
       declare
@@ -6416,6 +6435,8 @@ package body Tree_Walk is
                     (N, "Process_Pragma_Declaration",
                      "pragma Import: Multi-language analysis unsupported");
                end if;
+               --  ToDo: we should check if the import is applied to a
+               --  deferred constant and, if it is, set its value to nondet.
             end;
 
          when Name_Elaborate =>
@@ -6876,11 +6897,17 @@ package body Tree_Walk is
       --  use an unsignedbv of width w
       if Mod_Max = Power_Of_Two and Ada_Type_Size = Mod_Max_Binary_Logarithm
       then
+         ASVAT.Size_Model.Set_Static_Size
+           (E          => E,
+            Model_Size => Mod_Max_Binary_Logarithm);
+
          return Make_Unsignedbv_Type (Width => Mod_Max_Binary_Logarithm);
       end if;
 
-      ASVAT.Size_Model.Set_Static_Size (E          => E,
-                                 Model_Size => Mod_Max_Binary_Logarithm);
+      ASVAT.Size_Model.Set_Static_Size
+        (E          => E,
+         Model_Size => Ada_Type_Size);
+
       return Make_Ada_Mod_Type
         (Width => Ada_Type_Size,
          Ada_Mod_Max => Convert_Uint_To_Hex

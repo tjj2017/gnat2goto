@@ -109,6 +109,15 @@ package Arrays.Low_Level is
    --  Ada array. Multidimensional Ada arrays are modelled as a
    --  one-dimensional array in row major order in ASVAT.
 
+   function Calculate_Index_Offset_Static (Array_Node  : Node_Id;
+                                            The_Indices : Node_Id) return Int
+     with Pre => (Is_Array_Type (Etype (Array_Node)) and then
+                 All_Dimensions_Static (Etype (Array_Node))) and
+                 Nkind (The_Indices) = N_Indexed_Component;
+   --  Similar to Calculate_Index_Offset above but can only be used if all
+   --  the dimensions of the array are statically determinable.
+   --  Returns an Int value rather than an Irep.
+
    function Calculate_Static_Dimension_Length (Dim_Range : Node_Id)
                                                return Uint;
    --  This function can be used to calculate the length of a dimension
@@ -145,16 +154,18 @@ package Arrays.Low_Level is
 
    function Get_Dimension_Bounds (N : Node_Id; Dim : Positive; Index : Node_Id)
                                   return Dimension_Bounds
-     with Pre => (case Nkind (N) is
+   with Pre => (case Nkind (N) is
                      when N_Object_Declaration |
                           N_Object_Renaming_Declaration =>
                         Is_Array_Type (Etype (Defining_Identifier (N))),
-                     when N_Subtype_Declaration | N_Full_Type_Declaration =>
+                 when N_Subtype_Declaration | N_Full_Type_Declaration =>
                         Is_Array_Type (Defining_Identifier (N)) and
                         Is_Constrained (Defining_Identifier (N)),
                      when N_Identifier | N_Expanded_Name =>
                         --  This may be an object and unconstrained.
-                        Is_Array_Type (Etype (N)),
+                          Is_Array_Type (Etype (N)),
+                     when N_Defining_Identifier =>
+                        Is_Array_Type (N),
                      when others =>
                         Is_Array_Type (Etype (N)) and
                         Is_Constrained (Etype (N)));

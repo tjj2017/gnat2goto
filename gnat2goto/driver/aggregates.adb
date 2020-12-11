@@ -5,8 +5,8 @@ with GOTO_Utils;          use GOTO_Utils;
 with Tree_Walk;           use Tree_Walk;
 with Follow;              use Follow;
 with ASVAT.Size_Model;    use ASVAT.Size_Model;
---  with Ada.Text_IO; use Ada.Text_IO;
---  with Treepr;            use Treepr;
+with Ada.Text_IO; use Ada.Text_IO;
+with Treepr;            use Treepr;
 package body Aggregates is
 
    -------------------------------
@@ -30,12 +30,21 @@ package body Aggregates is
       Others_Expr : constant Irep :=
         (if Has_Others_Choice and then
          Present (Expression (Last_Choice_Node)) then
-            Do_Expression (Expression (Last_Choice_Node))
+            Typecast_If_Necessary
+           (Expr           => Do_Expression (Expression (Last_Choice_Node)),
+            New_Type       => Comp_Type,
+            A_Symbol_Table => Global_Symbol_Table)
          else
             Ireps.Empty);
 
       Next_Comp_Assoc : Node_Id :=
         First (Component_Associations (N));
+
+      --   We only handle 1 dimensional aggregates.
+      Ada_Tick_First        : constant Node_Id :=
+        Sinfo.Low_Bound (Get_Range (First_Index (Etype (N))));
+      Ada_Tick_First_Irep   : constant Irep := Do_Expression (Ada_Tick_First);
+
    begin
       if Has_Others_Choice then
          if Others_Expr /= Ireps.Empty then
@@ -84,7 +93,11 @@ package body Aggregates is
          --  specifying this expression.
          declare
             Assoc_Expr : constant Irep :=
-              Do_Expression (Expression (Next_Comp_Assoc));
+              Typecast_If_Necessary
+                (Expr           =>
+                   Do_Expression (Expression (Next_Comp_Assoc)),
+                 New_Type       => Comp_Type,
+                 A_Symbol_Table => Global_Symbol_Table);
             Next_Choice : Node_Id :=
               First (Choices (Next_Comp_Assoc));
          begin
@@ -108,12 +121,12 @@ package body Aggregates is
                         Zero_Based_First =>
                           Make_Zero_Index
                             (Index    => Bounds.Low,
-                             First    => Low_Bound,
+                             First    => Ada_Tick_First_Irep,
                              Location => Source_Location),
                         Zero_Based_Last =>
                           Make_Zero_Index
                             (Index    => Bounds.High,
-                             First    => Low_Bound,
+                             First    => Ada_Tick_First_Irep,
                              Location => Source_Location),
                         Value_Expr      => Assoc_Expr,
                         I_Type          => Comp_Type,
@@ -126,7 +139,7 @@ package body Aggregates is
                      The_Array  => Target,
                      Zero_Index => Make_Zero_Index
                        (Index    => Do_Expression (Next_Choice),
-                        First    => Low_Bound,
+                        First    => Ada_Tick_First_Irep,
                         Location => Source_Location),
                      Value_Expr => Assoc_Expr,
                      I_Type     => Comp_Type,
@@ -165,8 +178,11 @@ package body Aggregates is
         (if Others_Present and then
          Present (Expression (First (Component_Associations (N))))
          then
-            Do_Expression
-           (Expression (First (Component_Associations (N))))
+            Typecast_If_Necessary
+           (Expr           => Do_Expression
+                (Expression (First (Component_Associations (N)))),
+            New_Type       => Comp_Type,
+            A_Symbol_Table => Global_Symbol_Table)
          else
          --  If others is followed by <> then all other
          --  elements of the array are unchanged.
@@ -207,7 +223,10 @@ package body Aggregates is
                  Overflow_Check  => False,
                  I_Type          => Index_T,
                  Range_Check     => False),
-            Value_Expr => Do_Expression (Next_Expr),
+            Value_Expr => Typecast_If_Necessary
+              (Expr           => Do_Expression (Next_Expr),
+               New_Type       => Comp_Type,
+               A_Symbol_Table => Global_Symbol_Table),
             I_Type     => Comp_Type,
             Location   => Source_Location);
          I := I + 1;
@@ -279,13 +298,29 @@ package body Aggregates is
       Others_Expr : constant Irep :=
         (if Has_Others_Choice and then
          Present (Expression (Last_Choice_Node)) then
-            Do_Expression (Expression (Last_Choice_Node))
+            Typecast_If_Necessary
+           (Expr           => Do_Expression (Expression (Last_Choice_Node)),
+            New_Type       => Comp_Type,
+            A_Symbol_Table => Global_Symbol_Table)
          else
             Ireps.Empty);
 
       Next_Comp_Assoc : Node_Id :=
         First (Component_Associations (N));
+
+      --   We only handle 1 dimensional aggregates.
+      Ada_Tick_First        : constant Node_Id :=
+        Sinfo.Low_Bound (Get_Range (First_Index (Etype (N))));
+      Ada_Tick_First_Static : constant Uint := Expr_Value (Ada_Tick_First);
+      Ada_Tick_First_Irep   : constant Irep := Do_Expression (Ada_Tick_First);
+
    begin
+      Put_Line ("Array_Static_Named_Assoc");
+      Print_Node_Briefly (Etype (N));
+      Put_Line ("Low " & Int'Image (Low_Bound));
+      Put_Line ("High " & Int'Image (High_Bound));
+      Put_Line ("Ada_Tick_First " &
+                  Int'Image (UI_To_Int (Ada_Tick_First_Static)));
       if Has_Others_Choice then
          if Others_Expr /= Ireps.Empty then
             --  It is complex to compute which elements are
@@ -321,7 +356,11 @@ package body Aggregates is
          --  specifying this expression.
          declare
             Assoc_Expr : constant Irep :=
-              Do_Expression (Expression (Next_Comp_Assoc));
+              Typecast_If_Necessary
+                (Expr           =>
+                   Do_Expression (Expression (Next_Comp_Assoc)),
+                 New_Type       => Comp_Type,
+                 A_Symbol_Table => Global_Symbol_Table);
             Next_Choice : Node_Id :=
               First (Choices (Next_Comp_Assoc));
          begin
@@ -341,12 +380,12 @@ package body Aggregates is
                      declare
                         The_Range : constant Node_Id :=
                           Get_Range (Next_Choice);
-                        Start : constant Int :=
-                          UI_To_Int (Expr_Value (Sinfo.Low_Bound (The_Range)));
-                        Finish : constant Int :=
-                          UI_To_Int
-                            (Expr_Value
-                               (Sinfo.High_Bound (The_Range)));
+                        Start : constant Int := UI_To_Int
+                          (Expr_Value (Sinfo.Low_Bound (The_Range)) -
+                           Ada_Tick_First_Static);
+                        Finish : constant Int := UI_To_Int
+                          (Expr_Value (Sinfo.High_Bound (The_Range)) -
+                          Ada_Tick_First_Static);
                      begin
                         Assign_Value_To_Static_Array_Components
                           (Block            => Block,
@@ -368,12 +407,12 @@ package body Aggregates is
                            Zero_Based_First =>
                              Make_Zero_Index
                                (Index    => Bounds.Low,
-                                First    => Low_Bound,
+                                First    => Ada_Tick_First_Irep,
                                 Location => Source_Location),
                            Zero_Based_Last =>
                              Make_Zero_Index
                                (Index    => Bounds.High,
-                                First    => Low_Bound,
+                                First    => Ada_Tick_First_Irep,
                                 Location => Source_Location),
                           Value_Expr      => Assoc_Expr,
                            I_Type          => Comp_Type,
@@ -386,8 +425,11 @@ package body Aggregates is
                     (Block      => Block,
                      The_Array  => Target,
                      Zero_Index => Make_Zero_Index
-                       (Index    => Do_Expression (Next_Choice),
-                        First    => Low_Bound,
+                       (Index    => Typecast_If_Necessary
+                            (Expr           => Do_Expression (Next_Choice),
+                             New_Type       => Index_T,
+                             A_Symbol_Table => Global_Symbol_Table),
+                        First    => Ada_Tick_First_Irep,
                         Location => Source_Location),
                      Value_Expr => Assoc_Expr,
                      I_Type     => Comp_Type,
@@ -424,8 +466,11 @@ package body Aggregates is
         (if Present (Component_Associations (N)) and then
          Present (Expression (First (Component_Associations (N))))
          then
-            Do_Expression
-           (Expression (First (Component_Associations (N))))
+            Typecast_If_Necessary
+           (Expr           => Do_Expression
+                (Expression (First (Component_Associations (N)))),
+            New_Type       => Comp_Type,
+            A_Symbol_Table => Global_Symbol_Table)
          else
          --  If others is followed by <> then all other
          --  elements of the array are unchanged.
@@ -474,7 +519,10 @@ package body Aggregates is
                    (Value           => UI_From_Int (I),
                     Expr_Type       => Index_T,
                     Source_Location => Source_Location),
-               Value_Expr => Do_Expression (Next_Expr),
+               Value_Expr => Typecast_If_Necessary
+                 (Expr           => Do_Expression (Next_Expr),
+                  New_Type       => Comp_Type,
+                  A_Symbol_Table => Global_Symbol_Table),
                I_Type     => Comp_Type,
                Location   => Source_Location);
 
@@ -503,11 +551,14 @@ package body Aggregates is
          else
             Component_Pre);
    begin
+      Put_Line ("Update array from aggregate");
+      Put_Line ("Low " & Int'Image (Dest_Bounds.Low_Static));
+      Put_Line ("High " & Int'Image (Dest_Bounds.High_Static));
       if N_Dimensions > 1 then
          Report_Unhandled_Node_Empty
            (Agg,
             "Update_Array_From_Aggregate",
-            "Multi-demensional aggregates unsupported");
+            "Multi-dimensional aggregates unsupported");
       elsif not Is_Scalar_Type (Component_Type (Aggregate_Subtype)) then
          Report_Unhandled_Node_Empty
            (Agg,
@@ -517,9 +568,11 @@ package body Aggregates is
       elsif Dest_Bounds.Has_Static_Bounds and
         All_Dimensions_Static (Aggregate_Subtype)
       then
+         Put_Line ("Static Bounds");
          --  The target array and
          --  The aggregate have static bounds.
          if Positional_Assoc then
+            Put_Line ("Positional");
             Array_Static_Positional
               (Block      => Block,
                Low_Bound  => Dest_Bounds.Low_Static,
@@ -528,6 +581,7 @@ package body Aggregates is
                Target     => Dest_Array,
                Comp_Type  => Component_Irep);
          elsif Present (Component_Associations (Agg)) then
+            Put_Line ("Named");
             --  Named associations.
             Array_Static_Named_Assoc
               (Block      => Block,
