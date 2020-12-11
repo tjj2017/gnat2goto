@@ -450,6 +450,32 @@ package body Arrays.Low_Level is
       return Offset;
    end Calculate_Index_Offset;
 
+   -----------------------------------
+   -- Calculate_Index_Offset_Static --
+   -----------------------------------
+
+   function Calculate_Index_Offset_Static (Array_Node  : Node_Id;
+                                           The_Indices : Node_Id) return Int
+   is
+      Array_Type  : constant Entity_Id := Etype (Array_Node);
+      No_Of_Dims  : constant Positive :=
+        Positive (Number_Dimensions (Array_Type));
+      Index_Iter  : Node_Id := First (Expressions (The_Indices));
+      Dim_Iter    : Node_Id := First_Index (Array_Type);
+      Offset      : Uint :=
+        Expr_Value (Index_Iter) - Expr_Value (Low_Bound (Dim_Iter));
+   begin
+      for I in 2 .. No_Of_Dims loop
+         Index_Iter := Next (Index_Iter);
+         Dim_Iter := Next_Index (Dim_Iter);
+         Offset :=
+           (Calculate_Static_Dimension_Length (Get_Range (Dim_Iter)) *
+             Offset) +
+           (Expr_Value (Index_Iter) - Expr_Value (Low_Bound (Dim_Iter)));
+      end loop;
+      return UI_To_Int (Offset);
+   end Calculate_Index_Offset_Static;
+
    ---------------------------------------
    -- Calculate_Static_Dimension_Length --
    ---------------------------------------
@@ -525,7 +551,7 @@ package body Arrays.Low_Level is
                          Dest_Irep      : Irep;
                          Source_Irep    : Irep)
    is
-      Static_Limit : constant := 16;
+      Static_Limit        : constant := 16;
    begin
       if (Dest_Bounds.Has_Static_Bounds and Source_Bounds.Has_Static_Bounds)
         and then
@@ -803,7 +829,7 @@ package body Arrays.Low_Level is
             when others =>
                Etype (N));
    begin
-      if Is_Constrained (Array_Type) then
+      if Is_Constrained (Array_Type) or else Nkind (Index) = N_Range then
          return Get_Bounds (Index);
       end if;
 
@@ -817,8 +843,10 @@ package body Arrays.Low_Level is
          pragma Assert (Nkind (N) in N_Object_Declaration
                           | N_Object_Renaming_Declaration
                           | N_Identifier
-                          | N_Expanded_Name,
-                        "Get_Dimension_Bounds - Not an object");
+                          | N_Expanded_Name
+                          | N_Defining_Identifier,
+                        "Get_Dimension_Bounds - Not an object " &
+                          Node_Kind'Image (Nkind (N)));
 
          Object_Entity : constant Entity_Id :=
            (case Nkind (N) is

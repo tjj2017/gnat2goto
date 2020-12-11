@@ -295,6 +295,10 @@ package body Arrays is
       Source_Bounds : constant Static_And_Dynamic_Bounds :=
         Multi_Dimension_Flat_Bounds (Source_Expr);
    begin
+      Put_Line ("Array_Assignment_Op Low " &
+                  Int'Image (Dest_Bounds.Low_Static));
+      Put_Line ("Array_Assignment_Op High "
+                & Int'Image (Dest_Bounds.High_Static));
       if RHS_Node_Kind = N_Aggregate then
          Update_Array_From_Aggregate
            (Block        => Block,
@@ -531,7 +535,11 @@ package body Arrays is
               Multi_Dimension_Flat_Bounds (Dec_Node)
          else
             Unconstrained_Bounds);
-
+      pragma Assert (Print_Msg ("Do_Array_Object_Declaration Low " &
+                       Int'Image (Array_Bounds.Low_Static)));
+      pragma Assert (Print_Msg ("Do_Array_Object_Declaration High " &
+                       Int'Image (Array_Bounds.High_Static)));
+      pragma Assert (Print_Node (Dec_Node, True));
       Comp_Type        : constant Entity_Id :=
         Component_Type (Target_Type);
 
@@ -1049,6 +1057,10 @@ package body Arrays is
             Low  : constant Int := UI_To_Int (Low_Expr);
             High : constant Int := UI_To_Int (High_Expr);
          begin
+            Put_Line ("Do_Aggregate_Literal_Array");
+            Put_Line ("Low " & Int'Image (Low));
+            Put_Line ("High" & Int'Image (High));
+            Print_Node_Subtree (Aggregate_Bounds (N));
             if Positional_Assoc then
                Array_Static_Positional
                  (Block      => Result_Block,
