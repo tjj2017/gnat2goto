@@ -5140,25 +5140,26 @@ package body Tree_Walk is
       end if;
 
       if not Original_Declared then
-         --  The original node may not be declared if it is part of the RTS.
-         --  Provide a bogus entry which has the name id of the missing
-         --  subprogram so that it can be reported when it is called.
-         declare
-            Bogus_Symbol : constant Symbol :=
-              (Name | BaseName | PrettyName => Original_Id,
-               SymType | Value | Location => Ireps.Empty,
-               others => <>);
-         begin
-            if not Global_Symbol_Table.Contains (Renaming_Id) then
-               Global_Symbol_Table.Insert (Renaming_Id, Bogus_Symbol);
-            end if;
-            Report_Unhandled_Node_Empty
-              (N,
-               "Do_Subprogram_Renaming_Declaration",
-               "Original subprogram " & Original_Name &
-                 " is not declared (possibly from RTS)");
-            return;
-         end;
+--         --  The original node may not be declared if it is part of the RTS.
+--           --  Provide a bogus entry which has the name id of the missing
+--           --  subprogram so that it can be reported when it is called.
+--           declare
+--              Bogus_Symbol : constant Symbol :=
+--                (Name | BaseName | PrettyName => Original_Id,
+--                 SymType | Value | Location => Ireps.Empty,
+--                 others => <>);
+--           begin
+--              if not Global_Symbol_Table.Contains (Renaming_Id) then
+--                 Global_Symbol_Table.Insert (Renaming_Id, Bogus_Symbol);
+--              end if;
+--              Report_Unhandled_Node_Empty
+--                (N,
+--                 "Do_Subprogram_Renaming_Declaration",
+--                 "Original subprogram " & Original_Name &
+--                   " is not declared (possibly from RTS)");
+--              return;
+--           end;
+         return;
       end if;
 
       declare
