@@ -5133,32 +5133,12 @@ package body Tree_Walk is
         Global_Symbol_Table.Contains (Original_Id);
    begin
       if Ekind (Renaming_Entity) = E_Subprogram_Body or else
-        Ekind (Original_Entity) = E_Enumeration_Literal
+        Ekind (Original_Entity) = E_Enumeration_Literal or else
+        not Original_Declared
       then
          --  Nothing to be done. The front-end handles these cases.
-         return;
-      end if;
-
-      if not Original_Declared then
---         --  The original node may not be declared if it is part of the RTS.
---           --  Provide a bogus entry which has the name id of the missing
---           --  subprogram so that it can be reported when it is called.
---           declare
---              Bogus_Symbol : constant Symbol :=
---                (Name | BaseName | PrettyName => Original_Id,
---                 SymType | Value | Location => Ireps.Empty,
---                 others => <>);
---           begin
---              if not Global_Symbol_Table.Contains (Renaming_Id) then
---                 Global_Symbol_Table.Insert (Renaming_Id, Bogus_Symbol);
---              end if;
---              Report_Unhandled_Node_Empty
---                (N,
---                 "Do_Subprogram_Renaming_Declaration",
---                 "Original subprogram " & Original_Name &
---                   " is not declared (possibly from RTS)");
---              return;
---           end;
+         --  If the original function is not declared it is probably an
+         --  inbuilt function like "+".
          return;
       end if;
 
