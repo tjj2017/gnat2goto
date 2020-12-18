@@ -1,0 +1,13 @@
+Error from cbmc subprog_renaming:
+**** WARNING: no body for function interfaces__shift_left__3
+
+[shift_left.assertion.1] line 8 Ada Check assertion: SUCCESS
+[shift_left.assertion.2] line 8 Ada Check assertion: SUCCESS
+[subprog_renaming.assertion.1] line 56 assertion V = 1: SUCCESS
+[subprog_renaming.assertion.2] line 58 assertion V = 2: SUCCESS
+[subprog_renaming.assertion.3] line 60 assertion V = 3: SUCCESS
+[subprog_renaming.assertion.4] line 62 assertion V = 3: SUCCESS
+[subprog_renaming.assertion.5] line 66 assertion U = 4: FAILURE
+[subprog_renaming.assertion.6] line 68 assertion W = 4: SUCCESS
+[subprog_renaming.assertion.7] line 69 assertion E = one: SUCCESS
+VERIFICATION FAILED
