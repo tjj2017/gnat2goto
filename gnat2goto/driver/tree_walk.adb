@@ -5149,10 +5149,9 @@ package body Tree_Walk is
                SymType | Value | Location => Ireps.Empty,
                others => <>);
          begin
-            --  The renaming entity should not be already in the symbol table.\
-            pragma Assert (not Global_Symbol_Table.Contains (Renaming_Id));
-            Global_Symbol_Table.Insert (Renaming_Id, Bogus_Symbol);
-
+            if not Global_Symbol_Table.Contains (Renaming_Id) then
+               Global_Symbol_Table.Insert (Renaming_Id, Bogus_Symbol);
+            end if;
             Report_Unhandled_Node_Empty
               (N,
                "Do_Subprogram_Renaming_Declaration",
@@ -5166,14 +5165,15 @@ package body Tree_Walk is
          Original_Sym : constant Symbol := Global_Symbol_Table (Original_Id);
       begin
          --  The renaming entity should not be in the symbol table.
-         pragma Assert (not Global_Symbol_Table.Contains (Renaming_Id));
+         if not Global_Symbol_Table.Contains (Renaming_Id) then
 
-         --  The Original entity's Symbol is copied to the renaming enities
-         --  Symbol.  This means, in goto the original subprogram is called
-         --  rather than its renaming.
-         Global_Symbol_Table.Insert
-           (Key      => Renaming_Id,
-            New_Item => Original_Sym);
+            --  The Original entity's Symbol is copied to the renaming enities
+            --  Symbol.  This means, in goto the original subprogram is called
+            --  rather than its renaming.
+            Global_Symbol_Table.Insert
+              (Key      => Renaming_Id,
+               New_Item => Original_Sym);
+         end if;
          pragma Assert (Global_Symbol_Table.Contains (Renaming_Id));
       end;
    end Do_Subprogram_Renaming_Declaration;
