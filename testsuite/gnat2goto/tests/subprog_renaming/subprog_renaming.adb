@@ -42,7 +42,12 @@ procedure Subprog_Renaming is
    type Enum is (one, two, three);
 
    function Number_One return Enum renames one;
-
+   
+   --  A horrible thing to do but here it is used to
+   --  check the renaming with an operator symbol.
+   function "-" (Left, Right : Integer) return Integer
+                 renames "+";
+   
    E : Enum := Number_One;
 
    V : Integer := 0;
@@ -73,4 +78,6 @@ begin
    --  checks that the problem has been resolved.
    V := "+" (V, 1);
    pragma Assert (V = 4);
+   --  Because "-" has been renamed as "+"
+   pragma Assert (V - 1 = 5);
 end Subprog_Renaming;
