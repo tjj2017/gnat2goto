@@ -1757,7 +1757,9 @@ package body Tree_Walk is
          Func_Declared : constant Boolean :=
            Global_Symbol_Table.Contains (Func_Id);
       begin
-         if Nkind (Func_Ent) /= N_Defining_Identifier then
+         if Nkind (Func_Ent) not in N_Defining_Identifier |
+                                N_Defining_Operator_Symbol
+         then
             return Report_Unhandled_Node_Irep
               (Func_Ent, "Do_Function_Call",
                "function entity not defining identifier");
