@@ -67,4 +67,10 @@ begin
    W := My_sl (W, 1);
    pragma Assert (W = 4);
    pragma Assert (E = one);
+   --  Not a renaming declaration but was causing an unsupported report
+   --  and was raised by Do_Function_Call that needed changing to support
+   --  subprogram renamin renaming so it has been fixed and this statement
+   --  checks that the problem has been resolved.
+   V := "+" (V, 1);
+   pragma Assert (V = 4);
 end Subprog_Renaming;
