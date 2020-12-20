@@ -63,6 +63,11 @@ Calling function: Do_Expression
 Error message: ATTRIBUTE_ASM_OUTPUT unsupported
 Nkind: N_Attribute_Reference
 --
+Occurs: 1 times
+Calling function: Do_Operator_General
+Error message: Concat unsupported
+Nkind: N_Op_Concat
+--
 Occurs: 32 times
 Redacted compiler error message:
 file "REDACTED" not found
