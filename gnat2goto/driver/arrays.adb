@@ -438,6 +438,7 @@ package body Arrays is
                                         Element_Type_Size =>
                                           Esize (Get_Array_Component_Type (E)),
                                         Source_Loc        => Source_Loc);
+      pragma Assert (Nkind (E) /= N_Object_Declaration);
       Ret : constant Irep :=
         Make_Struct_Expr (Source_Location => Source_Loc,
                           I_Type          => Do_Type_Reference (E));
