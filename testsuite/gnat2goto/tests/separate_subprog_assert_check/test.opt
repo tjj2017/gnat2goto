@@ -1,1 +1,1 @@
-ALL XFAIL Assert statement in p.adb should succeed.
+ALL XFAIL cbmc assertion on line 18 fails.

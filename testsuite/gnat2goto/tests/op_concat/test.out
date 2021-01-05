@@ -1,0 +1,61 @@
+Standard_Output from gnat2goto op_concat:
+----------At: Do_Operator_General----------
+----------Concat unsupported----------
+N_Op_Concat "Oconcat" (Node_Id=2314) (source,analyzed)
+ Sloc = 12535  op_concat.adb:12:40
+ Chars = "Oconcat" (Name_Id=300000412)
+ Left_Opnd = N_Slice (Node_Id=2313)
+ Right_Opnd = N_Slice (Node_Id=2319)
+ Entity = N_Defining_Operator_Symbol "Oconcat" (Entity_Id=2344)
+ Etype = N_Defining_Identifier "TarrB" (Entity_Id=2337)
+
+Error from cbmc op_concat:
+warning: ignoring nil
+  * type: nil
+  * #source_location: 
+    * file: <internal>
+    * line: 
+    * column: 
+    * comment: 
+    * property_class: 
+    * property_id: 
+    * function: 
+    * working_directory: 
+    * java_bytecode_index: 
+  * range_check: 0
+--- begin invariant violation report ---
+Invariant check failed
+File: flattening/boolbv_width.cpp:199 function: get_entry
+Condition: false
+Reason: Unimplemented
+Backtrace:
+0   cbmc                                0x000000010adcf43a _Z15print_backtraceRNSt3__113basic_ostreamIcNS_11char_traitsIcEEEE + 74
+1   cbmc                                0x000000010adcfa0c _Z13get_backtracev + 252
+2   cbmc                                0x000000010ab713ec _Z29invariant_violated_structuredI17invariant_failedtJRKNSt3__112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEEEENS1_9enable_ifIXsr3std10is_base_ofIS0_T_EE5valueEvE4typeES9_S9_iS9_DpOT0_ + 44
+3   cbmc                                0x000000010ac6127e _ZNK13boolbv_widtht9get_entryERK5typet + 4318
+4   cbmc                                0x000000010ac31df6 _ZN7boolbvt17convert_bitvectorERK5exprt + 2630
+5   cbmc                                0x000000010ac6ac93 _ZN12bv_pointerst17convert_bitvectorERK5exprt + 2371
+6   cbmc                                0x000000010ac30d69 _ZN7boolbvt10convert_bvERK5exprtN6nonstd13optional_lite8optionalImEE + 249
+7   cbmc                                0x000000010ac59f5a _ZN7boolbvt19convert_bv_typecastERK14typecast_exprt + 74
+8   cbmc                                0x000000010ac3145e _ZN7boolbvt17convert_bitvectorERK5exprt + 174
+9   cbmc                                0x000000010ac6ac93 _ZN12bv_pointerst17convert_bitvectorERK5exprt + 2371
+10  cbmc                                0x000000010ac30d69 _ZN7boolbvt10convert_bvERK5exprtN6nonstd13optional_lite8optionalImEE + 249
+11  cbmc                                0x000000010ac3550c _ZN7boolbvt27boolbv_set_equality_to_trueERK11equal_exprt + 204
+12  cbmc                                0x000000010ac355e5 _ZN7boolbvt6set_toERK5exprtb + 101
+13  cbmc                                0x000000010ab5ba04 _ZN22symex_target_equationt19convert_assignmentsER19decision_proceduret + 196
+14  cbmc                                0x000000010ab5b714 _ZN22symex_target_equationt26convert_without_assertionsER19decision_proceduret + 36
+15  cbmc                                0x000000010ab5c732 _ZN22symex_target_equationt7convertER19decision_proceduret + 18
+16  cbmc                                0x000000010aa0ea66 _Z24prepare_property_deciderRNSt3__113unordered_mapI8dstringt14property_infotNS_4hashIS1_EENS_8equal_toIS1_EENS_9allocatorINS_4pairIKS1_S2_EEEEEER22symex_target_equationtR28goto_symex_property_decidertR19ui_message_handlert + 326
+17  cbmc                                0x000000010aa15fb8 _ZN25multi_path_symex_checkertclERNSt3__113unordered_mapI8dstringt14property_infotNS0_4hashIS2_EENS0_8equal_toIS2_EENS0_9allocatorINS0_4pairIKS2_S3_EEEEEE + 264
+18  cbmc                                0x000000010ae6a8c4 _ZN43all_properties_verifier_with_trace_storagetI25multi_path_symex_checkertEclEv + 52
+19  cbmc                                0x000000010ae621bf _ZN19cbmc_parse_optionst4doitEv + 4447
+20  cbmc                                0x000000010ade8129 _ZN19parse_options_baset4mainEv + 249
+21  cbmc                                0x000000010ae5d35d main + 45
+22  libdyld.dylib                       0x00007fff7263f015 start + 1
+23  ???                                 0x0000000000000002 0x0 + 2
+
+
+--- end invariant violation report ---
+
+ERROR code  -6 returned by cbmc when processing op_concat
+

@@ -10,8 +10,10 @@ procedure P (X : in out integer) is
    procedure Inc (N : in out Integer) is separate;
    Old_X : constant Integer := X;
 begin
+   --  The following assertion will fail because the value of Old_X is
+   --  non-det.
+   pragma Assert (X < Integer'Last);
    Inc (X);
-   --  The following assert should succeed if the possibility
-   --  overflow is ignored.
+   --  The following assert should succeed.
    pragma Assert (X = Old_X + 1);
 end P;
