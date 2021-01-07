@@ -6548,6 +6548,14 @@ package body Tree_Walk is
       if Etype (E) /= E then
          Do_Type_Declaration (New_Type, Etype (E));
       end if;
+
+      --  A declaration of a tagged type is accepted by gnat2goto.
+      --  If it is a tagged type a class wide type is also declared.
+      --  The class wide type must be entered into the symbol table.
+      if Is_Tagged_Type (E) then
+         Do_Type_Declaration (New_Type, Class_Wide_Type (E));
+      end if;
+
    end Register_Type_Declaration;
 
    procedure Remove_Entity_Substitution (E : Entity_Id) is
