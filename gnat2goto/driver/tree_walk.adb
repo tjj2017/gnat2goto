@@ -99,10 +99,6 @@ package body Tree_Walk is
    with Pre  => Nkind (N) = N_Derived_Type_Definition,
         Post => Kind (Do_Derived_Type_Definition'Result) in Class_Type;
 
-   function Do_Enumeration_Definition (N : Node_Id) return Irep
-   with Pre  => Nkind (N) = N_Enumeration_Type_Definition,
-        Post => Kind (Do_Enumeration_Definition'Result) = I_C_Enum_Type;
-
    procedure Do_Full_Type_Declaration (N : Node_Id)
    with Pre => Nkind (N) = N_Full_Type_Declaration;
 
@@ -1664,6 +1660,13 @@ package body Tree_Walk is
          --  Declare the implicit initial subtype too
          if Etype (E) /= E then
             Do_Type_Declaration (New_Type, Etype (E));
+         end if;
+
+         --  A declaration of a tagged type is accepted by gnat2goto.
+         --  If it is a tagged type a class wide type is also declared.
+         --  The class wide type must be entered into the symbol table.
+         if Is_Tagged_Type (E) then
+            Do_Type_Declaration (New_Type, Class_Wide_Type (E));
          end if;
       end if;
 
@@ -4186,12 +4189,9 @@ package body Tree_Walk is
             --  incorrect for us to just ignore them.
             null;
             return;
-         elsif Is_Tagged_Type (Entity) then
-            Report_Unhandled_Node_Empty (N, "Do_Private_Type_Declaration",
-                                      "Tagged type declaration unsupported");
-            return;
          end if;
-         --  The private_type_declaration is neither tagged or abstract.
+         --  A tagged type declaration is acceptable to gnat2goto.
+         --  The private_type_declaration is not abstract.
          --  The Full_View of the declaratin will have been processed by the
          --  gnat front-end and will be Full_View_Entity.
 
@@ -5367,7 +5367,7 @@ package body Tree_Walk is
            (if Present (Declaration_Node (Type_Entity)) then
             Declaration_Node (Type_Entity)
          elsif Present (Associated_Node_For_Itype (Type_Entity)) then
-            Associated_Node_For_Itype (Type_Entity)
+               Associated_Node_For_Itype (Type_Entity)
          else
             Types.Empty);
       begin
