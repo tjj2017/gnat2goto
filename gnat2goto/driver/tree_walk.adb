@@ -4176,7 +4176,6 @@ package body Tree_Walk is
       Full_View_Entity : constant Entity_Id := Full_View (Entity);
    begin
       if Is_Private_Type (Entity) then
-         --  At the moment tagged types and abstract types are not supported.
          --  Limited types should be ok as limiting a type only applies
          --  constraints on its use within an Ada program.  The gnat
          --  front-end checks that these constraints are maintained by
@@ -5378,6 +5377,10 @@ package body Tree_Walk is
                Do_Full_Type_Declaration (The_Decl);
             when N_Subtype_Declaration =>
                Do_Subtype_Declaration (The_Decl);
+            when N_Private_Type_Declaration =>
+               Do_Private_Type_Declaration (The_Decl);
+            when N_Incomplete_Type_Declaration =>
+               Do_Incomplete_Type_Declaration (The_Decl);
             when others =>
                Report_Unhandled_Node_Empty
                  (The_Decl,
