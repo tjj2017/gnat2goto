@@ -4180,15 +4180,9 @@ package body Tree_Walk is
          --  constraints on its use within an Ada program.  The gnat
          --  front-end checks that these constraints are maintained by
          --  the code being analysed.
-         if Is_Abstract_Type (Entity) then
-            --  Ignore : Support is not necessary to capture the executable
-            --  semantics of the program, because abstract state is not part of
-            --  the compiled program. Maybe, at some point in the future, we
-            --  might want to improve the tooling to use these but it is not
-            --  incorrect for us to just ignore them.
-            null;
-            return;
-         end if;
+         --  Abstract types should be processed especially if it is tagged
+         --  because concrete types can be derived from them and gnat2goto
+         --  needs the abstract type in its symbol table.
          --  A tagged type declaration is acceptable to gnat2goto.
          --  The private_type_declaration is not abstract.
          --  The Full_View of the declaratin will have been processed by the
