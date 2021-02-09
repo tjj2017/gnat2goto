@@ -16,7 +16,17 @@ private
      with Pre => Nkind (N) = N_Defining_Identifier;
 
    function Do_Itype_Array_Subtype (N : Entity_Id) return Irep
-     with Pre => Is_Itype (N) and then Ekind (N) in Array_Kind;
+      with Pre => Is_Itype (N) and then Ekind (N) in Array_Kind;
+
+   function Do_Itype_Enumeration_Subtype (N : Entity_Id) return Irep
+     with Pre => Is_Itype (N) and then
+                 Nkind (N) in N_Entity and then
+                 Ekind (N) = E_Enumeration_Subtype;
+
+   function Do_Itype_Enumeration_Type (N : Entity_Id) return Irep
+     with Pre => Is_Itype (N) and then
+                 Nkind (N) in N_Entity and then
+                 Ekind (N) = E_Enumeration_Type;
 
    function Do_Itype_String_Literal_Subtype (N : Entity_Id) return Irep
      with Pre => Is_Itype (N) and then Ekind (N) = E_String_Literal_Subtype;

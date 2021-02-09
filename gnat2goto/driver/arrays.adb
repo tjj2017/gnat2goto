@@ -52,6 +52,7 @@ package body Arrays is
         or else NT = N_Task_Body_Stub
          or else NT = N_Task_Type_Declaration)
       then
+         Put_Line ("Defining_Identifier - Arrays");
          Put_Line ("Illegal node to Defining_Identifier");
          Print_Node_Briefly (N);
       end if;
@@ -293,7 +294,7 @@ package body Arrays is
       Source_Type      : constant Entity_Id := Etype (Source_Expr);
 
       Source_Bounds : constant Static_And_Dynamic_Bounds :=
-        Multi_Dimension_Flat_Bounds (Source_Expr);
+        Multi_Dimension_Flat_Bounds ("2", Source_Expr);
    begin
       Put_Line ("Array_Assignment_Op Low " &
                   Int'Image (Dest_Bounds.Low_Static));
@@ -318,6 +319,7 @@ package body Arrays is
             Dest_Array  => Target_Array,
             Dest_Bounds => Dest_Bounds);
       elsif RHS_Node_Kind = N_Op_Concat then
+         Put_Line ("Array_Assignment_Op - Update from concat");
          Update_Array_From_Concatenation
            (Block       => Block,
             Concat      => Source_Expr,
@@ -417,7 +419,7 @@ package body Arrays is
    is
       Id            : constant Symbol_Id := Intern (Array_Name);
       Bounds        : constant Static_And_Dynamic_Bounds :=
-        Multi_Dimension_Flat_Bounds (Array_Type);
+        Multi_Dimension_Flat_Bounds ("3", Array_Type);
       Needs_Size_Var : constant Boolean :=
         not Bounds.Has_Static_Bounds and then Is_Itype (Array_Type);
 
@@ -458,6 +460,7 @@ package body Arrays is
         (Symbol => Array_Irep,
          Source_Location => Source_Loc);
    begin
+      Put_Line ("Array_Object_And_Friends");
       if not Global_Symbol_Table.Contains (Id) then
          --  If a size variable is needed to define the size of the
          --  goto array object, declare it before the array.
@@ -532,14 +535,14 @@ package body Arrays is
 
       Array_Bounds : Static_And_Dynamic_Bounds :=
         (if Is_Constrained (Target_Type) then
-              Multi_Dimension_Flat_Bounds (Dec_Node)
+              Multi_Dimension_Flat_Bounds ("4", Dec_Node)
          else
             Unconstrained_Bounds);
       pragma Assert (Print_Msg ("Do_Array_Object_Declaration Low " &
                        Int'Image (Array_Bounds.Low_Static)));
       pragma Assert (Print_Msg ("Do_Array_Object_Declaration High " &
                        Int'Image (Array_Bounds.High_Static)));
-      pragma Assert (Print_Node (Dec_Node, True));
+      pragma Assert (Print_Node (Dec_Node));
       Comp_Type        : constant Entity_Id :=
         Component_Type (Target_Type);
 
@@ -558,6 +561,7 @@ package body Arrays is
       The_Array    : Irep;
    begin
       if not Array_Bounds.Is_Unconstrained then
+         Put_Line ("Do_Array_Object_Declaration - static bounds");
          --  The destination array object is constrained.
          --  Create the array symbol with the target type
          --  but do not perform initialization.
@@ -656,6 +660,7 @@ package body Arrays is
                Init_Expr_Irep => Ireps.Empty);
          end;
       else
+         Put_Line ("Do_Array_Object_Declaration - Unconstrained bounds");
          --  The array length, i.e. its goto I_Array_Type,
          --  for an unconstrained array object has to be determined from its
          --  initialization, which must be present.
@@ -679,6 +684,7 @@ package body Arrays is
 
       --  Now do its initialization, if any.
       if Present (Init_Expr) then
+         Put_Line ("Do_Array_Object_Declaration-Initialisation");
          Array_Assignment_Op
            (Source_Expr  => Init_Expr,
             Dest_Node    => Target_Def,
@@ -984,6 +990,10 @@ package body Arrays is
 
       Bounds : constant Dimension_Bounds := Get_Bounds (Index);
    begin
+      Put_Line ("Declare_First_Last_Vars");
+      Print_Node_Briefly (Index);
+      Print_Irep (Bounds.Low);
+      Print_Irep (Bounds.High);
       Declare_First_Last_From_Bounds
         (Prefix     => Prefix,
          Dimension  => Number_Str,
@@ -1060,7 +1070,7 @@ package body Arrays is
             Put_Line ("Do_Aggregate_Literal_Array");
             Put_Line ("Low " & Int'Image (Low));
             Put_Line ("High" & Int'Image (High));
-            Print_Node_Subtree (Aggregate_Bounds (N));
+            Print_Node_Briefly (Aggregate_Bounds (N));
             if Positional_Assoc then
                Array_Static_Positional
                  (Block      => Result_Block,
@@ -1698,13 +1708,17 @@ package body Arrays is
    function Do_Array_Subtype (Subtype_Node : Node_Id;
                               The_Entity   : Entity_Id) return Irep
    is
-     (if Is_Constrained (The_Entity) then
-           Make_Constrained_Array_Subtype
-        (Declaration    => Subtype_Node)
-      else
-         Make_Unconstrained_Array_Subtype
-        (Declaration    => Subtype_Node,
-         Component_Type => Component_Type (Etype (The_Entity))));
+   begin
+      Put_Line ("Do_Array_Subtype");
+      Print_Node_Briefly (Subtype_Node);
+      return (if Is_Constrained (The_Entity) then
+                 Make_Constrained_Array_Subtype
+                (Declaration    => Subtype_Node)
+              else
+                 Make_Unconstrained_Array_Subtype
+                (Declaration    => Subtype_Node,
+                 Component_Type => Component_Type (Etype (The_Entity))));
+   end Do_Array_Subtype;
 
    -------------------------------------
    -- Do_Constrained_Array_Definition --
@@ -1713,8 +1727,13 @@ package body Arrays is
    function Do_Constrained_Array_Definition (N     : Node_Id) return Irep is
       --  The array type declaration node is the  parent of the
       --  array_definition node.
-         (Make_Constrained_Array_Subtype
-        (Declaration    => Parent (N)));
+   begin
+         Put_Line ("Do_Constrained_Array_Definition");
+         Print_Node_Briefly (N);
+      return
+        (Make_Constrained_Array_Subtype
+           (Declaration    => Parent (N)));
+   end Do_Constrained_Array_Definition;
 
    ---------------------------------------
    -- Do_Unconstrained_Array_Definition --
@@ -2014,7 +2033,11 @@ package body Arrays is
       if Nkind (The_Prefix) in N_Has_Entity then
          declare
             The_Entity  : constant Entity_Id := Entity (The_Prefix);
-            Arr_Subtype : constant Entity_Id := Etype (The_Entity);
+            Arr_Subtype : constant Entity_Id :=
+              (if Is_Array_Type (The_Entity) then
+                    The_Entity
+               else
+                  Etype (The_Entity));
             Bounds      : constant Dimension_Bounds :=
               (if not Is_Constrained (Arr_Subtype) then
                --  It must be an unconstrained array.
@@ -2027,6 +2050,7 @@ package body Arrays is
                   Do_Constrained_First_Last (Arr_Subtype, Dimension));
 
          begin
+            Put_Line ("Have got bounds");
             return
               (case Attr is
                   when Attribute_First => Bounds.Low,
@@ -2090,6 +2114,9 @@ package body Arrays is
       end loop;
 
       --  Now get the lower and upper bounds of the dimension
+      Put_Line ("About to call Get_Dimension_Bounds");
+      Print_Node_Briefly (E);
+      Print_Node_Briefly (Declaration_Node (E));
       return
         Get_Dimension_Bounds (Declaration_Node (E), Dimension, Dim_Index);
    end Do_Constrained_First_Last;
@@ -2269,6 +2296,9 @@ package body Arrays is
       Expr_Type    : constant Entity_Id := Etype (Init_Expr);
       Array_I_Type : constant Irep := Do_Type_Reference (Target_Type);
    begin
+      Put_Line ("Make_Constrained_Array_From_Initialization");
+      Print_Node_Briefly (Init_Expr);
+      Print_Node_Briefly (Expr_Type);
       if Expr_Kind = N_Op_Concat then
          --  The array is initialized by a concatination.
          --  Determine the length of the concatination
@@ -2298,7 +2328,10 @@ package body Arrays is
                     Low_Dynamic       => Cat_Array_Bounds.Low,
                     High_Dynamic      => Cat_Array_Bounds.High);
          end;
-      elsif Is_Constrained (Expr_Type) then
+      elsif Is_Constrained (Expr_Type) or else
+        Is_Constr_Subt_For_U_Nominal (Expr_Type)
+      then
+         Put_Line ("Make_Constrained_Array_From_Initialization - Constrained");
          declare
             Comp_Type        : constant Entity_Id :=
               Component_Type (Target_Type);
@@ -2316,23 +2349,23 @@ package body Arrays is
                   Comp_Irep_Pre);
 
             Bounds : constant Static_And_Dynamic_Bounds :=
-              Multi_Dimension_Flat_Bounds (Expr_Type);
+              Multi_Dimension_Flat_Bounds ("5", Expr_Type);
             Array_Size : constant Irep :=
               (if Bounds.Has_Static_Bounds then
                   Integer_Constant_To_Expr
                  (Value           => UI_From_Int
-                      (Bounds.Low_Static + Bounds.High_Static - 1),
+                      (Bounds.High_Static - Bounds.Low_Static + 1),
                   Expr_Type       => Index_T,
                   Source_Location => Source_Loc)
                else
-                  Make_Op_Sub
+                  Make_Op_Add
                  (Rhs             => Integer_Constant_To_Expr
                       (Value           => Uint_1,
                        Expr_Type       => Index_T,
                        Source_Location => Source_Loc),
-                  Lhs             => Make_Op_Add
-                    (Rhs             => Bounds.High_Dynamic,
-                     Lhs             => Bounds.Low_Dynamic,
+                  Lhs             => Make_Op_Sub
+                    (Rhs             => Bounds.Low_Dynamic,
+                     Lhs             => Bounds.High_Dynamic,
                      Source_Location => Source_Loc,
                      I_Type          => Index_T),
                   Source_Location => Source_Loc,
@@ -2355,6 +2388,11 @@ package body Arrays is
               (Source_Location => Source_Loc,
                I_Type          => Array_Subtype,
                Identifier      => Array_Name);
+
+            Put_Line ("Make_Constrained_Array_From_Initialization -The array");
+            Print_Irep (Array_Subtype);
+            Print_Irep (The_Array);
+            Print_Irep (Array_Size);
          end;
       elsif Expr_Kind = N_Function_Call then
          --  A call to a funcion which returns an unconstrained array.
@@ -2371,7 +2409,7 @@ package body Arrays is
             Source_Loc => Source_Loc,
             Block      => Block);
                Array_Bounds :=
-                 Multi_Dimension_Flat_Bounds (Expr_Type);
+                 Multi_Dimension_Flat_Bounds ("6", Expr_Type);
          --  The default array symbol is determined from the target type.
          The_Array := Make_Symbol_Expr
            (Source_Location => Source_Loc,
@@ -2391,7 +2429,7 @@ package body Arrays is
             Source_Loc => Source_Loc,
             Block      => Block);
                Array_Bounds :=
-                 Multi_Dimension_Flat_Bounds (Expr_Type);
+                 Multi_Dimension_Flat_Bounds ("7", Expr_Type);
          --  The default array symbol is determined from the target type.
          The_Array := Make_Symbol_Expr
            (Source_Location => Source_Loc,
@@ -2869,7 +2907,7 @@ package body Arrays is
       --  All goto arrays are index from 0, so the length is
       --  upper bound + 1.
       Array_Bounds     : constant Static_And_Dynamic_Bounds :=
-        Multi_Dimension_Flat_Bounds (Declaration);
+        Multi_Dimension_Flat_Bounds ("8", Array_Entity);
       Array_Length     : constant Irep :=
         (if Array_Bounds.Has_Static_Bounds then
             Integer_Constant_To_Expr
@@ -3068,8 +3106,42 @@ package body Arrays is
             Dest_Bounds : Static_And_Dynamic_Bounds;
             Dest_Array  : Irep)
    is
+      pragma Unreferenced (Block, Dest_Bounds, Dest_Array);
+      procedure Trace (N : Node_Id);
+      procedure Trace (N : Node_Id) is
+      begin
+         if Nkind (N) = N_Op_Concat then
+            if Is_Component_Left_Opnd (Concat) then
+               Put_Line ("Left - a component");
+               Print_Node_Briefly (Left_Opnd (Concat));
+            else
+               Put_Line ("Left - not a component");
+               Print_Node_Briefly (Left_Opnd (Concat));
+               Trace (Left_Opnd (N));
+            end if;
+            if Is_Component_Right_Opnd (N) then
+               Put_Line ("Right - a component");
+               Print_Node_Briefly (Right_Opnd (Concat));
+            else
+               Put_Line ("Right - not a component");
+               Print_Node_Briefly (Right_Opnd (Concat));
+               Trace (Right_Opnd (N));
+            end if;
+         else
+            Put_Line ("Not a concat");
+            Print_Node_Briefly (N);
+         end if;
+      end Trace;
+
    begin
-      null;
+      Trace (Concat);
+--        Update_Array_From_Aggregate
+--             (Block        => Block,
+--              Agg          => Source_Expr,
+--              N_Dimensions => Number_Dimensions (Dest_Type),
+--              Dest_Bounds  => Dest_Bounds,
+--              Dest_Array   => Target_Array);
+
    end Update_Array_From_Concatenation;
 
    procedure Update_Array_From_Slice

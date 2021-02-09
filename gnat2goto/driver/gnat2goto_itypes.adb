@@ -8,6 +8,8 @@ with Symbol_Table_Info;     use Symbol_Table_Info;
 with Tree_Walk;             use Tree_Walk;
 with Follow;                use Follow;
 with Arrays;                use Arrays;
+with Ada.Text_IO; use Ada.Text_IO;
+with Treepr; use Treepr;
 
 package body Gnat2goto_Itypes is
 
@@ -91,6 +93,9 @@ package body Gnat2goto_Itypes is
          when E_Signed_Integer_Subtype => Do_Itype_Integer_Subtype (N),
          when E_Record_Subtype => Do_Itype_Record_Subtype (N),
          when E_Signed_Integer_Type => Do_Itype_Integer_Type (N),
+         --  An Itype can be an enumeration (sub)type.
+         when E_Enumeration_Subtype => Do_Itype_Enumeration_Subtype (N),
+         when E_Enumeration_Type    => Do_Itype_Enumeration_Type (N),
          when E_Floating_Point_Type => CProver_Nil,
          when E_Anonymous_Access_Type => Make_Pointer_Type
                 (Base => Do_Type_Reference (Designated_Type (Etype (N)))),
@@ -127,11 +132,31 @@ package body Gnat2goto_Itypes is
 
    function Do_Itype_Array_Subtype (N : Node_Id) return Irep is
    begin
+      Put_Line ("Do_Itype_Array_Subtype");
+      Print_Node_Briefly (N);
       return
         Do_Array_Subtype
           (Subtype_Node => N,
            The_Entity   => N);
    end Do_Itype_Array_Subtype;
+
+   ----------------------------------
+   -- Do_Itype_Enumeration_Subtype --
+   ----------------------------------
+
+   function Do_Itype_Enumeration_Subtype (N : Entity_Id) return Irep is
+   begin
+      Declare_Itype (Etype (N));
+      return Make_Symbol_Type
+        (Identifier => Unique_Name (Etype (N)));
+   end Do_Itype_Enumeration_Subtype;
+
+   -------------------------------
+   -- Do_Itype_Enumeration_Type --
+   -------------------------------
+
+   function Do_Itype_Enumeration_Type (N : Entity_Id) return Irep is
+      (Do_Enumeration_Definition (N));
 
    -------------------------------------
    -- Do_Itype_String_Literal_Subtype --

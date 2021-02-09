@@ -187,7 +187,7 @@ package Arrays.Low_Level is
    --  Calculate a zero offset index from an Ada index represented as an Irep
    --  and the lower bound given as an Int constant.
 
-   function Multi_Dimension_Flat_Bounds (Array_Node : Node_Id)
+   function Multi_Dimension_Flat_Bounds (S : String; Array_Node : Node_Id)
                                          return Static_And_Dynamic_Bounds
      with Pre => ((Nkind (Array_Node) in N_Full_Type_Declaration |
                                       N_Subtype_Declaration and then

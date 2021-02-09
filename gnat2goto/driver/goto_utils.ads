@@ -144,9 +144,9 @@ package GOTO_Utils is
      Post => Kind (Build_Array_Size'Result) = I_Op_Add;
 
    function Typecast_If_Necessary (Expr : Irep; New_Type : Irep;
-                                   A_Symbol_Table : Symbol_Table) return Irep;
---       with Pre => (Kind (Expr) in Class_Expr
---                    and then Kind (New_Type) in Class_Type);
+                                   A_Symbol_Table : Symbol_Table) return Irep
+     with Pre => (Kind (Expr) in Class_Expr
+                  and then Kind (New_Type) in Class_Type);
 
    type Float_Format is (IEEE_32_Bit, IEEE_64_Bit);
 

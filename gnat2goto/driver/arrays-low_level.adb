@@ -8,10 +8,11 @@ with Treepr;                  use Treepr;
 with Ada.Text_IO; use Ada.Text_IO;
 package body Arrays.Low_Level is
 
-   function Defining_Identifier (N : Node_Id) return Entity_Id;
-   function Defining_Identifier (N : Node_Id) return Entity_Id is
+   function Defining_Identifier (I : String; N : Node_Id) return Entity_Id;
+   function Defining_Identifier (I : String; N : Node_Id) return Entity_Id is
       NT : constant Node_Kind := Nkind (N);
    begin
+      Put_Line ("Defining_Identifier - Arrays_Low_Level " & I);
       if not
         (NT = N_Component_Declaration
         or else NT = N_Defining_Program_Unit_Name
@@ -422,6 +423,8 @@ package body Arrays.Low_Level is
       Offset      : Irep :=
         Calculate_Zero_Offset (Index_Iter, Bounds_Iter);
    begin
+      Put_Line ("Calculate_Index_Offset");
+      Print_Node_Briefly (Array_Node);
       for I in 2 .. No_Of_Dims loop
          Index_Iter := Next (Index_Iter);
          Dim_Iter := Next_Index (Dim_Iter);
@@ -819,83 +822,112 @@ package body Arrays.Low_Level is
    function Get_Dimension_Bounds (N : Node_Id; Dim : Positive; Index : Node_Id)
                                   return Dimension_Bounds
    is
-      Source_Location : constant Irep := Get_Source_Location (N);
-      Array_Type      : constant Entity_Id :=
-        (case Nkind (N) is
-            when N_Full_Type_Declaration | N_Subtype_Declaration =>
-               Defining_Identifier (N),
-            when N_Object_Declaration | N_Object_Renaming_Declaration =>
-               Etype (Defining_Identifier (N)),
-            when others =>
-               Etype (N));
    begin
-      if Is_Constrained (Array_Type) or else Nkind (Index) = N_Range then
-         return Get_Bounds (Index);
-      end if;
-
-      --  The array is unconstrained but N must refer to an array object that
-      --  has first and last auxillary variables declared for each dimension.
+      Put_Line ("Get_Dimension_Bounds");
+      Print_Node_Briefly (N);
       declare
-         Dim_String_Pre : constant String := Integer'Image (Dim);
-         Dim_String     : constant String :=
-           Dim_String_Pre (2 .. Dim_String_Pre'Last);
 
-         pragma Assert (Nkind (N) in N_Object_Declaration
-                          | N_Object_Renaming_Declaration
-                          | N_Identifier
-                          | N_Expanded_Name
-                          | N_Defining_Identifier,
-                        "Get_Dimension_Bounds - Not an object " &
-                          Node_Kind'Image (Nkind (N)));
-
-         Object_Entity : constant Entity_Id :=
+         Source_Location : constant Irep := Get_Source_Location (N);
+         Array_Type      : constant Entity_Id :=
            (case Nkind (N) is
+               when N_Full_Type_Declaration | N_Subtype_Declaration =>
+                  Defining_Identifier ("1", N),
+               when N_Object_Declaration | N_Object_Renaming_Declaration =>
+                  Etype (Defining_Identifier ("2", N)),
                when N_Defining_Identifier =>
-                  N,
-               when N_Identifier | N_Expanded_Name =>
-                  Entity (N),
+              (if Is_Array_Type (N) then
+                    N
+               else
+                  Etype (N)),
                when others =>
-                  Defining_Identifier (N));
-
-         Index_Entity : constant Entity_Id :=
-           (case Nkind (Index) is
-               when N_Defining_Identifier =>
-                  Index,
-               when N_Identifier | N_Expanded_Name =>
-                  Entity (Index),
-               when others =>
-                  Defining_Identifier (Index));
-
-         Object_Name    : constant String := Unique_Name (Object_Entity);
-
-         First_Var      : constant String :=
-           Object_Name & First_Var_Str & Dim_String;
-         Last_Var       : constant String :=
-           Object_Name & Last_Var_Str & Dim_String;
-
-         pragma Assert (Global_Symbol_Table.Contains (Intern (First_Var)));
-         pragma Assert (Global_Symbol_Table.Contains (Intern (Last_Var)));
-
-         First_Sym      : constant Irep :=
-           Make_Symbol_Expr
-             (Source_Location => Source_Location,
-              I_Type          => Do_Type_Reference (Index_Entity),
-              Identifier      => First_Var);
-         Last_Sym      : constant Irep :=
-           Make_Symbol_Expr
-             (Source_Location => Source_Location,
-              I_Type          => Do_Type_Reference (Index_Entity),
-              Identifier      => Last_Var);
+                  Etype (N));
       begin
-         return Dimension_Bounds'
-           (Low  => Typecast_If_Necessary
-              (Expr           => First_Sym,
-               New_Type       => Index_T,
-               A_Symbol_Table => Global_Symbol_Table),
-            High => Typecast_If_Necessary
-              (Expr           => Last_Sym,
-               New_Type       => Index_T,
-               A_Symbol_Table => Global_Symbol_Table));
+         Print_Node_Briefly (Array_Type);
+         Put_Line ("Constrained " &
+                     Boolean'Image (Is_Constrained (Array_Type)));
+         Put_Line ("Is_Constr_Subt_For_U_Nominal " &
+                     Boolean'Image
+                     (Is_Constr_Subt_For_U_Nominal (Array_Type)));
+         if Is_Constrained (Array_Type) or else
+           Is_Constr_Subt_For_U_Nominal (Array_Type) or else
+           Nkind (Index) = N_Range
+         then
+            return Get_Bounds (Index);
+         end if;
+
+         --  The array is unconstrained but N must refer to an array object
+         --  that has first and last auxillary variables declared for each
+         --  dimension.
+         Put_Line ("Is_Constrained " &
+                     Boolean'Image (Is_Constrained (Array_Type)));
+         Put_Line ("Is_Constr_Subt_For_U_Nominal " &
+                     Boolean'Image
+                     (Is_Constr_Subt_For_U_Nominal (Array_Type)));
+         Print_Node_Briefly (N);
+         declare
+            Dim_String_Pre : constant String := Integer'Image (Dim);
+            Dim_String     : constant String :=
+              Dim_String_Pre (2 .. Dim_String_Pre'Last);
+
+            pragma Assert (Nkind (N) in N_Object_Declaration
+                             | N_Object_Renaming_Declaration
+                               | N_Identifier
+                                 | N_Expanded_Name
+                                   | N_Defining_Identifier,
+                           "Get_Dimension_Bounds - Not an object " &
+                             Node_Kind'Image (Nkind (N)));
+
+            Object_Entity : constant Entity_Id :=
+              (case Nkind (N) is
+                  when N_Defining_Identifier =>
+                     N,
+                  when N_Identifier | N_Expanded_Name =>
+                     Entity (N),
+                  when others =>
+                     Defining_Identifier ("3", N));
+
+            Index_Entity : constant Entity_Id :=
+              (case Nkind (Index) is
+                  when N_Defining_Identifier =>
+                     Index,
+                  when N_Identifier | N_Expanded_Name =>
+                     Entity (Index),
+                  when others =>
+                     Defining_Identifier ("4", Index));
+
+            Object_Name    : constant String := Unique_Name (Object_Entity);
+
+            First_Var      : constant String :=
+              Object_Name & First_Var_Str & Dim_String;
+            Last_Var       : constant String :=
+              Object_Name & Last_Var_Str & Dim_String;
+
+            pragma Assert (Global_Symbol_Table.Contains (Intern (First_Var)),
+                          First_Var);
+            pragma Assert (Global_Symbol_Table.Contains (Intern (Last_Var)),
+                          Last_Var);
+
+            First_Sym      : constant Irep :=
+              Make_Symbol_Expr
+                (Source_Location => Source_Location,
+                 I_Type          => Do_Type_Reference (Index_Entity),
+                 Identifier      => First_Var);
+            Last_Sym      : constant Irep :=
+              Make_Symbol_Expr
+                (Source_Location => Source_Location,
+                 I_Type          => Do_Type_Reference (Index_Entity),
+                 Identifier      => Last_Var);
+         begin
+            return Dimension_Bounds'
+              (Low  => Typecast_If_Necessary
+                 (Expr           => First_Sym,
+                  New_Type       => Index_T,
+                  A_Symbol_Table => Global_Symbol_Table),
+               High => Typecast_If_Necessary
+                 (Expr           => Last_Sym,
+                  New_Type       => Index_T,
+                  A_Symbol_Table => Global_Symbol_Table));
+         end;
       end;
    end Get_Dimension_Bounds;
 
@@ -995,14 +1027,12 @@ package body Arrays.Low_Level is
             Source_Location => Location),
          Location => Location));
 
-   function Multi_Dimension_Flat_Bounds (Array_Node : Node_Id)
+   function Multi_Dimension_Flat_Bounds (S : String; Array_Node : Node_Id)
                                          return Static_And_Dynamic_Bounds
    is
       Source_Location : constant Irep := Get_Source_Location (Array_Node);
       --  The front-end ensures that the array has at least one dimension.
       Array_Node_Kind   : constant Node_Kind := Nkind (Array_Node);
-      Is_Type_Dec       : constant Boolean :=
-        Array_Node_Kind in N_Full_Type_Declaration | N_Subtype_Declaration;
       Array_Is_Object   : constant Boolean :=
         Array_Node_Kind in N_Object_Declaration |
                            N_Object_Renaming_Declaration |
@@ -1010,15 +1040,20 @@ package body Arrays.Low_Level is
                            N_Expanded_Name;
 
       Array_Type        : constant Entity_Id :=
-        (if Nkind (Array_Node) = N_Defining_Identifier then
-              Array_Node
-         elsif Is_Type_Dec then
-            Defining_Identifier (Array_Node)
-         elsif Array_Is_Object then
-            Etype (Defining_Identifier (Array_Node))
-         else
-            Etype (Array_Node));
+        (case Nkind (Array_Node) is
+            when N_Defining_Identifier =>
+               Array_Node,
+            when N_Full_Type_Declaration | N_Subtype_Declaration =>
+               Defining_Identifier ("5", Array_Node),
+            when N_Object_Declaration | N_Object_Renaming_Declaration =>
+               Etype (Defining_Identifier ("6", Array_Node)),
+            when N_Identifier | N_Expanded_Name =>
+               Etype (Entity (Array_Node)),
+            when others =>
+               Etype (Array_Node));
    begin
+      Put_Line ("Multi_Dimension_Flat_Bounds " & S);
+      Print_Node_Briefly (Array_Node);
       --  Check to see if the array is  string literal
       --  Process and return if it is.
       if Ekind (Array_Type) = E_String_Literal_Subtype then
@@ -1201,7 +1236,7 @@ package body Arrays.Low_Level is
             High_Dynamic      => Ireps.Empty);
       elsif not Array_Is_Slice then
          --  The array may be multidimensional
-         return Multi_Dimension_Flat_Bounds (Array_Type);
+         return Multi_Dimension_Flat_Bounds ("1", Array_Type);
       else
          --  It's a slice. A slice can only be one-dimensional.
          return Zero_Based_Slice_Bounds
