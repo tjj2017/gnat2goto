@@ -121,6 +121,10 @@ package Tree_Walk is
      with Pre  => Nkind (N) in N_Subexpr,
      Post => Kind (Do_Expression'Result) in Class_Expr;
 
+   function Do_Function_Call (N : Node_Id) return Irep
+     with Pre  => Nkind (N) = N_Function_Call,
+     Post => Kind (Do_Function_Call'Result) in Class_Expr;
+
    function Do_In (N : Node_Id) return Irep
      with Pre => Nkind (N) in N_In | N_Not_In,
      Post => Kind (Do_In'Result) = I_Op_And;

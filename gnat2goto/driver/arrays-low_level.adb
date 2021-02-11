@@ -12,7 +12,6 @@ package body Arrays.Low_Level is
    function Defining_Identifier (I : String; N : Node_Id) return Entity_Id is
       NT : constant Node_Kind := Nkind (N);
    begin
-      Put_Line ("Defining_Identifier - Arrays_Low_Level " & I);
       if not
         (NT = N_Component_Declaration
         or else NT = N_Defining_Program_Unit_Name
@@ -48,12 +47,92 @@ package body Arrays.Low_Level is
         or else NT = N_Task_Body_Stub
          or else NT = N_Task_Type_Declaration)
       then
+         Put_Line ("Defining_Identifier - Arrays_Low_Level " & I);
          Put_Line ("Illegal node to Defining_Identifier");
          Print_Node_Briefly (N);
       end if;
 
       return Sinfo.Defining_Identifier (N);
    end Defining_Identifier;
+
+   function Add_One_To_Index (Index : Static_And_Dynamic_Index)
+                              return Static_And_Dynamic_Index is
+      Result : Static_And_Dynamic_Index := Index;
+   begin
+      Add_One_To_Index (Result);
+      return Result;
+   end Add_One_To_Index;
+
+   procedure Add_One_To_Index (Index : in out Static_And_Dynamic_Index) is
+   begin
+      if Index.Is_Static then
+         Index.Static_Index := Index.Static_Index + Uint_1;
+      else
+         Index.Dynamic_Index := Inc_Index (Index.Dynamic_Index);
+      end if;
+   end Add_One_To_Index;
+
+   function Sub_One_From_Index (Index : Static_And_Dynamic_Index)
+                                return Static_And_Dynamic_Index is
+      Result : Static_And_Dynamic_Index := Index;
+   begin
+      Sub_One_From_Index (Result);
+      return Result;
+   end Sub_One_From_Index;
+
+   procedure Sub_One_From_Index (Index : in out Static_And_Dynamic_Index) is
+   begin
+      if Index.Is_Static then
+         Index.Static_Index := Index.Static_Index - Uint_1;
+      else
+         Index.Dynamic_Index := Dec_Index (Index.Dynamic_Index);
+      end if;
+   end Sub_One_From_Index;
+
+   function Add_To_Index (Index, Value_To_Add : Static_And_Dynamic_Index)
+                          return Static_And_Dynamic_Index is
+      Result : Static_And_Dynamic_Index := Index;
+   begin
+      Add_To_Index (Result, Value_To_Add);
+      return Result;
+   end Add_To_Index;
+
+   procedure Add_To_Index (Index        : in out Static_And_Dynamic_Index;
+                           Value_To_Add :        Static_And_Dynamic_Index) is
+   begin
+      if Index.Is_Static and Value_To_Add.Is_Static then
+         Index.Static_Index := Index.Static_Index + Value_To_Add.Static_Index;
+      else
+         if Index.Is_Static then
+            Index.Is_Static := False;
+            Index.Dynamic_Index :=
+              Integer_Constant_To_Expr
+                (Value           => Index.Static_Index,
+                 Expr_Type       => Index_T,
+                 Source_Location => Internal_Source_Location);
+         end if;
+
+         Index.Dynamic_Index :=
+           Make_Op_Add
+             (Rhs             => Value_To_Add.Dynamic_Index,
+              Lhs             => Index.Dynamic_Index,
+              Source_Location => Internal_Source_Location,
+              Overflow_Check  => False,
+              I_Type          => Index_T,
+              Range_Check     => False);
+      end if;
+   end Add_To_Index;
+
+   function Get_Dynamic_Index (Index : Static_And_Dynamic_Index) return Irep
+   is
+     (if Index.Is_Static then
+         Integer_Constant_To_Expr
+        (Value           => Index.Static_Index,
+         Expr_Type       => Index_T,
+         Source_Location => Internal_Source_Location)
+      else
+         Index.Dynamic_Index
+      );
 
    procedure Copy_Array_Dynamic
      (Block            : Irep;
@@ -248,86 +327,56 @@ package body Arrays.Low_Level is
    -----------------------------
 
    function Calculate_Concat_Length (N : Node_Id) return Irep is
-      procedure Add_One (Is_Static      : Boolean;
-                         Static_Length  : in out Uint;
-                         Dynamic_Length : in out Irep);
 
-      procedure Calc_Length (N              : Node_Id;
-                             Is_Static      : in out Boolean;
-                             Static_Length  : in out Uint;
-                             Dynamic_Length : in out Irep);
+      procedure Calc_Length (N             : Node_Id;
+                             Accum_Length  : in out Static_And_Dynamic_Index);
 
-      procedure Add_One (Is_Static      : Boolean;
-                         Static_Length  : in out Uint;
-                         Dynamic_Length : in out Irep)
+      procedure Calc_Length (N             : Node_Id;
+                             Accum_Length  : in out Static_And_Dynamic_Index)
       is
-      begin
-         if Is_Static then
-            Static_Length := Static_Length + Uint_1;
-         else
-            Dynamic_Length := Inc_Index (Dynamic_Length);
-         end if;
-      end Add_One;
-
-      procedure Calc_Length (N              : Node_Id;
-                             Is_Static      : in out Boolean;
-                             Static_Length  : in out Uint;
-                             Dynamic_Length : in out Irep) is
       begin
          if Nkind (N) = N_Op_Concat then
             if Is_Component_Left_Opnd (N) then
-               Add_One (Is_Static, Static_Length, Dynamic_Length);
+               Add_One_To_Index (Accum_Length);
             else
                Calc_Length
-                 (N              => Left_Opnd (N),
-                  Is_Static      => Is_Static,
-                  Static_Length  => Static_Length,
-                  Dynamic_Length => Dynamic_Length);
+                 (N            => Left_Opnd (N),
+                  Accum_Length => Accum_Length);
             end if;
             if Is_Component_Right_Opnd (N) then
-               Add_One (Is_Static, Static_Length, Dynamic_Length);
+               Add_One_To_Index (Accum_Length);
             else
                Calc_Length
-                 (N              => Right_Opnd (N),
-                  Is_Static      => Is_Static,
-                  Static_Length  => Static_Length,
-                  Dynamic_Length => Dynamic_Length);
+                 (N            => Right_Opnd (N),
+                  Accum_Length => Accum_Length);
             end if;
          else
             declare
-               --  The array can only have one dimension.
+               --  In concatination the array can only have one dimension.
                Array_Type  : constant Entity_Id := Get_Constrained_Subtype (N);
                Array_Range : constant Node_Id := First_Index (Array_Type);
-            begin
-               if Is_Constrained (Array_Type) then
-                  if Is_Static and then Is_OK_Static_Range (Array_Range) then
-                     Static_Length := Static_Length +
-                       Calculate_Static_Dimension_Length (Array_Range);
+               Constrained : constant Boolean := Is_Constrained (Array_Type);
+               Is_Static   : constant Boolean :=
+                 Constrained and then Is_OK_Static_Range (Array_Range);
+               Static_Len  : constant Uint :=
+                 (if Is_Static then
+                     Calculate_Static_Dimension_Length (Array_Range)
                   else
-                     declare
-                        Bounds : constant Dimension_Bounds :=
-                          Get_Bounds (Array_Range);
-                     begin
-                        if Is_Static then
-                           Is_Static := False;
-                           Dynamic_Length :=
-                             Integer_Constant_To_Expr
-                               (Value           => Static_Length,
-                                Expr_Type       => Index_T,
-                                Source_Location => Internal_Source_Location);
-                        end if;
-
-                        Dynamic_Length :=
-                          Make_Op_Add
-                            (Rhs             =>
-                               Calculate_Dimension_Length (Bounds),
-                             Lhs             => Dynamic_Length,
-                             Source_Location => Internal_Source_Location,
-                             Overflow_Check  => False,
-                             I_Type          => Index_T,
-                             Range_Check     => False);
-                     end;
-                  end if;
+                     Uint_0);
+               Dynamic_Len : constant Irep :=
+                 (if not Is_Static and Constrained then
+                     Calculate_Dimension_Length (Get_Bounds (Array_Range))
+                  else
+                     Ireps.Empty);
+               Next_Length : constant Static_And_Dynamic_Index :=
+                 Static_And_Dynamic_Index'
+                   (Is_Static     => Is_Static,
+                    Static_Index  => Static_Len,
+                    Dynamic_Index => Dynamic_Len);
+            begin
+               if Constrained then
+                  Add_To_Index (Index        => Accum_Length,
+                                Value_To_Add => Next_Length);
                else
                   Report_Unhandled_Node_Empty
                     (N        => N,
@@ -339,23 +388,24 @@ package body Arrays.Low_Level is
          end if;
       end Calc_Length;
 
-      Is_Static      : Boolean := True;
-      Static_Length  : Uint := Uint_0;
-      Dynamic_Length : Irep := Ireps.Empty;
+      Accum_Length : Static_And_Dynamic_Index :=
+        Static_And_Dynamic_Index'
+          (Is_Static     => True,
+           Static_Index  => Uint_0,
+           Dynamic_Index => Ireps.Empty);
       Result : Irep;
    begin
       Calc_Length
-        (N              => N,
-         Is_Static      => Is_Static,
-         Static_Length  => Static_Length,
-         Dynamic_Length => Dynamic_Length);
-      if Is_Static then
+        (N            => N,
+         Accum_Length => Accum_Length);
+
+      if Accum_Length.Is_Static then
          Result := Integer_Constant_To_Expr
-           (Value           => Static_Length,
+           (Value           => Accum_Length.Static_Index,
             Expr_Type       => Index_T,
             Source_Location => Internal_Source_Location);
       else
-         Result := Dynamic_Length;
+         Result := Accum_Length.Dynamic_Index;
       end if;
       return Result;
    end Calculate_Concat_Length;

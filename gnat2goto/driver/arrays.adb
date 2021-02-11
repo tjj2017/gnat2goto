@@ -101,7 +101,7 @@ package body Arrays is
    with Pre => Is_Array_Type (Array_Type);
 
    procedure Array_Assignment_Op (Source_Expr  : Node_Id;
-                                  Dest_Node    : Node_Id;
+                                  N_Dimensions : Pos;
                                   Dest_Bounds  : Static_And_Dynamic_Bounds;
                                   Target_Array : Irep;
                                   Block        : Irep)
@@ -282,13 +282,12 @@ package body Arrays is
 --        elsif Is_
 
    procedure Array_Assignment_Op (Source_Expr  : Node_Id;
-                                  Dest_Node    : Node_Id;
+                                  N_Dimensions : Pos;
                                   Dest_Bounds  : Static_And_Dynamic_Bounds;
                                   Target_Array : Irep;
                                   Block        : Irep)
    is
       Source_Location  : constant Irep := Get_Source_Location (Source_Expr);
-      Dest_Type        : constant Entity_Id := Etype (Dest_Node);
 
       RHS_Node_Kind    : constant Node_Kind := Nkind (Source_Expr);
       Source_Type      : constant Entity_Id := Etype (Source_Expr);
@@ -304,7 +303,7 @@ package body Arrays is
          Update_Array_From_Aggregate
            (Block        => Block,
             Agg          => Source_Expr,
-            N_Dimensions => Number_Dimensions (Dest_Type),
+            N_Dimensions => N_Dimensions,
             Dest_Bounds  => Dest_Bounds,
             Dest_Array   => Target_Array);
       elsif RHS_Node_Kind = N_String_Literal then
@@ -326,22 +325,43 @@ package body Arrays is
             Dest_Array  => Target_Array,
             Dest_Bounds => Dest_Bounds);
       elsif RHS_Node_Kind = N_Function_Call then
+         Put_Line ("A function call");
          declare
             Func_Result_Type : constant Entity_Id := Etype (Source_Expr);
+            Source_Irep  : constant Irep :=
+              Do_Function_Call (Source_Expr);
+            Target_Itype : constant Irep :=
+                 Get_Type (Target_Array);
+            Source_Itype : constant Irep :=
+              Do_Type_Reference (Func_Result_Type);
+            pragma Assert (Kind (Target_Itype) = Kind (Source_Itype));
+
+               --  The source and target arrays may have equivalent types but
+               --  may have different Ireps for each type.
+               Source_Array : constant Irep :=
+                 (if Source_Itype /= Target_Itype then
+                     Make_Op_Typecast
+                    (Op0             => Source_Irep,
+                     Source_Location => Source_Location,
+                     I_Type          => Target_Itype,
+                     Range_Check     => False)
+                  else
+                     Source_Irep);
+
+               Assignment : constant Irep :=
+                 Make_Code_Assign
+                   (Rhs             => Source_Array,
+                    Lhs             => Target_Array,
+                    Source_Location => Source_Location,
+                    I_Type          => Target_Itype,
+                    Range_Check     => False);
          begin
-            if not Is_Constrained (Func_Result_Type) then
-               Report_Unhandled_Node_Empty
-                 (N        => Source_Expr,
-                  Fun_Name => "Array_Assignment_Op",
-                  Message  => "A function call returning an unconstrained "
-                  & "array type is unsupported");
-            elsif not All_Dimensions_Static (Func_Result_Type) then
-               Report_Unhandled_Node_Empty
-                 (N        => Source_Expr,
-                  Fun_Name => "Array_Assignment_Op",
-                  Message  => "A function call returning an array with "
-                  & "non-static bounds is unsupported");
-            end if;
+            Print_Irep (Source_Irep);
+            Print_Irep (Source_Array);
+            Print_Irep (Target_Array);
+            Print_Irep (Target_Itype);
+
+            Append_Op (Block, Assignment);
          end;
       elsif not Dest_Bounds.Is_Unconstrained then
          if Dest_Bounds.Has_Static_Bounds and
@@ -405,10 +425,11 @@ package body Arrays is
          end if;
       else
          Report_Unhandled_Node_Empty
-           (N        => Dest_Node,
+           (N        => Source_Expr,
             Fun_Name => "Array_Assignment_Op",
-            Message  => "Assignment to an unconstrained array object is " &
-              "Unsupported");
+            Message  => "Assignment to an unconstrained array object " &
+              Get_Identifier (Target_Array) &
+              "is unsupported");
       end if;
    end Array_Assignment_Op;
 
@@ -687,7 +708,7 @@ package body Arrays is
          Put_Line ("Do_Array_Object_Declaration-Initialisation");
          Array_Assignment_Op
            (Source_Expr  => Init_Expr,
-            Dest_Node    => Target_Def,
+            N_Dimensions => Number_Dimensions (Target_Type),
             Dest_Bounds  => Array_Bounds,
             Target_Array => The_Array,
             Block        => Block);
@@ -3106,42 +3127,120 @@ package body Arrays is
             Dest_Bounds : Static_And_Dynamic_Bounds;
             Dest_Array  : Irep)
    is
-      pragma Unreferenced (Block, Dest_Bounds, Dest_Array);
-      procedure Trace (N : Node_Id);
-      procedure Trace (N : Node_Id) is
+      Source_Loc : constant Irep := Get_Source_Location (Concat);
+
+      procedure Process_Catenation
+        (N              : Node_Id;
+         Accum_Index    : in out Static_And_Dynamic_Index);
+
+      procedure Process_Catenation
+        (N              : Node_Id;
+         Accum_Index    : in out Static_And_Dynamic_Index) is
       begin
          if Nkind (N) = N_Op_Concat then
-            if Is_Component_Left_Opnd (Concat) then
+            if Is_Component_Left_Opnd (N) then
                Put_Line ("Left - a component");
-               Print_Node_Briefly (Left_Opnd (Concat));
+               Print_Node_Briefly (Left_Opnd (N));
+               Assign_To_Array_Component
+                 (Block      => Block,
+                  The_Array  => Dest_Array,
+                  Zero_Index => Get_Dynamic_Index (Accum_Index),
+                  Value_Expr => Do_Expression (Left_Opnd (N)),
+                  I_Type     => Get_Subtype (Get_Type (Dest_Array)),
+                  Location   => Source_Loc);
+               Add_One_To_Index (Accum_Index);
             else
                Put_Line ("Left - not a component");
-               Print_Node_Briefly (Left_Opnd (Concat));
-               Trace (Left_Opnd (N));
+               Print_Node_Briefly (Left_Opnd (N));
+               Process_Catenation
+                 (N           => Left_Opnd (N),
+                  Accum_Index => Accum_Index);
             end if;
             if Is_Component_Right_Opnd (N) then
                Put_Line ("Right - a component");
-               Print_Node_Briefly (Right_Opnd (Concat));
+               Print_Node_Briefly (Right_Opnd (N));
+               Print_Irep (Dest_Array);
+               Assign_To_Array_Component
+                 (Block      => Block,
+                  The_Array  => Dest_Array,
+                  Zero_Index => Get_Dynamic_Index (Accum_Index),
+                  Value_Expr => Do_Expression (Right_Opnd (N)),
+                  I_Type     => Get_Subtype (Get_Type (Dest_Array)),
+                  Location   => Source_Loc);
+               Add_One_To_Index (Accum_Index);
             else
                Put_Line ("Right - not a component");
-               Print_Node_Briefly (Right_Opnd (Concat));
-               Trace (Right_Opnd (N));
+               Print_Node_Briefly (Right_Opnd (N));
+               Process_Catenation
+                 (N           => Right_Opnd (N),
+                  Accum_Index => Accum_Index);
             end if;
          else
             Put_Line ("Not a concat");
-            Print_Node_Briefly (N);
+            declare
+               --  In a concatenation the array can only have one dimension.
+               Array_Type  : constant Entity_Id := Get_Constrained_Subtype (N);
+               Array_Range : constant Node_Id := First_Index (Array_Type);
+               Constrained : constant Boolean := Is_Constrained (Array_Type);
+               Is_Static   : constant Boolean :=
+                 Constrained and then Is_OK_Static_Range (Array_Range);
+               Static_Len  : constant Uint :=
+                 (if Is_Static then
+                     Calculate_Static_Dimension_Length (Array_Range)
+                  else
+                     Uint_0);
+               Dynamic_Len : constant Irep :=
+                 (if not Is_Static and Constrained then
+                     Calculate_Dimension_Length (Get_Bounds (Array_Range))
+                  else
+                     Ireps.Empty);
+               Next_Length : constant Static_And_Dynamic_Index :=
+                 Static_And_Dynamic_Index'
+                   (Is_Static     => Is_Static,
+                    Static_Index  => Static_Len,
+                    Dynamic_Index => Dynamic_Len);
+
+               New_Index   : constant Static_And_Dynamic_Index :=
+                 Add_To_Index (Accum_Index, Next_Length);
+
+               High_Index  : constant Static_And_Dynamic_Index :=
+                 Sub_One_From_Index (New_Index);
+
+               Dest_Bounds : constant Static_And_Dynamic_Bounds :=
+                 Static_And_Dynamic_Bounds'
+                   (Is_Unconstrained  => False,
+                    Has_Static_Bounds => Accum_Index.Is_Static,
+                    Low_Static        => UI_To_Int (Accum_Index.Static_Index),
+                    High_Static       => UI_To_Int (High_Index.Static_Index),
+                    Low_Dynamic       => Accum_Index.Dynamic_Index,
+                    High_Dynamic      => High_Index.Dynamic_Index);
+            begin
+               if Constrained then
+                  Array_Assignment_Op
+                    (Source_Expr  => N,
+                     N_Dimensions => 1,
+                     Dest_Bounds  => Dest_Bounds,
+                     Target_Array => Dest_Array,
+                     Block        => Block);
+                  Accum_Index := New_Index;
+               else
+                  Report_Unhandled_Node_Empty
+                    (N        => N,
+                     Fun_Name => "Calculate_Concat_Length",
+                     Message  => "Unconstrained array expressions in " &
+                       "concatinations are unsupported");
+               end if;
+            end;
          end if;
-      end Trace;
+      end Process_Catenation;
 
+      Accum_Index : Static_And_Dynamic_Index :=
+        Static_And_Dynamic_Index'
+          (Is_Static     => Dest_Bounds.Has_Static_Bounds,
+           Static_Index  => UI_From_Int (Dest_Bounds.Low_Static),
+           Dynamic_Index => Dest_Bounds.Low_Dynamic);
    begin
-      Trace (Concat);
---        Update_Array_From_Aggregate
---             (Block        => Block,
---              Agg          => Source_Expr,
---              N_Dimensions => Number_Dimensions (Dest_Type),
---              Dest_Bounds  => Dest_Bounds,
---              Dest_Array   => Target_Array);
-
+      Process_Catenation (Concat, Accum_Index);
    end Update_Array_From_Concatenation;
 
    procedure Update_Array_From_Slice

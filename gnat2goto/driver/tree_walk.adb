@@ -152,10 +152,6 @@ package body Tree_Walk is
    procedure Do_Full_Type_Declaration (N : Node_Id)
    with Pre => Nkind (N) = N_Full_Type_Declaration;
 
-   function Do_Function_Call (N : Node_Id) return Irep
-   with Pre  => Nkind (N) = N_Function_Call,
-        Post => Kind (Do_Function_Call'Result) in Class_Expr;
-
    function Do_Handled_Sequence_Of_Statements (N : Node_Id) return Irep
    with Pre  => Nkind (N) = N_Handled_Sequence_Of_Statements,
         Post => Kind (Do_Handled_Sequence_Of_Statements'Result) = I_Code_Block;

@@ -31,6 +31,12 @@ package Arrays.Low_Level is
    function Index_T_One  return Irep is
      (Integer_Constant_To_Expr (Uint_1, Index_T, Internal_Source_Location));
 
+   type Static_And_Dynamic_Index is record
+      Is_Static     : Boolean;
+      Static_Index  : Uint;
+      Dynamic_Index : Irep;
+   end record;
+
    function Inc_Index (Ix : Irep) return Irep is
      (Make_Op_Add
         (Rhs             => Index_T_One,
@@ -44,6 +50,24 @@ package Arrays.Low_Level is
          Lhs             => Ix,
          Source_Location => Get_Source_Location (Ix),
          I_Type          => Index_T));
+
+   function Add_One_To_Index (Index : Static_And_Dynamic_Index)
+                              return Static_And_Dynamic_Index;
+
+   procedure Add_One_To_Index (Index : in out Static_And_Dynamic_Index);
+
+   function Sub_One_From_Index (Index : Static_And_Dynamic_Index)
+                                return Static_And_Dynamic_Index;
+
+   procedure Sub_One_From_Index (Index : in out Static_And_Dynamic_Index);
+
+   function Add_To_Index (Index, Value_To_Add : Static_And_Dynamic_Index)
+                          return Static_And_Dynamic_Index;
+
+   procedure Add_To_Index (Index        : in out Static_And_Dynamic_Index;
+                           Value_To_Add :        Static_And_Dynamic_Index);
+
+   function Get_Dynamic_Index (Index : Static_And_Dynamic_Index) return Irep;
 
    Unconstrained_Bounds : constant Static_And_Dynamic_Bounds :=
      Static_And_Dynamic_Bounds'
