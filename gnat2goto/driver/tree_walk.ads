@@ -178,4 +178,14 @@ package Tree_Walk is
    with Pre  => Nkind (N) = N_Enumeration_Type_Definition,
      Post => Kind (Do_Enumeration_Definition'Result) = I_C_Enum_Type;
 
+   --  A higer-level assignment operration than Ireps.Make_Code_Assign.
+   --  It is declared here as it used in other packages such as arrays
+   --  but not placed in Goto_Utils as it calls subprograms from other
+   --  high-level packages.  It may be called recursively from these other
+   --  packages.
+   procedure Do_Assignment_Op (Block       : Irep;
+                               Destination : Irep;
+                               Dest_Type   : Entity_Id;
+                               Source_Expr : Node_Id);
+
 end Tree_Walk;

@@ -293,9 +293,8 @@ package body Tree_Walk is
      Post => Kind (Do_Floating_Point_Definition'Result) in
      I_Floatbv_Type | I_Bounded_Floatbv_Type;
 
-   function Do_Simple_Return_Statement (N : Node_Id) return Irep
-   with Pre  => Nkind (N) = N_Simple_Return_Statement,
-        Post => Kind (Do_Simple_Return_Statement'Result) = I_Code_Return;
+   procedure Do_Simple_Return_Statement (Block : Irep; N : Node_Id)
+   with Pre  => Nkind (N) = N_Simple_Return_Statement;
 
    function Do_Raise_Statement (N : Node_Id) return Irep
    with Pre  => Nkind (N) = N_Raise_Statement;
@@ -766,6 +765,44 @@ package body Tree_Walk is
 
    end Do_Aggregate_Literal_Record;
 
+   ----------------------
+   -- Do_Assignment_Op --
+   ----------------------
+
+   procedure Do_Assignment_Op (Block       : Irep;
+                               Destination : Irep;
+                               Dest_Type   : Entity_Id;
+                               Source_Expr : Node_Id)
+   is
+      Dest_I_Type : constant Irep := Do_Type_Reference (Dest_Type);
+   begin
+      if Is_Array_Type (Underlying_Type (Dest_Type)) then
+         Do_Array_Assignment_Op (Block, Destination, Dest_Type, Source_Expr);
+      else
+         declare
+            Bare_Assignor : constant Irep := Do_Expression (Source_Expr);
+            Assignor      : constant Irep :=
+              (if Do_Range_Check (Source_Expr) then
+                    Make_Range_Assert_Expr
+                 (N => Source_Expr,
+                  Value => Bare_Assignor,
+                  Bounds_Type => Dest_I_Type)
+               else
+                  Bare_Assignor);
+         begin
+            Append_Op (Block,
+                       Make_Code_Assign
+                         (Lhs => Destination,
+                          Rhs => Typecast_If_Necessary
+                            (Expr => Assignor,
+                             New_Type => Dest_I_Type,
+                             A_Symbol_Table => Global_Symbol_Table),
+                          Source_Location =>
+                            Get_Source_Location (Source_Expr)));
+         end;
+      end if;
+   end Do_Assignment_Op;
+
    -----------------------------
    -- Do_Assignment_Statement --
    -----------------------------
@@ -773,7 +810,7 @@ package body Tree_Walk is
    function Do_Assignment_Statement (N : Node_Id) return Irep
    is
    begin
-      if Ekind (Etype (Name (N))) in Array_Kind then
+      if Ekind (Underlying_Type (Etype (Name (N)))) in Array_Kind then
          declare
             Lhs_Type : constant Entity_Id := Etype (Name (N));
             --  Since the type of the LHS may be implicit, e.g.
@@ -5132,15 +5169,51 @@ package body Tree_Walk is
    -- Do_Simple_Return_Statement --
    --------------------------------
 
-   function Do_Simple_Return_Statement (N : Node_Id) return Irep is
-      Return_Value : constant Irep :=
-        (if Present (Expression (N))
-         then Do_Expression (Expression (N))
-         else CProver_Nil);
+   procedure Do_Simple_Return_Statement (Block : Irep; N : Node_Id)
+   is
+      Return_Expr  : constant Node_Id := Expression (N);
+      Return_Value : Irep := CProver_Nil;
    begin
-         return Make_Code_Return
-           (Return_Value => Return_Value,
-            Source_Location => Get_Source_Location (N));
+      if Present (Return_Expr) then
+         --  It is a function return.
+         --  Set the return variable.
+         declare
+            Return_Entity : constant Entity_Id := Return_Statement_Entity (N);
+            Applies_To    : constant Node_Id :=
+              Return_Applies_To (Return_Entity);
+            Return_Type   : constant Entity_Id := Etype (Applies_To);
+            Return_I_Type : constant Irep := Do_Type_Reference (Return_Type);
+            pragma Assert (Nkind (Applies_To) in N_Defining_Identifier,
+                           "Simple return statement " &
+                             Node_Kind'Image (Nkind (Applies_To)));
+            Fun_Name      : constant String := Unique_Name (Applies_To);
+            Result_Name   : constant String := Fun_Name & "___result";
+            Result_Var    : constant Irep :=
+              Make_Symbol_Expr
+                (Source_Location => Get_Source_Location (N),
+                 I_Type          => Return_I_Type,
+                 Range_Check     => False,
+                 Identifier      => Result_Name);
+         begin
+            Put_Line ("Simple return statement");
+            Put_Line ("Function " & Fun_Name);
+            Put_Line ("Result " & Result_Name);
+            Do_Assignment_Op
+              (Block       => Block,
+               Destination => Result_Var,
+               Dest_Type   => Return_Type,
+               Source_Expr => Return_Expr);
+
+            Return_Value := Typecast_If_Necessary
+              (Expr           => Result_Var,
+               New_Type       => Return_I_Type,
+               A_Symbol_Table => Global_Symbol_Table);
+         end;
+      end if;
+      Append_Op (Block,
+                 Make_Code_Return
+                   (Return_Value => Return_Value,
+                    Source_Location => Get_Source_Location (N)));
    end Do_Simple_Return_Statement;
 
    function Do_Raise_Statement (N : Node_Id) return Irep is
@@ -5346,13 +5419,58 @@ package body Tree_Walk is
    ----------------------------
 
    function Do_Subprogram_Or_Block (N : Node_Id) return Irep is
+      Loc   : constant Irep := Get_Source_Location (N);
       Decls : constant List_Id := Declarations (N);
       HSS   : constant Node_Id := Handled_Statement_Sequence (N);
-      Reps : constant Irep := Make_Code_Block
-        (Source_Location => Get_Source_Location (N));
-      All_Handlers : constant Irep := Make_Code_Block
-        (Source_Location => Get_Source_Location (N));
+      Reps  : constant Irep := Make_Code_Block (Source_Location => Loc);
+      All_Handlers : constant Irep :=
+        Make_Code_Block (Source_Location => Loc);
    begin
+      Put_Line ("Do_Subprogram_Or_Block");
+      Print_Node_Briefly (N);
+      if Nkind (N) = N_Subprogram_Body then
+         Print_Node_Briefly (Specification (N));
+      end if;
+      if Nkind (N) = N_Subprogram_Body then
+         declare
+            Subprog_Spec   : constant Node_Id := Specification (N);
+         begin
+            if Nkind (Subprog_Spec) = N_Function_Specification then
+               --  Create and declare a goto result variable.
+               declare
+                  Subprog_Name   : constant String :=
+                    Unique_Name (Defining_Entity (N));
+                  Subprog_Entity : constant Entity_Id :=
+                    Defining_Entity (Subprog_Spec);
+                  Result      : constant String :=
+                    Subprog_Name & "___result";
+                  Result_Type : constant Irep :=
+                    Do_Type_Reference (Etype (Subprog_Entity));
+                  Result_Var  : constant Irep :=
+                    Make_Symbol_Expr
+                      (Source_Location => Loc,
+                       I_Type          => Result_Type,
+                       Range_Check     => False,
+                       Identifier      => Result);
+                  Result_Dec  : constant Irep :=
+                    Make_Code_Decl
+                      (Symbol          => Result_Var,
+                       Source_Location => Loc,
+                       I_Type          => Result_Type,
+                       Range_Check     => False);
+
+               begin
+                  Put_Line ("It's a function");
+                  Print_Node_Briefly (Subprog_Spec);
+                  Put_Line (Subprog_Name);
+                  Print_Node_Briefly (Etype (Subprog_Entity));
+                  Put_Line ("Appending");
+                  Append_Op (Reps, Result_Dec);
+               end;
+            end if;
+         end;
+      end if;
+
       if Present (Decls) then
          Process_Declarations (Decls, Reps);
       end if;
@@ -5573,6 +5691,24 @@ package body Tree_Walk is
             end;
          end;
       end loop;
+      --  if the subprogram is a function declare a result variable.
+      --  This may be referenced by <function_name>'Result in a postcondition.
+      --  It also resolves a problem when the result is obtained from an
+      --  array assignment which has its bounds specified by variables.
+      if Nkind (N) = N_Function_Specification then
+         declare
+            Fun_Name  : constant String :=
+              Unique_Name (Defining_Unit_Name (N));
+            Result    : constant String := Fun_Name & "___result";
+            Result_Id : constant Symbol_Id := Intern (Result);
+         begin
+            New_Object_Symbol_Entry
+              (Object_Name       => Result_Id,
+               Object_Type       => Ret_Type,
+               Object_Init_Value => Ireps.Empty,
+               A_Symbol_Table    => Global_Symbol_Table);
+         end;
+      end if;
       return Make_Code_Type
         (Parameters  => Param_List,
          Ellipsis    => False,
@@ -6824,7 +6960,7 @@ package body Tree_Walk is
             then
                Append_Op (Block, Get_No_Return_Check);
             end if;
-            Append_Op (Block, Do_Simple_Return_Statement (N));
+            Do_Simple_Return_Statement (Block, N);
 
          when N_Entry_Call_Statement =>
             Report_Unhandled_Node_Empty (N, "Process_Statement",

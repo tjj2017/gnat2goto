@@ -217,6 +217,7 @@ package body Arrays.Low_Level is
       Loop_Body : constant Irep :=
         Make_Code_Block (Source_Location => Location);
    begin
+      Put_Line ("Into Assign_Value_To_Dynamic_Array_Components");
       --  The body of the loop is just the assignment of the value expression
       --  to the indexed component.
       Assign_To_Array_Component
@@ -811,6 +812,11 @@ package body Arrays.Low_Level is
       High : constant Irep :=
         Do_Expression (Original_Node (High_Bound (Bounds)));
    begin
+      Put_Line ("Get_Bounds");
+      Print_Node_Briefly (Bounds);
+      Print_Node_Briefly (High_Bound (Bounds));
+      Print_Node_Briefly (Original_Node (High_Bound (Bounds)));
+      Print_Irep (High);
       return (Low =>
                 Typecast_If_Necessary
                   (Expr           => Low,
@@ -1104,6 +1110,7 @@ package body Arrays.Low_Level is
    begin
       Put_Line ("Multi_Dimension_Flat_Bounds " & S);
       Print_Node_Briefly (Array_Node);
+      Print_Node_Subtree (Array_Type);
       --  Check to see if the array is  string literal
       --  Process and return if it is.
       if Ekind (Array_Type) = E_String_Literal_Subtype then
@@ -1152,7 +1159,12 @@ package body Arrays.Low_Level is
          Static_Array_Size : Uint := Uint_0;
 
       begin
+         Put_Line ("Is_Constrained " & Boolean'Image (Constrained_Array));
+         Put_Line ("Constr " &
+                   Boolean'Image (Is_Constr_Subt_For_U_Nominal (Array_Type)));
          if Constrained_Array or Array_Is_Object then
+            Put_Line ("Ok_Static_Range " &
+                        Boolean'Image (Is_OK_Static_Range (Dimension_Range)));
             if Constrained_Array and then Is_OK_Static_Range (Dimension_Range)
             then
                Static_Array_Size := Calculate_Static_Dimension_Length
@@ -1165,6 +1177,8 @@ package body Arrays.Low_Level is
                     (Array_Node, Dimension_Number, Dimension_Iter));
             end if;
 
+            Put_Line ("Var_Dim_Bounds");
+            Print_Irep (Var_Dim_Bounds);
             --  Multidimensional arrays are converted into a a single
             --  dimension of an appropriate length.
             --  This needs to be considered when indexing into, or

@@ -38,6 +38,11 @@ package Arrays is
    function Do_Aggregate_Literal_Array (N : Node_Id) return Irep
      with Pre  => Nkind (N) = N_Aggregate;
 
+   procedure Do_Array_Assignment_Op (Block       : Irep;
+                                     Destination : Irep;
+                                     Dest_Type   : Entity_Id;
+                                     Source_Expr : Node_Id);
+
    function Do_String_Literal (N : Node_Id) return Irep
      with Pre  => Nkind (N) = N_String_Literal;
 
@@ -82,8 +87,7 @@ package Arrays is
 
    function Do_Unconstrained_Array_Definition (N : Node_Id) return Irep
      with Pre  => Nkind (N) in N_Array_Type_Definition,
-     Post => Kind (Do_Unconstrained_Array_Definition'Result) =
-     I_Array_Type;
+     Post => Kind (Do_Unconstrained_Array_Definition'Result) = I_Struct_Type;
 
    function Do_Array_Assignment (N : Node_Id) return Irep
      with Pre => Nkind (N) = N_Assignment_Statement,
