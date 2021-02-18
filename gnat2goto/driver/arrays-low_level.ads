@@ -198,6 +198,11 @@ package Arrays.Low_Level is
 
    function Get_Range (Index : Node_Id) return Node_Id;
 
+   function Get_Size_From_Unconstr_Result (Unconstr_Result : Irep;
+                                           N_Dimensions    : Pos) return Irep
+     with Pre => Kind (Unconstr_Result) in Class_Expr and then
+                 Kind (Get_Type (Unconstr_Result)) = I_Struct_Type;
+
    function Make_Simple_For_Loop (Loop_Var,  --  The loop variable
                                   First,     --  The initial value of loop var
                                   Last,      --  The final value of loop var

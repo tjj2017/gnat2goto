@@ -95,10 +95,10 @@ package body Arrays is
    use Debug_Help;
 
    procedure Array_Object_And_Friends (Array_Name : String;
-                                       Array_Type : Entity_Id;
+                                       Array_Node : Node_Id;
                                        Source_Loc : Irep;
                                        Block      : Irep)
-   with Pre => Is_Array_Type (Array_Type);
+   with Pre => Is_Array_Type (Underlying_Type (Etype (Array_Node)));
 
    procedure Array_Assignment_Op (Source_Expr  : Node_Id;
                                   N_Dimensions : Pos;
@@ -469,19 +469,22 @@ package body Arrays is
    end Array_Assignment_Op;
 
    procedure Array_Object_And_Friends (Array_Name : String;
-                                       Array_Type : Entity_Id;
+                                       Array_Node : Node_Id;
                                        Source_Loc : Irep;
                                        Block      : Irep)
    is
       Id            : constant Symbol_Id := Intern (Array_Name);
+      Array_Type    : constant Entity_Id :=
+        Underlying_Type (Etype (Array_Node));
+      Array_I_Type  : constant Irep :=
+        Do_Type_Reference (Array_Type);
       Bounds        : constant Static_And_Dynamic_Bounds :=
-        Multi_Dimension_Flat_Bounds ("3", Array_Type);
+        Multi_Dimension_Flat_Bounds ("3", Array_Node);
       Needs_Size_Var : constant Boolean :=
-        not Bounds.Has_Static_Bounds and then Is_Itype (Array_Type);
+        (not Bounds.Has_Static_Bounds and then Is_Itype (Array_Type));
 
-      Array_Type_Pre  : constant Irep := Do_Type_Reference (Array_Type);
-
-      Comp_Irep       : constant Irep := Get_Subtype (Array_Type_Pre);
+      Comp_Irep       : constant Irep :=
+        Do_Type_Reference (Component_Type (Array_Type));
       Array_Size_Var  : constant Irep :=
         (if Needs_Size_Var then
             Make_Symbol_Expr
@@ -498,7 +501,7 @@ package body Arrays is
          --  intialised in the goto code when the array subtype was declared.
          --  In either case the Irep array type from the Do_Type_Reference
          --  can be used.
-            Array_Type_Pre
+            Array_I_Type
          else
          --  A new variable has to be declared to represent the size of
          --  the goto array object.
@@ -2462,7 +2465,7 @@ package body Arrays is
                   Comp_Irep_Pre);
 
             Bounds : constant Static_And_Dynamic_Bounds :=
-              Multi_Dimension_Flat_Bounds ("5", Expr_Type);
+              Multi_Dimension_Flat_Bounds ("5", Init_Expr);
             Array_Size : constant Irep :=
               (if Bounds.Has_Static_Bounds then
                   Integer_Constant_To_Expr
@@ -2491,7 +2494,7 @@ package body Arrays is
             --  Add the array object to the symbol table and declare it.
             Array_Object_And_Friends
               (Array_Name => Array_Name,
-               Array_Type => Expr_Type,
+               Array_Node => Init_Expr,
                Source_Loc => Source_Loc,
                Block      => Block);
 
@@ -2506,6 +2509,8 @@ package body Arrays is
             Print_Irep (Array_Subtype);
             Print_Irep (The_Array);
             Print_Irep (Array_Size);
+            Print_Irep (Array_Bounds.Low_Dynamic);
+            Print_Irep (Array_Bounds.High_Dynamic);
          end;
       elsif Expr_Kind = N_Function_Call then
          --  A call to a funcion which returns an unconstrained array.
@@ -2518,11 +2523,11 @@ package body Arrays is
          --  is declared.
          Array_Object_And_Friends
            (Array_Name => Array_Name,
-            Array_Type => Init_Expr,
+            Array_Node => Init_Expr,
             Source_Loc => Source_Loc,
             Block      => Block);
                Array_Bounds :=
-                 Multi_Dimension_Flat_Bounds ("6", Expr_Type);
+                 Multi_Dimension_Flat_Bounds ("6", Init_Expr);
          --  The default array symbol is determined from the target type.
          The_Array := Make_Symbol_Expr
            (Source_Location => Source_Loc,
@@ -2538,11 +2543,11 @@ package body Arrays is
          --  is declared.
          Array_Object_And_Friends
            (Array_Name => Array_Name,
-            Array_Type => Expr_Type,
+            Array_Node => Init_Expr,
             Source_Loc => Source_Loc,
             Block      => Block);
                Array_Bounds :=
-                 Multi_Dimension_Flat_Bounds ("7", Expr_Type);
+                 Multi_Dimension_Flat_Bounds ("7", Init_Expr);
          --  The default array symbol is determined from the target type.
          The_Array := Make_Symbol_Expr
            (Source_Location => Source_Loc,
