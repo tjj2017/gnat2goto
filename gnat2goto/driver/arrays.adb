@@ -1824,6 +1824,9 @@ package body Arrays is
    begin
       Put_Line ("Do_Array_Subtype");
       Print_Node_Briefly (Subtype_Node);
+      Print_Node_Briefly (The_Entity);
+      Put_Line ("Is_Constrained " &
+                  Boolean'Image (Is_Constrained (The_Entity)));
       return (if Is_Constrained (The_Entity) then
                  Make_Constrained_Array_Subtype
                 (Declaration    => Subtype_Node)
@@ -3026,6 +3029,7 @@ package body Arrays is
       --  upper bound + 1.
       Array_Bounds     : constant Static_And_Dynamic_Bounds :=
         Multi_Dimension_Flat_Bounds ("8", Array_Entity);
+      pragma Assert (Print_Msg ("Return from Multi_Dimension_Flat_Bounds 8"));
       Array_Length     : constant Irep :=
         (if Array_Bounds.Has_Static_Bounds then
             Integer_Constant_To_Expr

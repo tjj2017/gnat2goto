@@ -1094,6 +1094,8 @@ package body Arrays.Low_Level is
                Etype (Entity (Array_Node)),
             when others =>
                Etype (Array_Node));
+      Array_Id         : constant Symbol_Id :=
+        Intern (Unique_Name (Array_Type));
    begin
       Put_Line ("Multi_Dimension_Flat_Bounds " & S);
       Print_Node_Briefly (Array_Node);
@@ -1136,165 +1138,164 @@ package body Arrays.Low_Level is
          end;
       end if;
 
+      Put_Line ("Not a string literal");
       --   Not a string literal.
-      declare
-         Constrained_Array : constant Boolean := Is_Constrained (Array_Type);
-         Array_I_Type      : constant Irep := Do_Type_Reference (Array_Type);
-         Unconstr_Result   : constant Boolean :=
-           Kind (Array_I_Type) = I_Struct_Type;
-      begin
-         Put_Line ("Is_Constrained " & Boolean'Image (Constrained_Array));
-         Put_Line ("Constr " &
-                   Boolean'Image (Is_Constr_Subt_For_U_Nominal (Array_Type)));
-         if Constrained_Array or else
-           (Is_Object (Array_Type) and not Unconstr_Result)
-         then
-            declare
-               Dimension_Number  : Positive := 1;
-               Dimension_Iter    : Node_Id := First_Index (Array_Type);
-               Dimension_Range   : Node_Id := Get_Range (Dimension_Iter);
-               Var_Dim_Bounds    : Irep := Ireps.Empty;
-               Static_Array_Size : Uint := Uint_0;
-            begin
-               Put_Line ("Ok_Static_Range " &
-                           Boolean'Image
-                           (Is_OK_Static_Range
-                              (Dimension_Range)));
-               if Constrained_Array and then
+
+      Put_Line ("Is_Constrained " &
+                  Boolean'Image (Is_Constrained (Array_Type)));
+      Put_Line ("Constr " &
+                  Boolean'Image (Is_Constr_Subt_For_U_Nominal (Array_Type)));
+      --  This test is placed first because an object may not be in the
+      --  symbol table if this function is called a in an initialisation of
+      --  the object's declaration but an unconstrained array result variable
+      --  should not be treated in the same way as an ordinary object.
+      if Global_Symbol_Table.Contains (Array_Id) and then
+        Kind (Global_Symbol_Table (Array_Id).SymType) = I_Struct_Type
+      then
+         --  It is an unconstrained array result from a function call
+         --  or it is the result variable of unconstrained array function
+         Put_Line ("Returning bounds from unconstrained result");
+         return Static_And_Dynamic_Bounds'
+           (Is_Unconstrained  => False,
+            Has_Static_Bounds => False,
+            Low_Static        => 0,
+            High_Static       => 0,
+            Low_Dynamic       => Index_T_Zero,
+            High_Dynamic      => Make_Op_Sub
+              (Rhs             => Index_T_One,
+               Lhs             => Get_Size_From_Unconstr_Result
+                 (Do_Expression (Array_Node),
+                  Number_Dimensions (Array_Type)),
+               Source_Location => Source_Location,
+               I_Type          => Index_T));
+      elsif Is_Constrained (Array_Type) or else Is_Object (Array_Type) then
+         declare
+            Dimension_Number  : Positive := 1;
+            Dimension_Iter    : Node_Id := First_Index (Array_Type);
+            Dimension_Range   : Node_Id := Get_Range (Dimension_Iter);
+            Var_Dim_Bounds    : Irep := Ireps.Empty;
+            Static_Array_Size : Uint := Uint_0;
+         begin
+            Put_Line ("Ok_Static_Range " &
+                        Boolean'Image
+                        (Is_OK_Static_Range
+                           (Dimension_Range)));
+            if Is_Constrained (Array_Type) and then
+              Is_OK_Static_Range (Dimension_Range)
+            then
+               Static_Array_Size :=
+                 Calculate_Static_Dimension_Length (Dimension_Range);
+            else
+               Put_Line ("Non-static range");
+               --  Bounds are variable or it is an array object of an
+               --  unconstrained subtype.
+               Var_Dim_Bounds := Calculate_Dimension_Length
+                 (Get_Dimension_Bounds
+                    (Array_Node, Dimension_Number, Dimension_Iter));
+            end if;
+
+            Put_Line ("Var_Dim_Bounds");
+            Print_Irep (Var_Dim_Bounds);
+            --  Multidimensional arrays are converted into a a single
+            --  dimension of an appropriate length.
+            --  This needs to be considered when indexing into, or
+            --  assigning aggregates to a multidimensional array.
+            Dimension_Iter := Next (Dimension_Iter);
+            while Present (Dimension_Iter) loop
+               Dimension_Number := Dimension_Number + 1;
+               Dimension_Range := Get_Range (Dimension_Iter);
+               if Is_Constrained (Array_Type) and then
                  Is_OK_Static_Range (Dimension_Range)
                then
-                  Static_Array_Size :=
+                  Static_Array_Size := Static_Array_Size *
                     Calculate_Static_Dimension_Length (Dimension_Range);
                else
-                  Put_Line ("Non-static range");
-                  --  Bounds are variable or it is an array object of an
-                  --  unconstrained subtype.
-                  Var_Dim_Bounds := Calculate_Dimension_Length
-                    (Get_Dimension_Bounds
-                       (Array_Node, Dimension_Number, Dimension_Iter));
-               end if;
-
-               Put_Line ("Var_Dim_Bounds");
-               Print_Irep (Var_Dim_Bounds);
-               --  Multidimensional arrays are converted into a a single
-               --  dimension of an appropriate length.
-               --  This needs to be considered when indexing into, or
-               --  assigning aggregates to a multidimensional array.
-               Dimension_Iter := Next (Dimension_Iter);
-               while Present (Dimension_Iter) loop
-                  Dimension_Number := Dimension_Number + 1;
-                  Dimension_Range := Get_Range (Dimension_Iter);
-                  if Constrained_Array and then
-                    Is_OK_Static_Range (Dimension_Range)
-                  then
-                     Static_Array_Size := Static_Array_Size *
-                       Calculate_Static_Dimension_Length (Dimension_Range);
+                  if Var_Dim_Bounds = Ireps.Empty then
+                     Var_Dim_Bounds := Calculate_Dimension_Length
+                       (Get_Dimension_Bounds
+                          (Array_Node, Dimension_Number, Dimension_Iter));
                   else
-                     if Var_Dim_Bounds = Ireps.Empty then
-                        Var_Dim_Bounds := Calculate_Dimension_Length
+                     Var_Dim_Bounds := Make_Op_Mul
+                       (Rhs             => Calculate_Dimension_Length
                           (Get_Dimension_Bounds
-                             (Array_Node, Dimension_Number, Dimension_Iter));
-                     else
-                        Var_Dim_Bounds := Make_Op_Mul
-                          (Rhs             => Calculate_Dimension_Length
-                             (Get_Dimension_Bounds
-                                  (Array_Node,
-                                   Dimension_Number, Dimension_Iter)),
-                           Lhs             => Var_Dim_Bounds,
-                           Source_Location => Internal_Source_Location,
-                           Overflow_Check  => False,
-                           I_Type          => Index_T,
-                           Range_Check     => False);
-                     end if;
-                  end if;
-                  Dimension_Iter := Next (Dimension_Iter);
-               end loop;
-
-               declare
-                  Has_Static_Bounds : constant Boolean :=
-                    Var_Dim_Bounds = Ireps.Empty;
-
-                  Static_Size : constant Irep :=
-                    (if Static_Array_Size /= Uint_0 then
-                        Integer_Constant_To_Expr
-                       (Value           => Static_Array_Size,
-                        Expr_Type       => Index_T,
-                        Source_Location => Internal_Source_Location)
-                     else
-                        Ireps.Empty);
-
-                  Array_Size : constant Irep :=
-                    (if Var_Dim_Bounds = Ireps.Empty then
-                        Static_Size
-                     elsif Static_Array_Size /= Uint_0 then
-                        Make_Op_Mul
-                       (Rhs             => Static_Size,
+                               (Array_Node,
+                                Dimension_Number, Dimension_Iter)),
                         Lhs             => Var_Dim_Bounds,
                         Source_Location => Internal_Source_Location,
                         Overflow_Check  => False,
                         I_Type          => Index_T,
-                        Range_Check     => False)
-                     else
-                        Var_Dim_Bounds);
-               begin
-                  --  Goto arrays are indexed from 0.
-                  return Static_And_Dynamic_Bounds'
-                    (Is_Unconstrained  => False,
-                     Has_Static_Bounds => Has_Static_Bounds,
-                     Low_Static        => 0,
-                     High_Static       =>
-                       (if Has_Static_Bounds then
-                             UI_To_Int (Static_Array_Size - 1)
-                        else
-                           0),
-                     Low_Dynamic       => Index_T_Zero,
-                     High_Dynamic      =>
-                       Make_Op_Sub
-                         (Rhs             => Index_T_One,
-                          Lhs             => Array_Size,
-                          Source_Location => Internal_Source_Location,
-                          Overflow_Check  => False,
-                          I_Type          => Index_T,
-                          Range_Check     => False));
-               end;
-            end;
+                        Range_Check     => False);
+                  end if;
+               end if;
+               Dimension_Iter := Next (Dimension_Iter);
+            end loop;
 
-         elsif Unconstr_Result and then
-           (Array_Node_Kind = N_Function_Call or else
-            Is_Object (Array_Node))
-         then
-            Put_Line ("Returning bounds from unconstrained result");
+            declare
+               Has_Static_Bounds : constant Boolean :=
+                 Var_Dim_Bounds = Ireps.Empty;
+
+               Static_Size : constant Irep :=
+                 (if Static_Array_Size /= Uint_0 then
+                     Integer_Constant_To_Expr
+                    (Value           => Static_Array_Size,
+                     Expr_Type       => Index_T,
+                     Source_Location => Internal_Source_Location)
+                  else
+                     Ireps.Empty);
+
+               Array_Size : constant Irep :=
+                 (if Var_Dim_Bounds = Ireps.Empty then
+                     Static_Size
+                  elsif Static_Array_Size /= Uint_0 then
+                     Make_Op_Mul
+                    (Rhs             => Static_Size,
+                     Lhs             => Var_Dim_Bounds,
+                     Source_Location => Internal_Source_Location,
+                     Overflow_Check  => False,
+                     I_Type          => Index_T,
+                     Range_Check     => False)
+                  else
+                     Var_Dim_Bounds);
+            begin
+               --  Goto arrays are indexed from 0.
+               return Static_And_Dynamic_Bounds'
+                 (Is_Unconstrained  => False,
+                  Has_Static_Bounds => Has_Static_Bounds,
+                  Low_Static        => 0,
+                  High_Static       =>
+                    (if Has_Static_Bounds then
+                          UI_To_Int (Static_Array_Size - 1)
+                     else
+                        0),
+                  Low_Dynamic       => Index_T_Zero,
+                  High_Dynamic      =>
+                    Make_Op_Sub
+                      (Rhs             => Index_T_One,
+                       Lhs             => Array_Size,
+                       Source_Location => Internal_Source_Location,
+                       Overflow_Check  => False,
+                       I_Type          => Index_T,
+                       Range_Check     => False));
+            end;
+         end;
+
+      else
+         declare
+            Nondet_Index : constant Irep := Index_T_Zero;
+--              Make_Nondet_Expr
+--                (Source_Location => Internal_Source_Location,
+--                 I_Type          => Index_T,
+--                 Range_Check     => False);
+         begin
             return Static_And_Dynamic_Bounds'
-              (Is_Unconstrained  => False,
+              (Is_Unconstrained  => True,
                Has_Static_Bounds => False,
                Low_Static        => 0,
                High_Static       => 0,
-               Low_Dynamic       => Index_T_Zero,
-               High_Dynamic      => Make_Op_Sub
-                 (Rhs             => Index_T_One,
-                  Lhs             => Get_Size_From_Unconstr_Result
-                    (Do_Expression (Array_Node),
-                     Number_Dimensions (Array_Type)),
-                  Source_Location => Source_Location,
-                  I_Type          => Index_T));
-         else
-            declare
-               Nondet_Index : constant Irep := Index_T_Zero;
---                   Make_Nondet_Expr
---                     (Source_Location => Internal_Source_Location,
---                      I_Type          => Index_T,
---                      Range_Check     => False);
-            begin
-               return Static_And_Dynamic_Bounds'
-                 (Is_Unconstrained  => True,
-                  Has_Static_Bounds => False,
-                  Low_Static        => 0,
-                  High_Static       => 0,
-                  Low_Dynamic       => Nondet_Index,
-                  High_Dynamic      => Nondet_Index);
-            end;
-         end if;
-      end;
+               Low_Dynamic       => Nondet_Index,
+               High_Dynamic      => Nondet_Index);
+         end;
+      end if;
    end Multi_Dimension_Flat_Bounds;
 
    function Get_Size_From_Unconstr_Result (Unconstr_Result : Irep;

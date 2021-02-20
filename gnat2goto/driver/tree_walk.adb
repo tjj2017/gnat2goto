@@ -999,6 +999,7 @@ package body Tree_Walk is
 --             (N, "First_Last_Length",
 --              "Attribute applied to string is unsupported");
       else
+         Put_Line ("An arry First_Last_Len");
          --  It is an array.
          return Do_Array_First_Last_Length (N, Attr);
       end if;
@@ -1907,6 +1908,7 @@ package body Tree_Walk is
          end;
       end if;
 
+      Put_Line ("Do_Function_Call");
       if not (Nkind (Name (N)) in N_Has_Entity)
         and then Nkind (Name (N)) /= N_Aspect_Specification
         and then Nkind (Name (N)) /= N_Attribute_Definition_Clause
@@ -3589,7 +3591,7 @@ package body Tree_Walk is
          end if;
       end Make_Default_Initialiser;
 
-      --  Begin processing for Do_Object_Declaration_Full_Declaration
+      --  Begin processing for Do_Object_Declaration_Full
    begin
       if Is_Array_Type (Defined_Type) then
          Do_Array_Object_Declaration
