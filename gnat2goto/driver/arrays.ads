@@ -161,6 +161,8 @@ package Arrays is
    procedure Pass_Array_Friends (Actual_Array : Entity_Id;  Args : Irep)
      with Pre => Is_Array_Type (Etype (Actual_Array));
 
+   function Make_Unconstr_Array_Result (N : Node_Id) return Irep;
+
 private
 
    function Do_RHS_Array_Assign (N : Node_Id) return Irep_Array

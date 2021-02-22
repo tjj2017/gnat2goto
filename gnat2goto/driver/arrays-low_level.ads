@@ -157,6 +157,8 @@ package Arrays.Low_Level is
       Source_Bounds : Static_And_Dynamic_Bounds;
       Dest_Bounds   : Static_And_Dynamic_Bounds);
 
+   function Compute_Array_Byte_Size (Array_Type : Entity_Id) return Irep;
+
    procedure Copy_Array (Block          : Irep;
                          Source_Type    : Entity_Id;
                          Dest_Bounds    : Static_And_Dynamic_Bounds;

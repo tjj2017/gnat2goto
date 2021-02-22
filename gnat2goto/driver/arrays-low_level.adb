@@ -587,6 +587,57 @@ package body Arrays.Low_Level is
       end if;
    end Check_Equal_Array_Lengths;
 
+   ------------------------------
+   -- Compute_Array_Byte_Size  --
+   ------------------------------
+
+   function Compute_Array_Byte_Size (Array_Type : Entity_Id) return Irep
+   is
+      Location       : constant Irep := Get_Source_Location (Array_Type);
+      Array_Bounds   : constant Static_And_Dynamic_Bounds :=
+        Multi_Dimension_Flat_Bounds ("31", Array_Type);
+      Array_Length   : constant Irep :=
+        Calculate_Dimension_Length
+          (Dimension_Bounds'
+             (Low  => Array_Bounds.Low_Dynamic,
+              High => Array_Bounds.High_Dynamic));
+      Comp_Type      : constant Entity_Id :=
+        Underlying_Type (Component_Type (Array_Type));
+      Comp_Size      : constant Irep := Typecast_If_Necessary
+        (Expr           => ASVAT.Size_Model.Computed_Size (Comp_Type),
+         New_Type       => Index_T,
+         A_Symbol_Table => Global_Symbol_Table);
+      --  Component size is in bits a byte size but the model size should be
+      --  a multiple of 8.
+      --  Just in case calculate number of bytes assuming the bit size is
+      --  not a multiple of 8.
+      --  ((Bitsize - 1) / 8) + 1
+      Comp_Byte_Size : constant Irep :=
+        Make_Op_Add
+          (Rhs             => Index_T_One,
+           Lhs             => Make_Op_Div
+             (Rhs               => Integer_Constant_To_Expr
+                (Value           => Uint_8,
+                 Expr_Type       => Index_T,
+                 Source_Location => Location),
+              Lhs               => Make_Op_Sub
+                (Rhs             => Index_T_One,
+                 Lhs             => Comp_Size,
+                 Source_Location => Location,
+                 I_Type          => Index_T),
+              Source_Location   => Location,
+              I_Type            => Index_T,
+              Div_By_Zero_Check => False),
+           Source_Location => Location,
+           I_Type          => Index_T);
+   begin
+      return Make_Op_Mul
+        (Rhs             => Comp_Byte_Size,
+         Lhs             => Array_Length,
+         Source_Location => Location,
+         I_Type          => Index_T);
+   end Compute_Array_Byte_Size;
+
    ----------------
    -- Copy_Array --
    ----------------

@@ -9,6 +9,7 @@ with Range_Check;           use Range_Check;
 with ASVAT.Size_Model;
 with Sem_Util;              use Sem_Util;
 with Sem_Eval;              use Sem_Eval;
+with Gnat2goto_Itypes;      use Gnat2goto_Itypes;
 with Arrays.Low_Level;      use Arrays.Low_Level;
 with Treepr;                use Treepr;
 with Text_IO;               use Text_IO;
@@ -3169,6 +3170,47 @@ package body Arrays is
       --  Model an unconstrained array type as a pointer to its component type.
       return Unconstr_Struc;
    end Make_Unconstrained_Array_Subtype;
+
+   function Make_Unconstr_Array_Result (N : Node_Id) return Irep is
+      Array_Type  : constant Entity_Id := Underlying_Type (Etype (N));
+      Array_Size  : constant Irep := Compute_Array_Byte_Size (Array_Type);
+      Malloc_Args : constant Irep := Make_Argument_List;
+      Malloc_Name : constant String := "malloc";
+      Malloc_Call : constant Irep :=
+        Make_Side_Effect_Expr_Function_Call
+          (Arguments       => Malloc_Args,
+           I_Function      => Symbol_Expr (
+             Global_Symbol_Table (Intern (Malloc_Name))),
+           Source_Location => Source_Loc,
+           I_Type          => Make_Pointer_Type (Make_Void_Type));
+   begin
+      Append_Argument (Malloc_Args, Size);
+      Array_Bounds : constant Static_And_Dynamic_Bounds :=
+        Multi_Dimension_Flat_Bounds ("31", N);
+      Array_Length : constant Irep :=
+        Calculate_Dimension_Length
+          (Dimension_Bounds'
+             (Low  => Array_Bounds.Low_Dynamic,
+              High => Array_Bounds.High_Dynamic));
+   begin
+      Declare_Itype (Etype (N));
+      Print_Node_Briefly (Underlying_Type (Etype (N)));
+      Put_Line ("Is_Constrained " &
+                  Boolean'Image
+                  (Is_Constrained (Underlying_Type (Etype (N)))));
+      Put_Line ("Is_Constr " &
+                  Boolean'Image
+                  (Is_Constr_Subt_For_U_Nominal
+                     (Underlying_Type (Etype (N)))));
+      Put_Line ("Bound low " & Int'Image (Array_Bounds.Low_Static));
+      Put_Line ("Bound high " & Int'Image (Array_Bounds.High_Static));
+      Print_Irep (ASVAT.Size_Model.Computed_Size
+                  (Underlying_Type (Etype (N))));
+      return Report_Unhandled_Node_Irep
+        (N,
+         "Make_Unconstr_Array_Result",
+         "Unimplemented");
+   end Make_Unconstr_Array_Result;
 
 --        Ret_Components : constant Irep := Make_Struct_Union_Components;
 --        Ret : constant Irep :=

@@ -5173,6 +5173,7 @@ package body Tree_Walk is
 
    procedure Do_Simple_Return_Statement (Block : Irep; N : Node_Id)
    is
+      Location     : constant Irep := Get_Source_Location (N);
       Return_Expr  : constant Node_Id := Expression (N);
       Return_Value : Irep := CProver_Nil;
    begin
@@ -5192,7 +5193,7 @@ package body Tree_Walk is
             Result_Name   : constant String := Fun_Name & "___result";
             Result_Var    : constant Irep :=
               Make_Symbol_Expr
-                (Source_Location => Get_Source_Location (N),
+                (Source_Location => Location,
                  I_Type          => Return_I_Type,
                  Range_Check     => False,
                  Identifier      => Result_Name);
@@ -5200,16 +5201,29 @@ package body Tree_Walk is
             Put_Line ("Simple return statement");
             Put_Line ("Function " & Fun_Name);
             Put_Line ("Result " & Result_Name);
-            Do_Assignment_Op
-              (Block       => Block,
-               Destination => Result_Var,
-               Dest_Type   => Return_Type,
-               Source_Expr => Return_Expr);
-
-            Return_Value := Typecast_If_Necessary
-              (Expr           => Result_Var,
+            if Is_Array_Type (Return_Type) and then
+              Kind (Return_I_Type) = I_Struct_Type
+            then
+               --  It is an unconstrained array result type
+               Return_Value := Make_Unconstr_Array_Result (Return_Expr);
+               Append_Op (Block,
+                          Make_Code_Assign
+                            (Rhs             => Return_Value,
+                             Lhs             => Result_Var,
+                             Source_Location => Location,
+                             I_Type          => Return_I_Type,
+                             Range_Check     => False));
+            else
+               Return_Value  := Typecast_If_Necessary
+              (Expr           => Do_Expression (Return_Expr),
                New_Type       => Return_I_Type,
                A_Symbol_Table => Global_Symbol_Table);
+               Do_Assignment_Op
+                 (Block       => Block,
+                  Destination => Result_Var,
+                  Dest_Type   => Return_Type,
+                  Source_Expr => Return_Expr);
+            end if;
          end;
       end if;
       Append_Op (Block,
