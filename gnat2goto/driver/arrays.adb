@@ -1,3 +1,4 @@
+with Stand;                 use Stand;
 with Nlists;                use Nlists;
 with Uintp;                 use Uintp;
 --  with Namet;                 use Namet;
@@ -66,7 +67,7 @@ package body Arrays is
                            return Boolean;
       function Print_Irep_Func (I : Irep) return Boolean;
       function Print_Msg (Msg : String) return Boolean;
-      pragma Unreferenced (Print_Irep_Func);
+--        pragma Unreferenced (Print_Irep_Func);
    end Debug_Help;
 
    package body Debug_Help is
@@ -95,10 +96,13 @@ package body Arrays is
    end Debug_Help;
    use Debug_Help;
 
-   procedure Array_Object_And_Friends (Array_Name : String;
-                                       Array_Node : Node_Id;
-                                       Source_Loc : Irep;
-                                       Block      : Irep)
+   procedure Array_Object_And_Friends
+     (Array_Name : String;
+      Array_Node : Node_Id;
+      The_Array  : out Irep;
+      The_Bounds : out Static_And_Dynamic_Bounds;
+      Source_Loc : Irep;
+      Block      : Irep)
    with Pre => Is_Array_Type (Underlying_Type (Etype (Array_Node)));
 
    procedure Array_Assignment_Op (Source_Expr  : Node_Id;
@@ -149,12 +153,15 @@ package body Arrays is
      with Pre => Is_Array_Type (Etype (E)) and then
                  not Is_Formal (E);
 
-   function Do_Unconstrained_First_Last (The_Array  : Entity_Id;
+   function Do_Unconstrained_First_Last (The_Array  : Node_Id;
                                          Dimension  : Positive;
                                          Source_Loc : Irep)
                                          return Dimension_Bounds
      with Pre => Is_Array_Type (Etype (The_Array)) and not
-     Is_Constrained (The_Array);
+     Is_Constrained (Etype (The_Array));
+
+   function Get_Dimension_Index (The_Array : Entity_Id; Dim : Pos)
+                                 return Node_Id;
 
    procedure Make_Array_Object_From_Bounds (Block        : Irep;
                                             Array_Name   : String;
@@ -288,13 +295,16 @@ package body Arrays is
                                   Target_Array : Irep;
                                   Block        : Irep)
    is
-      Source_Location  : constant Irep := Get_Source_Location (Source_Expr);
+      Source_Location    : constant Irep := Get_Source_Location (Source_Expr);
 
-      RHS_Node_Kind    : constant Node_Kind := Nkind (Source_Expr);
-      Source_Type      : constant Entity_Id := Etype (Source_Expr);
+      RHS_Node_Kind      : constant Node_Kind := Nkind (Source_Expr);
+      Source_Type        : constant Entity_Id :=
+        Underlying_Type (Etype (Source_Expr));
 
-      Source_Bounds : constant Static_And_Dynamic_Bounds :=
-        Multi_Dimension_Flat_Bounds ("2", Source_Expr);
+      Source_I_Type      : constant Irep := Do_Type_Reference (Source_Type);
+      Target_I_Type      : constant Irep := Get_Type (Target_Array);
+      Component_I_Type   : constant Irep :=
+        Do_Type_Reference (Component_Type (Source_Type));
    begin
       Put_Line ("Array_Assignment_Op Low " &
                   Int'Image (Dest_Bounds.Low_Static));
@@ -326,257 +336,256 @@ package body Arrays is
             Dest_Array  => Target_Array,
             Dest_Bounds => Dest_Bounds);
       else
-         if RHS_Node_Kind = N_Function_Call then
-            Put_Line ("A function call");
-            --  **************************************************************
-            --  TODO: Variable Arrays.
-            --  This check and reporting should be removed
-            --  when cbmc properly handles arrays with bounds specified by
-            --  a variable and support for unconstrained array function
-            --  results are supported.
-            declare
-               Func_Result_Type : constant Entity_Id := Etype (Source_Expr);
-            begin
-               if not Is_Constrained (Func_Result_Type) then
+         declare
+            Resolved_Source_Expr : constant Irep :=
+              Fresh_Var_Symbol_Expr (Source_I_Type, "source_expr");
+         begin
+            Append_Declare_And_Init
+              (Symbol     => Resolved_Source_Expr,
+               Value      => Do_Expression (Source_Expr),
+               Block      => Block,
+               Source_Loc => Source_Location);
+
+               --  ***********************************************************
+               --  TODO: Variable Arrays.
+               --  This check and reporting should be removed
+               --  when cbmc properly handles arrays with bounds specified by
+               --  a variable and support for unconstrained array function
+               --  results are supported.
+            if RHS_Node_Kind = N_Function_Call then
+               if not Is_Constrained (Source_Type) then
                   Report_Unhandled_Node_Empty
                     (N        => Source_Expr,
                      Fun_Name => "Array_Assignment_Op",
                      Message  =>
                        "Functions returning an unconstrained array "
                      & "are currently unsupported");
-               elsif not Source_Bounds.Has_Static_Bounds then
+               elsif not All_Dimensions_Static (Source_Type) then
                   Report_Unhandled_Node_Empty
                     (N        => Source_Expr,
                      Fun_Name => "Array_Assignment_Op",
                      Message  =>
                        "Functions returning an array with non-static bounds "
                      & "are currently unsupported");
-                  --  *********************************************************
-               else
+                  --  *******************************************************
+               end if;
+            end if;
+
+            if not Dest_Bounds.Is_Unconstrained then
+               if Dest_Bounds.Has_Static_Bounds and
+                 All_Dimensions_Static (Source_Type) and
+                 Kind (Source_I_Type) /= I_Struct_Type
+               then
+                  Put_Line ("Assignment_Op - Simple assignment");
                   declare
-                     Source_Irep  : constant Irep :=
-                       Do_Function_Call (Source_Expr);
-                     Target_Itype : constant Irep :=
-                       Get_Type (Target_Array);
-                     Source_Itype : constant Irep :=
-                       Do_Type_Reference (Func_Result_Type);
-                     pragma Assert (Kind (Target_Itype) = Kind (Source_Itype));
-
-                     --  The source and target arrays may have equivalent
-                     --  types but may have different Ireps for each type.
-                     Source_Array : constant Irep :=
-                       (if Source_Itype /= Target_Itype then
-                           Make_Op_Typecast
-                          (Op0             => Source_Irep,
-                           Source_Location => Source_Location,
-                           I_Type          => Target_Itype,
-                           Range_Check     => False)
-                        else
-                           Source_Irep);
-
+                     --  Both source and destination have static bounds.
+                     --   A simple assignment should work.
                      Assignment : constant Irep :=
                        Make_Code_Assign
-                         (Rhs             => Source_Array,
+                         (Rhs             => Resolved_Source_Expr,
                           Lhs             => Target_Array,
                           Source_Location => Source_Location,
-                          I_Type          => Target_Itype,
+                          I_Type          => Target_I_Type,
                           Range_Check     => False);
                   begin
-                     Print_Irep (Source_Irep);
-                     Print_Irep (Source_Array);
-                     Print_Irep (Target_Array);
-                     Print_Irep (Target_Itype);
-
                      Append_Op (Block, Assignment);
                   end;
+               else
+                  Put_Line ("Assign_Op - Copy");
+                  declare
+                     Source_Bounds : constant Static_And_Dynamic_Bounds :=
+                       (if Kind (Source_I_Type) = I_Struct_Type
+                        then
+                        --  It is an array_struc result from a function
+                        --  with an unconstrained array result.
+                           Flat_Bounds_From_Array_Struc
+                          (Resolved_Source_Expr, N_Dimensions)
+                        else
+                           Multi_Dimension_Flat_Bounds
+                          ("50", Source_Expr));
+
+                     Component_Ptr   : constant Irep :=
+                       Make_Pointer_Type (Component_I_Type);
+                     Resolved_Dest   : constant Irep := Fresh_Var_Symbol_Expr
+                       (Component_Ptr, "resolved_dest");
+                     Resolved_Source : constant Irep := Fresh_Var_Symbol_Expr
+                       (Component_Ptr, "resolved_source");
+                  begin
+                     Append_Declare_And_Init
+                       (Symbol     => Resolved_Dest,
+                        Value      => Get_Pointer_To_Array
+                          (Target_Array, Component_I_Type),
+                        Block      => Block,
+                        Source_Loc => Source_Location);
+                     Append_Declare_And_Init
+                       (Symbol     => Resolved_Source,
+                        Value      => Get_Pointer_To_Array
+                          (Resolved_Source_Expr, Component_I_Type),
+                        Block      => Block,
+                        Source_Loc => Source_Location);
+
+                     Copy_Array
+                       (Block         => Block,
+                        Source_Type   => Source_Type,
+                        Dest_Bounds   => Dest_Bounds,
+                        Source_Bounds => Source_Bounds,
+                        Dest_Irep     => Resolved_Dest,
+                        Source_Irep   => Resolved_Source);
+                  end;
                end if;
-            end;
-         elsif not Dest_Bounds.Is_Unconstrained then
-            if Dest_Bounds.Has_Static_Bounds and
-              Source_Bounds.Has_Static_Bounds
-            then
-               --  Both source and destination have static bounds.
-               --   A simple assignment should work.
-               declare
-                  Source_Irep  : constant Irep :=
-                    Do_Expression (Source_Expr);
-                  Target_Itype : constant Irep :=
-                    Get_Type (Target_Array);
-                  Source_Itype : constant Irep :=
-                    (if Is_Constrained (Etype (Source_Expr)) then
-                        Get_Type (Source_Irep)
-                     else
-                        Target_Itype);
-                  pragma Assert (Kind (Target_Itype) = Kind (Source_Itype));
-
-                  --  The source and target arrays may have equivalent types
-                  --  but may have different Ireps for each type.
-                  Source_Array : constant Irep :=
-                    (if Source_Itype /= Target_Itype then
-                        Make_Op_Typecast
-                       (Op0             => Source_Irep,
-                        Source_Location => Source_Location,
-                        I_Type          => Target_Itype,
-                        Range_Check     => False)
-                     else
-                        Source_Irep);
-
-                  Assignment : constant Irep :=
-                    Make_Code_Assign
-                      (Rhs             => Source_Array,
-                       Lhs             => Target_Array,
-                       Source_Location => Source_Location,
-                       I_Type          => Target_Itype,
-                       Range_Check     => False);
-               begin
-                  Append_Op (Block, Assignment);
-               end;
             else
-               --  ***********************************************************
-               --  TODO: Variable Arrays
-               --  The following element by element copying section should be
-               --  removed when cbmc properly handles an aray bounds specified
-               --  by a variable
-               --  Components have to be copied one at a time
-               declare
-                  Constrained_Source_Bounds :
-                  constant Static_And_Dynamic_Bounds :=
-                    (if Source_Bounds.Is_Unconstrained then
-                        Dest_Bounds
-                     else
-                        Source_Bounds);
-               begin
-                  Check_Equal_Array_Lengths
-                    (Block, Source_Bounds, Dest_Bounds);
-                  Copy_Array
-                    (Block         => Block,
-                     Source_Type   => Source_Type,
-                     Dest_Bounds   => Dest_Bounds,
-                     Source_Bounds => Constrained_Source_Bounds,
-                     Dest_Irep     => Target_Array,
-                     Source_Irep   => Do_Expression (Source_Expr));
-               end;
-               --  ********************************************************
+               Report_Unhandled_Node_Empty
+                 (N        => Source_Expr,
+                  Fun_Name => "Array_Assignment_Op",
+                  Message  => "Assignment to an unconstrained array object " &
+                    Get_Identifier (Target_Array) &
+                    "is unsupported");
             end if;
-         else
-            Report_Unhandled_Node_Empty
-              (N        => Source_Expr,
-               Fun_Name => "Array_Assignment_Op",
-               Message  => "Assignment to an unconstrained array object " &
-                 Get_Identifier (Target_Array) &
-                 "is unsupported");
-         end if;
+         end;
       end if;
    end Array_Assignment_Op;
 
-   procedure Array_Object_And_Friends (Array_Name : String;
-                                       Array_Node : Node_Id;
-                                       Source_Loc : Irep;
-                                       Block      : Irep)
+   procedure Array_Object_And_Friends
+     (Array_Name : String;
+      Array_Node : Node_Id;
+      The_Array  : out Irep;
+      The_Bounds : out Static_And_Dynamic_Bounds;
+      Source_Loc : Irep;
+      Block      : Irep)
    is
       Id            : constant Symbol_Id := Intern (Array_Name);
       Array_Type    : constant Entity_Id :=
         Underlying_Type (Etype (Array_Node));
-      Array_I_Type  : constant Irep :=
-        Do_Type_Reference (Array_Type);
-      Bounds        : constant Static_And_Dynamic_Bounds :=
-        Multi_Dimension_Flat_Bounds ("3", Array_Node);
-      Needs_Size_Var : constant Boolean :=
-        (not Bounds.Has_Static_Bounds and then Is_Itype (Array_Type));
+      Comp_Type     : constant Entity_Id :=
+        Component_Type (Array_Type);
+      Comp_Irep      : constant Irep :=
+        Make_Scalar_I_Type (Comp_Type);
 
-      Comp_Irep       : constant Irep :=
-        Do_Type_Reference (Component_Type (Array_Type));
-      Array_Size_Var  : constant Irep :=
-        (if Needs_Size_Var then
-            Make_Symbol_Expr
-           (Source_Location => Source_Loc,
-            I_Type          => Index_T,
-            Range_Check     => False,
-            Identifier      => Array_Name & "_$array_size")
+      Array_I_Type : constant Irep := Do_Type_Reference (Array_Type);
+
+      Array_Node_Var : constant Irep :=
+        (if Kind (Array_I_Type) = I_Struct_Type then
+              Fresh_Var_Symbol_Expr (Array_I_Type, "array_node")
          else
             Ireps.Empty);
-      Array_Type_Irep : constant Irep :=
-        (if Array_Size_Var = Ireps.Empty then
-         --  Does not need a size var, which means the array subtype has
-         --  static bounds or the size variable has been declared and
-         --  intialised in the goto code when the array subtype was declared.
-         --  In either case the Irep array type from the Do_Type_Reference
-         --  can be used.
-            Array_I_Type
-         else
-         --  A new variable has to be declared to represent the size of
-         --  the goto array object.
-            Make_Array_Type
-           (I_Subtype => Comp_Irep,
-            Size      => Array_Size_Var));
-
-      Array_Irep : constant Irep :=
-        Make_Symbol_Expr
-          (Source_Location => Source_Loc,
-           I_Type          => Array_Type_Irep,
-           Range_Check     => False,
-           Identifier      => Array_Name);
-      Decl      : constant Irep := Make_Code_Decl
-        (Symbol => Array_Irep,
-         Source_Location => Source_Loc);
    begin
-      Put_Line ("Array_Object_And_Friends");
-      if not Global_Symbol_Table.Contains (Id) then
-         --  If a size variable is needed to define the size of the
-         --  goto array object, declare it before the array.
-         if Needs_Size_Var then
-            declare
-               Size_Decl : constant Irep := Make_Code_Decl
-                 (Symbol          => Array_Size_Var,
-                  Source_Location => Source_Loc,
-                  I_Type          => Index_T,
-                  Range_Check     => False);
-               Size_Assg : constant Irep := Make_Code_Assign
-                 (Rhs             =>
-                    Make_Op_Add
-                      (Rhs             => Index_T_One,
-                       Lhs             => Bounds.High_Dynamic,
-                       Source_Location => Source_Loc,
-                       Overflow_Check  => False,
-                       I_Type          => Index_T,
-                       Range_Check     => False),
-                  Lhs             => Array_Size_Var,
-                  Source_Location => Source_Loc,
-                  I_Type          => Index_T,
-                  Range_Check     => False);
-            begin
-               Append_Op (Block, Size_Decl);
-               Append_Op (Block, Size_Assg);
-            end;
-         end if;
-
-         Append_Op (Block, Decl);
-         New_Object_Symbol_Entry
-           (Object_Name       => Id,
-            Object_Type       => Array_Type_Irep,
-            Object_Init_Value => Ireps.Empty,
-            A_Symbol_Table    => Global_Symbol_Table);
-
-         --  The model size of the object hast to be recorded.
-         if ASVAT.Size_Model.Has_Static_Size (Array_Type) then
-            ASVAT.Size_Model.Set_Static_Size
-              (E          => Array_Type,
-               Model_Size =>
-                 ASVAT.Size_Model.Static_Size (Array_Type));
-         else
-            ASVAT.Size_Model.Set_Computed_Size
-              (E         => Array_Type,
-               Size_Expr =>
-                 ASVAT.Size_Model.Computed_Size (Array_Type));
-         end if;
-         --  The first and last variables for each dimension have to
-         --  added to the symbol table and initialised.
-
-         Declare_Array_Friends
-           (Array_Name => Array_Name,
-            Array_Type => Array_Type,
-            Block      => Block);
+      if Array_Node_Var /= Ireps.Empty then
+         Append_Declare_And_Init
+           (Symbol     => Array_Node_Var,
+            Value      => Do_Expression (Array_Node),
+            Block      => Block,
+            Source_Loc => Source_Loc);
       end if;
+      declare
+         Bounds : constant Static_And_Dynamic_Bounds :=
+           (if Kind (Array_I_Type) = I_Struct_Type then
+                 Flat_Bounds_From_Array_Struc
+              (Array_Struc  => Array_Node_Var,
+               N_Dimensions => Number_Dimensions (Array_Type))
+            else
+               Multi_Dimension_Flat_Bounds ("5", Array_Node));
+         Array_Size : constant Irep := Get_Array_Size_From_Bounds (Bounds);
+
+         Needs_Size_Var : constant Boolean :=
+           (not Is_Constrained (Array_Type) or else
+                (not Bounds.Has_Static_Bounds and then Is_Itype (Array_Type)));
+
+         Array_Size_Var  : constant Irep :=
+           (if Needs_Size_Var then
+               Make_Symbol_Expr
+              (Source_Location => Source_Loc,
+               I_Type          => Index_T,
+               Range_Check     => False,
+               Identifier      => Array_Name & "_$array_size")
+            else
+               Ireps.Empty);
+         Array_Type_Irep : constant Irep :=
+           (if Array_Size_Var = Ireps.Empty then
+            --  Does not need a size var, which means the array subtype has
+            --  static bounds or the size variable has been declared and
+            --  intialised in the goto code when the array was declared.
+            --  In either case the Irep array type from the Do_Type_Reference
+            --  can be used.
+               Array_I_Type
+            else
+            --  A new variable has to be declared to represent the size of
+            --  the goto array object.
+               Make_Array_Type
+              (I_Subtype => Comp_Irep,
+               Size      => Array_Size_Var));
+
+         Array_Irep : constant Irep :=
+           Make_Symbol_Expr
+             (Source_Location => Source_Loc,
+              I_Type          => Array_Type_Irep,
+              Range_Check     => False,
+              Identifier      => Array_Name);
+         Decl      : constant Irep := Make_Code_Decl
+           (Symbol => Array_Irep,
+            Source_Location => Source_Loc);
+      begin
+         Put_Line ("Array_Object_And_Friends");
+         Put_Line ("Needs_Size_Var " & Boolean'Image (Needs_Size_Var));
+         Print_Irep (Array_I_Type);
+         Print_Node_Subtree (Array_Type);
+         if not Global_Symbol_Table.Contains (Id) then
+            --  If a size variable is needed to define the size of the
+            --  goto array object, declare it before the array.
+            if Needs_Size_Var then
+               Append_Declare_And_Init
+                 (Symbol     => Array_Size_Var,
+                  Value      => Array_Size,
+                  Block      => Block,
+                  Source_Loc => Source_Loc);
+            end if;
+
+            Append_Op (Block, Decl);
+            New_Object_Symbol_Entry
+              (Object_Name       => Id,
+               Object_Type       => Array_Type_Irep,
+               Object_Init_Value => Ireps.Empty,
+               A_Symbol_Table    => Global_Symbol_Table);
+
+            --  The model size of the object has to be recorded.
+            if Is_Constrained (Array_Type) then
+               if ASVAT.Size_Model.Has_Static_Size (Array_Type) then
+                  ASVAT.Size_Model.Set_Static_Size
+                    (Id         => Id,
+                     Model_Size =>
+                       ASVAT.Size_Model.Static_Size (Array_Type));
+               else
+                  ASVAT.Size_Model.Set_Computed_Size
+                    (Id        => Id,
+                     Size_Expr =>
+                       ASVAT.Size_Model.Computed_Size (Array_Type));
+               end if;
+            else
+               ASVAT.Size_Model.Set_Computed_Size
+                 (Id        => Id,
+                  Size_Expr => Make_Op_Mul
+                    (Rhs             => Array_Size,
+                     Lhs             => Typecast_If_Necessary
+                       (Expr           =>
+                            ASVAT.Size_Model.Computed_Size (Comp_Type),
+                        New_Type       => Int32_T,
+                        A_Symbol_Table => Global_Symbol_Table),
+                     Source_Location => Source_Loc,
+                     I_Type          => Int32_T));
+            end if;
+
+            --  The first and last variables for each dimension have to
+            --  added to the symbol table and initialised.
+
+            Declare_Array_Friends
+              (Array_Name => Array_Name,
+               Init_Expr  => Array_Node_Var,
+               Array_Type => Array_Type,
+               Block      => Block);
+         end if;
+         --  Ensure the out variables are set.
+         The_Array := Array_Irep;
+         The_Bounds := Bounds;
+      end;
    end Array_Object_And_Friends;
 
    -----------------------------
@@ -657,18 +666,8 @@ package body Arrays is
                        Boolean'Image (Array_Bounds.Has_Static_Bounds)));
       Comp_Type        : constant Entity_Id :=
         Component_Type (Target_Type);
-
-      Comp_Irep_Pre  : constant Irep :=
-        Do_Type_Reference (Comp_Type);
       Comp_Irep      : constant Irep :=
-        (if Kind (Follow_Symbol_Type
-         (Comp_Irep_Pre, Global_Symbol_Table))
-         = I_C_Enum_Type
-         then
-            Make_Unsignedbv_Type
-           (ASVAT.Size_Model.Static_Size (Comp_Type))
-         else
-            Comp_Irep_Pre);
+        Make_Scalar_I_Type (Comp_Type);
 
       The_Array    : Irep;
    begin
@@ -840,6 +839,7 @@ package body Arrays is
    ---------------------------
 
    procedure Declare_Array_Friends (Array_Name : String;
+                                    Init_Expr  : Irep;
                                     Array_Type : Entity_Id;
                                     Block      : Irep)
    is
@@ -850,7 +850,8 @@ package body Arrays is
          --  gnat does not give a first index in the atree for string literals.
          declare
             --  The index subtype of a string is Positive
-            Str_Index_Type     : constant Irep := Make_Signedbv_Type (32);
+            Str_Index_Type     : constant Irep :=
+              Do_Type_Reference (Standard_Positive);
             Str_Lit_Low        : constant Node_Id :=
               String_Literal_Low_Bound (Array_Type);
             Str_Lit_Is_Static  : constant Boolean :=
@@ -902,7 +903,7 @@ package body Arrays is
                Bounds     => Bounds,
                Block      => Block);
          end;
-      else
+      elsif Is_Constrained (Array_Type) then
          declare
             Index_Iter : Node_Id := First_Index (Array_Type);
          begin
@@ -916,6 +917,88 @@ package body Arrays is
                Index_Iter := Next_Index (Index_Iter);
             end loop;
          end;
+      elsif Kind (Get_Type (Init_Expr)) = I_Struct_Type then
+         Put_Line ("Declare_Array_Friends - Its an unconstrained result");
+         --  It is an unconstrained array result.
+         declare
+            --  Determine the I_Type of the bounds array
+            Comp_List  : constant Irep_List :=
+              Get_Component (Get_Components (Get_Type (Init_Expr)));
+            List_Cur   : constant List_Cursor := List_First (Comp_List);
+            Bounds     : constant Irep := List_Element (Comp_List, List_Cur);
+            Bounds_Array_Type : constant Irep := Get_Type (Bounds);
+            Bounds_Arr : constant Irep := Make_Member_Expr
+              (Compound         => Init_Expr,
+               Source_Location  => Source_Location,
+               I_Type           => Bounds_Array_Type,
+               Component_Name   => Array_Struc_Bounds);
+            pragma Assert (Print_Msg ("Bounds_Array_Type"));
+            pragma Assert (Print_Irep_Func (Bounds_Array_Type));
+
+            --  Get the bounds field from the Fun_Result.
+            Bounds_Array        : constant Irep :=
+              Fresh_Var_Symbol_Expr (Bounds_Array_Type, "bounds_array");
+            pragma Assert (Print_Msg ("Bounds_Array"));
+            pragma Assert (Print_Irep_Func (Bounds_Array));
+
+            Index_Iter : Node_Id := First_Index (Array_Type);
+         begin
+            Put_Line ("Declare_Array_Friends - Loop");
+            Print_Irep (Bounds_Array_Type);
+            Append_Declare_And_Init
+              (Symbol     => Bounds_Array,
+               Value      => Bounds_Arr,
+               Block      => Block,
+               Source_Loc => Source_Location);
+
+            for Dimension in 1 .. Number_Dimensions (Array_Type) loop
+               declare
+                  Dim_First : constant Irep :=
+                    Make_Index_Expr
+                      (I_Array         => Bounds_Array,
+                       Index           => Integer_Constant_To_Expr
+                         (Value           => Bounds_First (Dimension),
+                          Expr_Type       => Index_T,
+                          Source_Location => Source_Location),
+                       Source_Location => Source_Location,
+                       I_Type          => Bounds_Component);
+                  Dim_Last : constant Irep :=
+                    Make_Index_Expr
+                      (I_Array         => Bounds_Array,
+                       Index           => Integer_Constant_To_Expr
+                         (Value           => Bounds_Last (Dimension),
+                          Expr_Type       => Index_T,
+                          Source_Location => Source_Location),
+                       Source_Location => Source_Location,
+                       I_Type          => Bounds_Component);
+                  Bounds         : constant Dimension_Bounds :=
+                    Dimension_Bounds'
+                      (Low  => Dim_First,
+                       High => Dim_Last);
+                  Dim_String_Pre   : constant String := Int'Image (Dimension);
+                  Dim_String       : constant String :=
+                    Dim_String_Pre (2 .. Dim_String_Pre'Last);
+
+                  Index_I_Type     : constant Irep :=
+                    Make_Scalar_I_Type (Etype (Index_Iter));
+
+               begin
+                  Declare_First_Last_From_Bounds
+                    (Prefix     => Array_Name,
+                     Dimension  => Dim_String,
+                     Index_Type => Index_I_Type,
+                     Bounds     => Bounds,
+                     Block      => Block);
+               end;
+               Index_Iter := Next_Index (Index_Iter);
+            end loop;
+         end;
+      else
+         Report_Unhandled_Node_Empty
+           (N        => Array_Type,
+            Fun_Name => "Declare_Array_Friends",
+            Message  =>
+              "Cannot create First and Last from unconstrained array");
       end if;
    end Declare_Array_Friends;
 
@@ -1130,16 +1213,8 @@ package body Arrays is
 --        Aggregate_Loop    : constant String := New_Name & "_loop";
       Subtype_Irep      : constant Irep :=
         Do_Type_Reference (Aggregate_Subtype);
-      Component_Pre     : constant Irep :=
-        Do_Type_Reference (Component_Type (Aggregate_Subtype));
       Component_Irep    : constant Irep :=
-        (if Kind (Follow_Symbol_Type (Component_Pre,
-         Global_Symbol_Table)) = I_C_Enum_Type
-         then
-            Make_Unsignedbv_Type
-           (ASVAT.Size_Model.Static_Size (Component_Type (Aggregate_Subtype)))
-         else
-            Component_Pre);
+        Make_Scalar_I_Type (Component_Type (Aggregate_Subtype));
       Obj_Irep          : constant Irep := Make_Symbol_Expr
         (Source_Location => Source_Location,
          I_Type          => Subtype_Irep,
@@ -2147,6 +2222,9 @@ package body Arrays is
          --  No dimension expression defaults to dimension 1
             1);
    begin
+      Put_Line ("Do_First_Last_Len");
+      Print_Node_Briefly (N);
+      Print_Node_Briefly (The_Prefix);
       if Nkind (The_Prefix) in N_Has_Entity then
          declare
             The_Entity  : constant Entity_Id := Entity (The_Prefix);
@@ -2155,6 +2233,10 @@ package body Arrays is
                     The_Entity
                else
                   Etype (The_Entity));
+            pragma Assert (Print_Node (The_Entity));
+            pragma Assert (Print_Msg ("Is_Constrained entity " &
+                             Boolean'Image
+                             (Is_Constrained (Etype (The_Prefix)))));
             Bounds      : constant Dimension_Bounds :=
               (if not Is_Constrained (Arr_Subtype) then
                --  It must be an unconstrained array.
@@ -2181,6 +2263,10 @@ package body Arrays is
                Prefix_Etype : constant Entity_Id :=
                  Etype (The_Prefix);
             begin
+               Put_Line ("Do_First_Last_Len - A function call");
+               Print_Node_Briefly (Prefix_Etype);
+               Put_Line ("Is_Constrained (Prefix_Etype " &
+                           Boolean'Image (Is_Constrained (Prefix_Etype)));
                if Is_Array_Type (Prefix_Etype) then
                   if Is_Constrained (Prefix_Etype) then
                      declare
@@ -2195,10 +2281,24 @@ package body Arrays is
                                  Calculate_Dimension_Length (Bounds));
                      end;
                   else
-                     Report_Unhandled_Node_Empty
-                       (N        => The_Prefix,
-                        Fun_Name => "Do_Array_First_Last_Length",
-                        Message  => "Unconstrained array");
+                     declare
+                        Bounds : constant Dimension_Bounds :=
+                          Do_Unconstrained_First_Last
+                            (The_Array  => The_Prefix,
+                             Dimension  => Dimension,
+                             Source_Loc => Source_Loc);
+                     begin
+                        Report_Unhandled_Node_Empty
+                          (N        => The_Prefix,
+                           Fun_Name => "Do_Array_First_Last_Length",
+                           Message  => "Unconstrained array");
+                        return
+                          (case Attr is
+                              when Attribute_First => Bounds.Low,
+                              when Attribute_Last => Bounds.High,
+                              when others =>
+                                 Calculate_Dimension_Length (Bounds));
+                     end;
                   end if;
                else
                   Report_Unhandled_Node_Empty
@@ -2237,41 +2337,131 @@ package body Arrays is
       Put_Line ("About to call Get_Dimension_Bounds");
       Print_Node_Briefly (E);
       Print_Node_Briefly (Declaration_Node (E));
-      return
-        Get_Dimension_Bounds (Declaration_Node (E), Dimension, Dim_Index);
+
+      declare
+         Dim_Index_Type   : constant Entity_Id :=
+           Etype (Get_Dimension_Index (E, Pos (Dimension)));
+         Index_I_Type     : constant Irep :=
+           Make_Scalar_I_Type (Dim_Index_Type);
+
+         Bounds : constant Dimension_Bounds :=
+           Get_Dimension_Bounds (Declaration_Node (E), Dimension, Dim_Index);
+
+         First  : constant Irep := Typecast_If_Necessary
+           (Expr           => Bounds.Low,
+            New_Type       => Index_I_Type,
+            A_Symbol_Table => Global_Symbol_Table);
+         Last   : constant Irep := Typecast_If_Necessary
+           (Expr           => Bounds.High,
+            New_Type       => Index_I_Type,
+            A_Symbol_Table => Global_Symbol_Table);
+      begin
+         return (First, Last);
+      end;
    end Do_Constrained_First_Last;
 
-   function Do_Unconstrained_First_Last (The_Array  : Entity_Id;
+   function Do_Unconstrained_First_Last (The_Array  : Node_Id;
                                          Dimension  : Positive;
                                          Source_Loc : Irep)
                                          return Dimension_Bounds
    is
-      Raw_String  : constant String := Integer'Image (Dimension);
-      Dim_String  : constant String := Raw_String (2 .. Raw_String'Last);
-      Array_Name  : constant String := Unique_Name (The_Array);
-      Prefix      : constant String := Array_Name & "___";
-      First_Name  : constant String := Prefix & "first_" & Dim_String;
-      Last_Name   : constant String := Prefix & "last_" & Dim_String;
-      First_Id    : constant Symbol_Id := Intern (First_Name);
-      pragma Assert (Global_Symbol_Table.Contains (First_Id));
-      Last_Id     : constant Symbol_Id := Intern (Last_Name);
-      pragma Assert (Global_Symbol_Table.Contains (Last_Id));
-      Attr_Type   : constant Irep :=
-              Global_Symbol_Table (First_Id).SymType;
-      First_Expr  : constant Irep :=
-        Make_Symbol_Expr
-          (Source_Location => Source_Loc,
-           I_Type          => Attr_Type,
-           Range_Check     => False,
-           Identifier      => First_Name);
-      Last_Expr  : constant Irep :=
-        Make_Symbol_Expr
-          (Source_Location => Source_Loc,
-           I_Type          => Attr_Type,
-           Range_Check     => False,
-           Identifier      => Last_Name);
+      Array_Type       : constant Entity_Id :=
+        Underlying_Type (Etype (The_Array));
+      Array_I_Type     : constant Irep := Do_Type_Reference (Array_Type);
+      Dim_Index_Type   : constant Entity_Id :=
+        Etype (Get_Dimension_Index (Array_Type, Pos (Dimension)));
+      Index_I_Type     : constant Irep :=
+        Make_Scalar_I_Type (Dim_Index_Type);
    begin
-      return (First_Expr, Last_Expr);
+      Put_Line ("Do_Unconstrained_First_Last");
+      if Nkind (The_Array) in N_Has_Entity then
+         declare
+            Array_Entity : constant Entity_Id := Entity (The_Array);
+            Raw_String   : constant String := Integer'Image (Dimension);
+            Dim_String   : constant String :=
+              Raw_String (2 .. Raw_String'Last);
+            Array_Name   : constant String := Unique_Name (Array_Entity);
+            Prefix       : constant String := Array_Name & "___";
+            First_Name   : constant String := Prefix & "first_" & Dim_String;
+            Last_Name    : constant String := Prefix & "last_" & Dim_String;
+            First_Id     : constant Symbol_Id := Intern (First_Name);
+            Last_Id      : constant Symbol_Id := Intern (Last_Name);
+         begin
+            if Global_Symbol_Table.Contains (First_Id) and
+              Global_Symbol_Table.Contains (Last_Id)
+            then
+               declare
+                  Attr_Type   : constant Irep :=
+                    Global_Symbol_Table (First_Id).SymType;
+                  First_Expr  : constant Irep :=
+                    Make_Symbol_Expr
+                      (Source_Location => Source_Loc,
+                       I_Type          => Attr_Type,
+                       Range_Check     => False,
+                       Identifier      => First_Name);
+                  Last_Expr  : constant Irep :=
+                    Make_Symbol_Expr
+                      (Source_Location => Source_Loc,
+                       I_Type          => Attr_Type,
+                       Range_Check     => False,
+                       Identifier      => Last_Name);
+               begin
+                  return
+                    (Typecast_If_Necessary
+                       (Expr           => First_Expr,
+                        New_Type       => Index_I_Type,
+                        A_Symbol_Table => Global_Symbol_Table),
+                     Typecast_If_Necessary
+                       (Expr           => Last_Expr,
+                        New_Type       => Index_I_Type,
+                        A_Symbol_Table => Global_Symbol_Table));
+               end;
+            end if;
+         end;
+      end if;
+
+      if Kind (Array_I_Type) = I_Struct_Type then
+         Put_Line ("Do_Unconstrained_First_Last - An Array Struc");
+         --  It is an unconstrained array function result.
+         declare
+            Bounds : constant Dimension_Bounds := Get_Bounds_From_Struc
+              (Do_Expression (The_Array), Pos (Dimension));
+
+            --  Should there be a check here that the dimension of the
+            --  array is consistent with bounds in unconstrained result
+            --  structure.
+            --  As the dimension must be static, it should be checked by
+            --  the front-end.
+            Dim_First : constant Irep :=
+              Typecast_If_Necessary
+                (Expr           =>  Bounds.Low,
+                 New_Type       => Index_I_Type,
+                 A_Symbol_Table => Global_Symbol_Table);
+            Dim_Last  : constant Irep :=
+              Typecast_If_Necessary
+                (Expr           => Bounds.High,
+                 New_Type       => Index_I_Type,
+                 A_Symbol_Table => Global_Symbol_Table);
+         begin
+            return (Dim_First, Dim_Last);
+         end;
+      else
+         declare
+            --  Need to put return some dimension on error - use (0, 0).
+            Bound_0 : constant Irep :=
+              Typecast_If_Necessary
+                (Expr           => Index_T_Zero,
+                 New_Type       => Index_I_Type,
+                 A_Symbol_Table => Global_Symbol_Table);
+         begin
+            Report_Unhandled_Node_Empty
+              (N        => The_Array,
+               Fun_Name => "Do_Unconstrained_First_Last",
+               Message  => "Array has neither first-last vars " &
+                 "is not an unconstrained funtion result");
+            return (Bound_0, Bound_0);
+         end;
+      end if;
    end Do_Unconstrained_First_Last;
 
    function Do_Array_Length (N : Node_Id) return Irep
@@ -2321,9 +2511,25 @@ package body Arrays is
       return Component_Type (Ty);
    end Get_Array_Component_Type;
 
+   -------------------------
+   -- Get_Dimension_Index --
+   -------------------------
+
+   function Get_Dimension_Index (The_Array : Entity_Id; Dim : Pos)
+                                 return Node_Id
+   is
+      Dim_Iter : Node_Id := First_Index (The_Array);
+   begin
+      for I in 2 .. Dim loop
+         Dim_Iter := Next_Index (Dim_Iter);
+      end loop;
+      return Dim_Iter;
+   end Get_Dimension_Index;
+
    -----------------------------------
    -- Make_Array_Object_From_Bounds --
    -----------------------------------
+
    procedure Make_Array_Object_From_Bounds (Block        : Irep;
                                             Array_Name   : String;
                                             Target_Type  : Entity_Id;
@@ -2335,17 +2541,8 @@ package body Arrays is
       Array_Id        : constant Symbol_Id := Intern (Array_Name);
       Comp_Etype      : constant Entity_Id :=
         Component_Type (Target_Type);
-      Comp_Type_Pre   : constant Irep :=
-        Do_Type_Reference (Comp_Etype);
       Comp_Type       : constant Irep :=
-        (if Kind
-           (Follow_Symbol_Type (Comp_Type_Pre, Global_Symbol_Table))
-         = I_C_Enum_Type
-         then
-            Make_Unsignedbv_Type
-           (ASVAT.Size_Model.Static_Size (Comp_Etype))
-         else
-            Comp_Type_Pre);
+        Make_Scalar_I_Type (Comp_Etype);
       Array_Type_Irep  : constant Irep :=
         Make_Array_Type
           (I_Subtype => Comp_Type,
@@ -2414,7 +2611,6 @@ package body Arrays is
       Expr_Kind    : constant Node_Kind := Nkind (Init_Expr);
       Source_Loc   : constant Irep := Get_Source_Location (Init_Expr);
       Expr_Type    : constant Entity_Id := Etype (Init_Expr);
-      Array_I_Type : constant Irep := Do_Type_Reference (Target_Type);
    begin
       Put_Line ("Make_Constrained_Array_From_Initialization");
       Print_Node_Briefly (Init_Expr);
@@ -2439,104 +2635,32 @@ package body Arrays is
                Array_Bounds => Cat_Array_Bounds,
                Source_Loc   => Source_Loc,
                The_Array    => The_Array);
-               Array_Bounds :=
-                 Static_And_Dynamic_Bounds'
-                   (Is_Unconstrained  => False,
-                    Has_Static_Bounds => False,
-                    Low_Static        => 0,
-                    High_Static       => 0,
-                    Low_Dynamic       => Cat_Array_Bounds.Low,
-                    High_Dynamic      => Cat_Array_Bounds.High);
+            Array_Bounds :=
+              Static_And_Dynamic_Bounds'
+                (Is_Unconstrained  => False,
+                 Has_Static_Bounds => False,
+                 Low_Static        => 0,
+                 High_Static       => 0,
+                 Low_Dynamic       => Cat_Array_Bounds.Low,
+                 High_Dynamic      => Cat_Array_Bounds.High);
          end;
       elsif Is_Constrained (Expr_Type) or else
         Is_Constr_Subt_For_U_Nominal (Expr_Type)
       then
-         Put_Line ("Make_Constrained_Array_From_Initialization - Constrained");
-         declare
-            Comp_Type        : constant Entity_Id :=
-              Component_Type (Target_Type);
-
-            Comp_Irep_Pre  : constant Irep :=
-              Do_Type_Reference (Comp_Type);
-            Comp_Irep      : constant Irep :=
-              (if Kind (Follow_Symbol_Type
-               (Comp_Irep_Pre, Global_Symbol_Table))
-               = I_C_Enum_Type
-               then
-                  Make_Unsignedbv_Type
-                 (ASVAT.Size_Model.Static_Size (Comp_Type))
-               else
-                  Comp_Irep_Pre);
-
-            Bounds : constant Static_And_Dynamic_Bounds :=
-              Multi_Dimension_Flat_Bounds ("5", Init_Expr);
-            Array_Size : constant Irep :=
-              (if Bounds.Has_Static_Bounds then
-                  Integer_Constant_To_Expr
-                 (Value           => UI_From_Int
-                      (Bounds.High_Static - Bounds.Low_Static + 1),
-                  Expr_Type       => Index_T,
-                  Source_Location => Source_Loc)
-               else
-                  Make_Op_Add
-                 (Rhs             => Integer_Constant_To_Expr
-                      (Value           => Uint_1,
-                       Expr_Type       => Index_T,
-                       Source_Location => Source_Loc),
-                  Lhs             => Make_Op_Sub
-                    (Rhs             => Bounds.Low_Dynamic,
-                     Lhs             => Bounds.High_Dynamic,
-                     Source_Location => Source_Loc,
-                     I_Type          => Index_T),
-                  Source_Location => Source_Loc,
-                  I_Type          => Index_T));
-            Array_Subtype : constant Irep :=
-              Make_Array_Type
-                (I_Subtype => Comp_Irep,
-                 Size      => Array_Size);
-         begin
-            --  Add the array object to the symbol table and declare it.
-            Array_Object_And_Friends
-              (Array_Name => Array_Name,
-               Array_Node => Init_Expr,
-               Source_Loc => Source_Loc,
-               Block      => Block);
-
-            --  Don't forget to set the out parameters
-            Array_Bounds := Bounds;
-            The_Array := Make_Symbol_Expr
-              (Source_Location => Source_Loc,
-               I_Type          => Array_Subtype,
-               Identifier      => Array_Name);
-
-            Put_Line ("Make_Constrained_Array_From_Initialization -The array");
-            Print_Irep (Array_Subtype);
-            Print_Irep (The_Array);
-            Print_Irep (Array_Size);
-            Print_Irep (Array_Bounds.Low_Dynamic);
-            Print_Irep (Array_Bounds.High_Dynamic);
-         end;
-      elsif Expr_Kind = N_Function_Call then
-         --  A call to a funcion which returns an unconstrained array.
-         Report_Unhandled_Node_Empty
-           (N        => Init_Expr,
-            Fun_Name => "Make_Constrained_Array_From_Initialization",
-            Message  => "Function calls returning unconstrained arrays " &
-              "are unsupported.");
-         --  For to allow coninuation of translation an unconstrained object
-         --  is declared.
+         Put_Line ("Make_Constrained_Array_From_Initialization");
+         --  Add the array object to the symbol table and declare it.
          Array_Object_And_Friends
-           (Array_Name => Array_Name,
-            Array_Node => Init_Expr,
-            Source_Loc => Source_Loc,
-            Block      => Block);
-               Array_Bounds :=
-                 Multi_Dimension_Flat_Bounds ("6", Init_Expr);
-         --  The default array symbol is determined from the target type.
-         The_Array := Make_Symbol_Expr
-           (Source_Location => Source_Loc,
-            I_Type          => Array_I_Type,
-            Identifier      => Array_Name);
+           (Array_Name   => Array_Name,
+            The_Array    => The_Array,
+            The_Bounds   => Array_Bounds,
+            Array_Node   => Init_Expr,
+            Source_Loc   => Source_Loc,
+            Block        => Block);
+
+         Put_Line ("Make_Constrained_Array_From_Initialization -The array");
+         Print_Irep (The_Array);
+         Print_Irep (Array_Bounds.Low_Dynamic);
+         Print_Irep (Array_Bounds.High_Dynamic);
       else
          Report_Unhandled_Node_Empty
            (Init_Expr,
@@ -2548,15 +2672,10 @@ package body Arrays is
          Array_Object_And_Friends
            (Array_Name => Array_Name,
             Array_Node => Init_Expr,
+            The_Array  => The_Array,
+            The_Bounds => Array_Bounds,
             Source_Loc => Source_Loc,
             Block      => Block);
-               Array_Bounds :=
-                 Multi_Dimension_Flat_Bounds ("7", Init_Expr);
-         --  The default array symbol is determined from the target type.
-         The_Array := Make_Symbol_Expr
-           (Source_Location => Source_Loc,
-            I_Type          => Array_I_Type,
-            Identifier      => Array_Name);
       end if;
    end Make_Constrained_Array_From_Initialization;
 
@@ -2799,6 +2918,11 @@ package body Arrays is
    --------------------------
 
    function Do_Indexed_Component (N : Node_Id) return Irep is
+      pragma Assert (Print_Msg ("Do_Indexed_Component "));
+      pragma Assert (Print_Node (N));
+      pragma Assert (Print_Node (Prefix (N)));
+
+      Source_Loc        : constant Irep := Get_Source_Location (N);
       Pre_Prefix        : constant Node_Id := Prefix (N);
       --  The prefix may be a slice.  The underlying array needs to be
       --  indexed and not the slice.
@@ -2830,25 +2954,50 @@ package body Arrays is
          else
             Prefix_Irep);
 
+--        Base_I_Type       : constant Irep := Get_Type (Base_Irep);
+--        pragma Assert (Kind (Base_I_Type) in I_Array_Type | I_Pointer_Type);
+--
       Element_Type : constant Irep :=
         Do_Type_Reference (Component_Type (Array_Type));
 
-      Source_Loc : constant Irep := Get_Source_Location (Base_Irep);
+      Index        : constant Irep := Typecast_If_Necessary
+        (Expr           => Calculate_Index_Offset
+           (Array_Node  => The_Prefix,
+            Array_Type  => Array_Type,
+            The_Indices => N),
+         New_Type       => Index_T,
+         A_Symbol_Table => Global_Symbol_Table);
 
       Indexed_Data : constant Irep :=
-        Make_Index_Expr
-          (I_Array         => Base_Irep,
-           Index           =>
-             Typecast_If_Necessary
-               (Expr           => Calculate_Index_Offset
-                  (Array_Node  => The_Prefix,
-                   The_Indices => N),
-                New_Type       => Index_T,
-                A_Symbol_Table => Global_Symbol_Table),
-           Source_Location => Source_Loc,
-           I_Type          => Element_Type,
-           Range_Check     => False);
+        Make_Resolved_Index_Expr (The_Array  => Base_Irep,
+                                  Zero_Index => Index,
+                                  I_Type     => Element_Type,
+                                  Location   => Source_Loc);
+--        Indexed_Data : constant Irep :=
+--          (if Kind (Base_I_Type) = I_Array_Type then
+--                Make_Index_Expr
+--             (I_Array         => Base_Irep,
+--              Index           => Index,
+--              Source_Location => Source_Loc,
+--              I_Type          => Element_Type,
+--              Range_Check     => False)
+--           else
+--           --  It must be an array represented as a pointer
+--              Make_Dereference_Expr
+--             (Object          => Make_Op_Add
+--                  (Rhs             => Index,
+--                   Lhs             => Base_Irep,
+--                   Source_Location => Source_Loc,
+--                   Overflow_Check  => False,
+--                   I_Type          => Make_Pointer_Type (Element_Type),
+--                   Range_Check     => False),
+--              Source_Location => Source_Loc,
+--              I_Type          => Element_Type,
+--              Range_Check     => False));
    begin
+      Put_Line ("Do_Indexed_Component");
+      Print_Irep (Base_Irep);
+      Print_Irep (Indexed_Data);
       return
         Indexed_Data;
       --             Make_Dereference_Expr (Object          => Indexed_Data,
@@ -3009,17 +3158,8 @@ package body Arrays is
          else
             Defining_Identifier (Declaration));
       Comp_Type      : constant Entity_Id := Component_Type (Array_Entity);
-
-      Comp_Irep_Pre  : constant Irep :=
-        Do_Type_Reference (Comp_Type);
       Comp_Irep      : constant Irep :=
-        (if Kind (Follow_Symbol_Type (Comp_Irep_Pre, Global_Symbol_Table))
-         = I_C_Enum_Type
-         then
-            Make_Unsignedbv_Type
-           (ASVAT.Size_Model.Static_Size (Comp_Type))
-         else
-            Comp_Irep_Pre);
+        Make_Scalar_I_Type (Comp_Type);
 
       --  Get the array zero based bounds.
       --  If the array is multi-dimmensional, the bounds are calculated
@@ -3119,98 +3259,157 @@ package body Arrays is
                                               return Irep
    is
       Array_Type : constant Entity_Id := Defining_Identifier (Declaration);
-      Sub_Pre : constant Irep :=
-        Do_Type_Reference (Component_Type);
       Sub : constant Irep :=
-        (if Kind (Follow_Symbol_Type (Sub_Pre, Global_Symbol_Table))
-         = I_C_Enum_Type
-         then
-            Make_Unsignedbv_Type
-           (ASVAT.Size_Model.Static_Size (Component_Type))
-         else
-            Sub_Pre);
+        Make_Scalar_I_Type (Component_Type);
+      Dimensions  : constant Pos := Number_Dimensions (Array_Type);
 
-      Bound_Pairs    : constant Irep :=
-        Integer_Constant_To_Expr
-          (Value           => UI_From_Int
-             (Int (Number_Dimensions (Array_Type) * 2)),
-           Expr_Type       => Int32_T,
-              Source_Location => Get_Source_Location (Declaration));
-      Bounds_Array   : constant Irep :=
-        Make_Array_Type
-          (I_Subtype => Int32_T,
-           Size      => Bound_Pairs);
-
-      Unconstr_Comps : constant Irep := Make_Struct_Union_Components;
-
-      Unconstr_Struc : constant Irep :=
-        Make_Struct_Type (Tag        => "unconstr_array",
-                          Components => Unconstr_Comps);
-
-      Bounds_Comp    : constant Irep :=
-        Make_Struct_Component
-          (Name => "bounds",
-           Ty   => Bounds_Array);
-
-      Data_Comp      : constant Irep :=
-        Make_Struct_Component
-          (Name => "data",
-           Ty   => Make_Pointer_Type (Sub));
-
+      --  An unconstrained array type is representad as an array_struc type
+      Array_Struc : constant Irep := Make_Array_Struc_Type
+        (Comp_Type  => Sub,
+         Location   => Get_Source_Location (Declaration),
+         Dimensions => Dimensions);
    begin
-      Append_Component (Unconstr_Comps, Bounds_Comp);
-      Append_Component (Unconstr_Comps, Data_Comp);
-
       --  Set the ASVAT.Size_Model size for the unconstrained array to
-      --  the size of the unconstrained array structure.
+      --  the size of the array structure.
       ASVAT.Size_Model.Set_Static_Size
-        (Array_Type,
-         Integer (Number_Dimensions (Array_Type)) *
-           Integer'Size + Pointer_Type_Width);
-      --  Model an unconstrained array type as a pointer to its component type.
-      return Unconstr_Struc;
+        (Array_Type, Integer (Get_Array_Struc_Type_Size (Dimensions)));
+      return Array_Struc;
    end Make_Unconstrained_Array_Subtype;
 
-   function Make_Unconstr_Array_Result (N : Node_Id) return Irep is
-      Array_Type  : constant Entity_Id := Underlying_Type (Etype (N));
-      Array_Size  : constant Irep := Compute_Array_Byte_Size (Array_Type);
-      Malloc_Args : constant Irep := Make_Argument_List;
-      Malloc_Name : constant String := "malloc";
-      Malloc_Call : constant Irep :=
-        Make_Side_Effect_Expr_Function_Call
-          (Arguments       => Malloc_Args,
-           I_Function      => Symbol_Expr (
-             Global_Symbol_Table (Intern (Malloc_Name))),
-           Source_Location => Source_Loc,
-           I_Type          => Make_Pointer_Type (Make_Void_Type));
+   procedure Build_Unconstrained_Array_Result (Block       : Irep;
+                                               Result_Var  : Irep;
+                                               Return_Expr : Node_Id)
+   is
+      Source_Loc   : constant Irep := Get_Source_Location (Return_Expr);
+      Array_Type   : constant Entity_Id :=
+        Underlying_Type (Etype (Return_Expr));
+      N_Dimensions : constant Positive :=
+        Positive (Number_Dimensions (Array_Type));
+      Comp_Type    : constant Entity_Id := Component_Type (Array_Type);
    begin
-      Append_Argument (Malloc_Args, Size);
-      Array_Bounds : constant Static_And_Dynamic_Bounds :=
-        Multi_Dimension_Flat_Bounds ("31", N);
-      Array_Length : constant Irep :=
-        Calculate_Dimension_Length
-          (Dimension_Bounds'
-             (Low  => Array_Bounds.Low_Dynamic,
-              High => Array_Bounds.High_Dynamic));
-   begin
-      Declare_Itype (Etype (N));
-      Print_Node_Briefly (Underlying_Type (Etype (N)));
-      Put_Line ("Is_Constrained " &
-                  Boolean'Image
-                  (Is_Constrained (Underlying_Type (Etype (N)))));
-      Put_Line ("Is_Constr " &
-                  Boolean'Image
-                  (Is_Constr_Subt_For_U_Nominal
-                     (Underlying_Type (Etype (N)))));
-      Put_Line ("Bound low " & Int'Image (Array_Bounds.Low_Static));
-      Put_Line ("Bound high " & Int'Image (Array_Bounds.High_Static));
-      Print_Irep (ASVAT.Size_Model.Computed_Size
-                  (Underlying_Type (Etype (N))));
-      return Report_Unhandled_Node_Irep
-        (N,
-         "Make_Unconstr_Array_Result",
-         "Unimplemented");
-   end Make_Unconstr_Array_Result;
+      Put_Line ("Build_Unconstrained_Array_Result");
+      Declare_Itype (Array_Type);
+      --  Some of the following declarations must occur after the
+      --  call to Declare_Itype as the array type may be an Itype and
+      --  its details need to be recorded in the symbol table.
+      --  For instance, Do_Type_Reference requires the Irep type information
+      --  for the Array type to be in the global symbol table.
+      declare
+         Comp_I_Type  : constant Irep :=
+           Make_Scalar_I_Type (Comp_Type);
+
+         Source_I_Type : constant Irep :=
+           Do_Type_Reference (Array_Type);
+         Arr_Ptr_Type  : constant Irep := Make_Pointer_Type (Comp_I_Type);
+
+         --  This array of the first and last of each dimension
+         --  must have a lower bound of zero.
+         Array_Dim_Bounds : Bounds_Array (0 .. Integer (2 * N_Dimensions - 1));
+
+         Array_Bounds     : constant Static_And_Dynamic_Bounds :=
+           Multi_Dimension_Flat_Bounds ("32", Array_Type);
+         Array_Size       : constant Irep := Typecast_If_Necessary
+           (Expr           => ASVAT.Size_Model.Make_Byte_Aligned_Size
+              (ASVAT.Size_Model.Computed_Size (Array_Type)),
+            New_Type       => Index_T,
+            A_Symbol_Table => Global_Symbol_Table);
+
+         --   Allocate an array to hold the funtion result.
+         Malloc_Args  : constant Irep := Make_Argument_List;
+         Malloc_Name  : constant String := "malloc";
+         Malloc_Call  : constant Irep :=
+           Make_Side_Effect_Expr_Function_Call
+             (Arguments       => Malloc_Args,
+              I_Function      => Symbol_Expr
+                (Global_Symbol_Table (Intern (Malloc_Name))),
+              Source_Location => Source_Loc,
+              I_Type          => Make_Pointer_Type (Make_Void_Type));
+         Array_Malloc : constant Irep :=
+           Typecast_If_Necessary
+             (Expr           => Malloc_Call,
+              New_Type       => Arr_Ptr_Type,
+              A_Symbol_Table => Global_Symbol_Table);
+
+         --  A variable to point to the allocated array.
+         Array_Ref    : constant Irep :=
+           Fresh_Var_Symbol_Expr (Arr_Ptr_Type, "array_ref");
+
+         --  A variable to hold the array result so that the array is
+         --  only called once.
+         Fun_Result   : constant Irep :=
+           Fresh_Var_Symbol_Expr (Source_I_Type, "fun_result");
+
+         Index : Node_Id := First_Index (Array_Type);
+      begin
+         --  Fill the bounds array.
+         for I in 1 .. N_Dimensions loop
+            declare
+               Dim_Bounds  : constant Dimension_Bounds :=
+                 Get_Dimension_Bounds (Array_Type, I, Index);
+            begin
+               Put_Line ("Build_Unconstrained_Array_Result - fill bounds");
+               Print_Irep (Get_Op0 (Dim_Bounds.Low));
+               Print_Irep (Get_Op0 (Dim_Bounds.High));
+               --  Assign the first value for this dimension.
+               Array_Dim_Bounds (I * 2 - 2) :=
+                 Typecast_If_Necessary
+                   (Expr           => Dim_Bounds.Low,
+                    New_Type       => Bounds_Component,
+                    A_Symbol_Table => Global_Symbol_Table);
+               --  Now the last value for this dimension.
+               Array_Dim_Bounds (I * 2 - 1) :=
+                Typecast_If_Necessary
+                   (Expr           => Dim_Bounds.High,
+                    New_Type       => Bounds_Component,
+                    A_Symbol_Table => Global_Symbol_Table);
+            end;
+            Index := Next_Index (Index);
+         end loop;
+
+         --  Now create the malloced array to hold the result.
+         Append_Argument (Malloc_Args, Array_Size);
+
+         Append_Declare_And_Init
+           (Symbol     => Array_Ref,
+            Value      => Array_Malloc,
+            Block      => Block,
+            Source_Loc => Source_Loc);
+
+         Append_Declare_And_Init
+           (Symbol     => Fun_Result,
+            Value      => Typecast_If_Necessary
+              (Expr           => Do_Expression (Return_Expr),
+               New_Type       => Get_Type (Fun_Result),
+               A_Symbol_Table => Global_Symbol_Table),
+            Block      => Block,
+            Source_Loc => Source_Loc);
+
+         Put_Line ("Copying array");
+         --  Now copy the return expression to the allocated array.
+         Print_Irep (Fun_Result);
+         Print_Irep (Source_I_Type);
+         Print_Irep (Get_Type (Fun_Result));
+         Copy_Array
+           (Block         => Block,
+            Source_Type   => Array_Type,
+            Dest_Bounds   => Array_Bounds,
+            Source_Bounds => Array_Bounds,
+            Dest_Irep     => Array_Ref,
+            Source_Irep   => Get_Pointer_To_Array (Fun_Result, Comp_I_Type));
+         Print_Irep (Array_Ref);
+
+         Put_Line ("Initialising the result Array_Struc");
+         --  Initialise the result Array_Struc
+         Init_Array_Struc
+           (Block       => Block,
+            Array_Struc => Result_Var,
+            Array_Ptr   => Array_Ref,
+            Location    => Source_Loc,
+            Bounds      => Array_Dim_Bounds);
+         Put_Line ("Result_Var");
+         Print_Irep (Result_Var);
+      end;
+   end Build_Unconstrained_Array_Result;
 
 --        Ret_Components : constant Irep := Make_Struct_Union_Components;
 --        Ret : constant Irep :=

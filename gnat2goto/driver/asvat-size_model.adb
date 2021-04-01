@@ -617,6 +617,35 @@ package body ASVAT.Size_Model is
       else
          0);
 
+   function Make_Byte_Aligned_Size (S : Irep) return Irep is
+      --  Many objects sizes are rounded up to the nearest byte boundary
+      --  ((Bitsize - 1) / 8) + 1
+      Location  : constant Irep := Internal_Source_Location;
+      Byte_Size : constant Irep :=
+        Make_Op_Add
+          (Rhs             => Get_Int64_T_One,
+           Lhs             => Make_Op_Div
+             (Rhs               => Integer_Constant_To_Expr
+                (Value           => Uint_8,
+                 Expr_Type       => Int64_T,
+                 Source_Location => Location),
+              Lhs               => Make_Op_Sub
+                (Rhs             => Get_Int64_T_One,
+                 Lhs             => Typecast_If_Necessary
+                   (Expr           => S,
+                    New_Type       => Int64_T,
+                    A_Symbol_Table => Global_Symbol_Table),
+                 Source_Location => Location,
+                 I_Type          => Int64_T),
+              Source_Location   => Location,
+              I_Type            => Int64_T,
+              Div_By_Zero_Check => False),
+           Source_Location => Location,
+           I_Type          => Int64_T);
+   begin
+      return Byte_Size;
+   end Make_Byte_Aligned_Size;
+
    ---------------------
    -- Set_Static_Size --
    ---------------------

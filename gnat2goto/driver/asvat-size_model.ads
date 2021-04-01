@@ -69,6 +69,7 @@ package ASVAT.Size_Model is
    --  Model representations of entities are byte aligned.
    function Make_Byte_Aligned_Size (S : Uint) return Uint;
    function Make_Byte_Aligned_Size (S : Integer) return Integer;
+   function Make_Byte_Aligned_Size (S : Irep) return Irep;
 
    procedure Accumumulate_Size (Is_Static     : in out Boolean;
                                 Accum_Static  : in out Natural;

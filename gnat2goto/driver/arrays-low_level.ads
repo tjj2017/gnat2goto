@@ -1,4 +1,5 @@
 with Uintp;              use Uintp;
+with Tree_Walk;          use Tree_Walk;
 package Arrays.Low_Level is
    --  The subprograms this package are not intended for use at the
    --  Tree_Walk package level, rather they ar intended to be used by the
@@ -7,10 +8,67 @@ package Arrays.Low_Level is
    --  The subprograms are concerned with manipulating the low-level, zero
    --  based array representation used by ASVAT.
 
+   --  Arrays are represented in 3 ways:
+   --  1. Simply as an Irep I_Array_Type.  This is the standard representation
+   --  2. As a pointer a component of an array as in C.
+   --        Used for formal array parameters.  If a formal array parameter
+   --        is unconstrained supporting variables for each dimension of the
+   --        array are added as extra parameters.
+   --  3. As a structure equivalent to
+   --       type Array_Struc  (Dimensions : Positive := 1) is
+   --           record
+   --               Bounds : Bounds_Array (0 .. 2 * Dimensions - 1);
+   --               Data   : access Unconstrained_Array;
+   --           end record;
+   --    The Bounds array contains the lower and upper bounds for each
+   --    dimension of the array.
+   --        This representation is used for unconstrained arrays returned
+   --        from functions.
+   --
+   --    In the future it might be sensible to merge type 2 and 3.
+
    --  The strings for defining first and last variables of an unconstrained
-   --  array.
+   --  array in type 2 representation.
    First_Var_Str : constant String := "___first_";
    Last_Var_Str  : constant String := "___last_";
+
+   --  The strings for accessing the components of the Array_Struc in type 3
+   --  representation.
+   Array_Struc_Bounds : constant String := "bounds";
+   Array_Struc_Data   : constant String := "data";
+   Array_Bounds_No    : constant := 0;
+   Array_Data_No      : constant := 1;
+   Bounds_Component   : constant Irep := Int32_T;
+   function Bounds_First (Dimension : Pos) return Uint is
+     (UI_From_Int (Dimension * 2 - 2));
+   function Bounds_Last (Dimension : Pos) return Uint is
+     (UI_From_Int (Dimension * 2 - 1));
+   function Bounds_Size (Dimensions : Pos) return Uint is
+      (UI_From_Int (Dimensions * 2));
+
+   --  An Ada type equivalent to the Bounds array of the Array_Struc.
+   --  The component type is Bounds_Component.
+   type Bounds_Array is array (Natural range <>) of Irep;
+
+   function Get_Array_Struc_Type_Size (Dimensions : Pos) return Pos is
+     (2 * Dimensions * Integer'Size + Pos (Pointer_Type_Width));
+
+   --  When dealing with an array node it may be a reference to
+   --  a function returning an array.
+   --  It is important that a function returning an array is called only
+   --  once (by applying Do_Expression) while the array is being processed.
+   --  When the array node is a function call a goto variable is created
+   --  and assigned the result of Do_Expression and this variable is
+   --  placed in the Called_Array field of the Array_Reference.
+   --  If the array node is not a function call the Called_Array Irep is
+   --  set to Ireps.Empty.
+   --  The Array)Node field is set to the given array node.
+   --  Subsequent low_level array subprograms use the Array_Reference rather
+   --  than the array node directly.
+   type Array_Reference is record
+      Array_Node   : Node_Id;
+      Called_Array : Irep;
+   end record;
 
    --  Type for gathering the lower and upper bounds of an array dimension.
    type Dimension_Bounds is record
@@ -126,8 +184,9 @@ package Arrays.Low_Level is
    function Calculate_Dimension_Length (Bounds : Dimension_Bounds) return Irep;
 
    function Calculate_Index_Offset (Array_Node  : Node_Id;
+                                    Array_Type  : Entity_Id;
                                     The_Indices : Node_Id) return Irep
-   with Pre => Is_Array_Type (Etype (Array_Node)) and
+   with Pre => Is_Array_Type (Array_Type) and
                Nkind (The_Indices) = N_Indexed_Component;
    --  Calculates the zero based index of a possibly multidimensional
    --  Ada array. Multidimensional Ada arrays are modelled as a
@@ -157,6 +216,11 @@ package Arrays.Low_Level is
       Source_Bounds : Static_And_Dynamic_Bounds;
       Dest_Bounds   : Static_And_Dynamic_Bounds);
 
+   procedure Check_Equal_Array_Lengths
+     (Block         : Irep;
+      Source_Length : Irep;
+      Dest_Length   : Irep);
+
    function Compute_Array_Byte_Size (Array_Type : Entity_Id) return Irep;
 
    procedure Copy_Array (Block          : Irep;
@@ -166,8 +230,32 @@ package Arrays.Low_Level is
                          Dest_Irep      : Irep;
                          Source_Irep    : Irep)
      with Pre => Is_Array_Type (Source_Type) and
-                 Kind (Get_Type (Dest_Irep))   = I_Array_Type and
-                 Kind (Get_Type (Source_Irep)) = I_Array_Type;
+                Kind (Get_Type (Dest_Irep)) in I_Array_Type | I_Pointer_Type
+             and
+                Kind (Get_Type (Source_Irep)) in I_Array_Type | I_Pointer_Type;
+
+   function Flat_Bounds_From_Array_Struc (Array_Struc  : Irep;
+                                          N_Dimensions : Pos)
+                                          return Static_And_Dynamic_Bounds
+     with Pre => Kind (Get_Type (Array_Struc)) = I_Struct_Type;
+
+   function Get_Array_From_Struc (Array_Struc : Irep;
+                                  Comp_Type   : Irep) return Irep
+     with Pre  => Kind (Get_Type (Array_Struc)) = I_Struct_Type and
+                  Kind (Comp_Type) in Class_Type,
+          post => Kind (Get_Type (Get_Array_From_Struc'Result)) =
+                  I_Pointer_Type;
+   --  Retrieves the pointer to an array from an unonstrained array result.
+
+   function Get_Array_Flat_Size (The_Array : Node_Id) return Irep
+     with Pre => Is_Array_Type (Etype (The_Array));
+
+   function Get_Array_Size_From_Bounds (Bounds : Static_And_Dynamic_Bounds)
+                                        return Irep;
+
+   function Get_Bounds_From_Struc (Array_Struc : Irep; Dimension   : Pos)
+                                   return Dimension_Bounds
+     with Pre => Kind (Get_Type (Array_Struc)) = I_Struct_Type;
 
    function Get_Bounds (Index : Node_Id) return Dimension_Bounds;
    --  If the array is constrained, returns the lower and upper bounds of
@@ -179,31 +267,51 @@ package Arrays.Low_Level is
    --  type of the expression.
 
    function Get_Dimension_Bounds (N : Node_Id; Dim : Positive; Index : Node_Id)
-                                  return Dimension_Bounds
-   with Pre => (case Nkind (N) is
-                     when N_Object_Declaration |
-                          N_Object_Renaming_Declaration =>
-                        Is_Array_Type (Etype (Defining_Identifier (N))),
-                 when N_Subtype_Declaration | N_Full_Type_Declaration =>
-                        Is_Array_Type (Defining_Identifier (N)) and
-                        Is_Constrained (Defining_Identifier (N)),
-                     when N_Identifier | N_Expanded_Name =>
-                        --  This may be an object and unconstrained.
-                          Is_Array_Type (Etype (N)),
-                     when N_Defining_Identifier =>
-                        Is_Array_Type (N),
-                     when others =>
-                        Is_Array_Type (Etype (N)) and
-                        Is_Constrained (Etype (N)));
+                                  return Dimension_Bounds;
+   --  The pre-condition is rather complex and so is provided by
+   --  an assertion in the body.
+   --  Baiscally, the Node N has to represent an array either directly
+   --  or as an access to an array type.
+   --  If N does not represent an object the array must be constrained.
+   --  If N repesents an object it need not be constrained.
    --  Returns the bounds of a dimension of an array - the array may be of
    --  unconstrained type but then N must refer to a (constrained) object.
 
+   function Get_Pointer_To_Array (The_Array : Irep; Comp_I_Type : Irep)
+                                  return Irep
+     with Pre  => Kind (Get_Type (The_Array)) in
+                           I_Array_Type | I_Pointer_Type | I_Struct_Type,
+       Post => Kind (Get_Type (Get_Pointer_To_Array'Result)) =
+                                                             I_Pointer_Type;
+
    function Get_Range (Index : Node_Id) return Node_Id;
 
-   function Get_Size_From_Unconstr_Result (Unconstr_Result : Irep;
-                                           N_Dimensions    : Pos) return Irep
-     with Pre => Kind (Unconstr_Result) in Class_Expr and then
-                 Kind (Get_Type (Unconstr_Result)) = I_Struct_Type;
+   function Get_Size_From_Array_Struc (Array_Struc  : Irep;
+                                       N_Dimensions : Pos) return Irep
+     with Pre => Kind (Array_Struc) in Class_Expr and then
+     Kind (Get_Type (Array_Struc)) = I_Struct_Type;
+
+   procedure Init_Array_Struc (Block       : Irep;
+                               Array_Struc : Irep;
+                               Array_Ptr   : Irep;
+                               Location    : Irep;
+                               Bounds      : Bounds_Array)
+     with Pre => Kind (Array_Struc) in Class_Expr and
+                 Kind (Get_Type (Array_Struc)) = I_Struct_Type and
+                 Kind (Get_Type (Array_Ptr)) = I_Pointer_Type and
+                 Bounds'Length > 1 and Bounds'Length mod 2 = 0 and
+                 Bounds'First = 0;
+
+   function Make_Array_Struc_Type (Comp_Type  : Irep;
+                                   Location   : Irep;
+                                   Dimensions : Pos) return Irep
+     with Pre  => Kind (Comp_Type) in Class_Type,
+          Post => Kind (Make_Array_Struc_Type'Result) = I_Struct_Type;
+
+   function Make_Resolved_Index_Expr (The_Array  : Irep;
+                                      Zero_Index : Irep;
+                                      I_Type     : Irep;
+                                      Location   : Irep) return Irep;
 
    function Make_Simple_For_Loop (Loop_Var,  --  The loop variable
                                   First,     --  The initial value of loop var

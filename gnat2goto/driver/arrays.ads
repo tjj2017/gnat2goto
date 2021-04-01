@@ -22,10 +22,10 @@ package Arrays is
    --  to the subprogram parameter list for each dimension of the array.
 
    procedure Declare_Array_Friends (Array_Name : String;
+                                    Init_Expr  : Irep;
                                     Array_Type : Entity_Id;
                                     Block      : Irep)
-     with Pre => (Is_Array_Type (Array_Type) and then
-          not (Is_Constrained (Etype (Array_Type)))) and
+     with Pre => Is_Array_Type (Array_Type) and
           Kind (Block) = I_Code_Block;
    --  An unconstrained array object declaration has to be suplemented
    --  by the declaration of the array friend variables
@@ -161,7 +161,9 @@ package Arrays is
    procedure Pass_Array_Friends (Actual_Array : Entity_Id;  Args : Irep)
      with Pre => Is_Array_Type (Etype (Actual_Array));
 
-   function Make_Unconstr_Array_Result (N : Node_Id) return Irep;
+   procedure Build_Unconstrained_Array_Result (Block       : Irep;
+                                               Result_Var  : Irep;
+                                               Return_Expr : Node_Id);
 
 private
 

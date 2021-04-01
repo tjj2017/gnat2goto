@@ -960,6 +960,9 @@ package body Tree_Walk is
               (Typecast_If_Necessary (Handle_Enum_Symbol_Members (Expression),
                Formal_Type, Global_Symbol_Table), Is_Out);
             Append_Argument (Args, Actual_Irep);
+            Put_Line ("Handle_Parameter");
+            Put_Line (Unique_Name (Formal));
+            Print_Irep (Actual_Irep);
          end if;
 
       end Handle_Parameter;
@@ -5177,6 +5180,8 @@ package body Tree_Walk is
       Return_Expr  : constant Node_Id := Expression (N);
       Return_Value : Irep := CProver_Nil;
    begin
+      Put_Line ("Do_Simple_Return_Statement");
+      Print_Node_Briefly (N);
       if Present (Return_Expr) then
          --  It is a function return.
          --  Set the return variable.
@@ -5184,7 +5189,8 @@ package body Tree_Walk is
             Return_Entity : constant Entity_Id := Return_Statement_Entity (N);
             Applies_To    : constant Node_Id :=
               Return_Applies_To (Return_Entity);
-            Return_Type   : constant Entity_Id := Etype (Applies_To);
+            Return_Type   : constant Entity_Id :=
+              Underlying_Type (Etype (Applies_To));
             Return_I_Type : constant Irep := Do_Type_Reference (Return_Type);
             pragma Assert (Nkind (Applies_To) in N_Defining_Identifier,
                            "Simple return statement " &
@@ -5201,31 +5207,34 @@ package body Tree_Walk is
             Put_Line ("Simple return statement");
             Put_Line ("Function " & Fun_Name);
             Put_Line ("Result " & Result_Name);
+
+            --  The result variable is declared when the subprogram
+            --  specification is processed
+
             if Is_Array_Type (Return_Type) and then
               Kind (Return_I_Type) = I_Struct_Type
             then
                --  It is an unconstrained array result type
-               Return_Value := Make_Unconstr_Array_Result (Return_Expr);
-               Append_Op (Block,
-                          Make_Code_Assign
-                            (Rhs             => Return_Value,
-                             Lhs             => Result_Var,
-                             Source_Location => Location,
-                             I_Type          => Return_I_Type,
-                             Range_Check     => False));
+               Build_Unconstrained_Array_Result
+                 (Block       => Block,
+                  Result_Var  => Result_Var,
+                  Return_Expr => Return_Expr);
+               Return_Value := Result_Var;
             else
-               Return_Value  := Typecast_If_Necessary
-              (Expr           => Do_Expression (Return_Expr),
-               New_Type       => Return_I_Type,
-               A_Symbol_Table => Global_Symbol_Table);
                Do_Assignment_Op
                  (Block       => Block,
                   Destination => Result_Var,
                   Dest_Type   => Return_Type,
                   Source_Expr => Return_Expr);
+               Return_Value  := Typecast_If_Necessary
+                 (Expr           => Result_Var,
+                  New_Type       => Return_I_Type,
+                  A_Symbol_Table => Global_Symbol_Table);
             end if;
          end;
       end if;
+      Put_Line ("The return value");
+      Print_Irep (Return_Value);
       Append_Op (Block,
                  Make_Code_Return
                    (Return_Value => Return_Value,
@@ -7270,4 +7279,18 @@ package body Tree_Walk is
         (I_Type => Pointer_Type,
          Source_Location => Get_Source_Location (N));
    end Do_Null_Expression;
+
+   function Make_Scalar_I_Type (E : Entity_Id) return Irep is
+      I_Type_Pre : constant Irep := Do_Type_Reference (E);
+      I_Type     : constant Irep :=
+        (if Kind (Follow_Symbol_Type (I_Type_Pre, Global_Symbol_Table)) =
+           I_C_Enum_Type
+         then
+            Make_Unsignedbv_Type (ASVAT.Size_Model.Static_Size (E))
+         else
+            I_Type_Pre);
+   begin
+      return I_Type;
+   end Make_Scalar_I_Type;
+
 end Tree_Walk;
