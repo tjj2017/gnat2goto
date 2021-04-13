@@ -106,6 +106,10 @@ package body Tree_Walk is
    with Pre  => Nkind (N) = N_Attribute_Reference,
         Post => Kind (Do_First_Last_Length'Result) in Class_Expr;
 
+   function Do_Scalar_First_Last_Length (E : Entity_Id; Attr : Attribute_Id)
+                                         return Irep
+     with Pre  => Is_Scalar_Type (E);
+
    function Do_If_Expression (N : Node_Id) return Irep
    with Pre => Nkind (N) = N_If_Expression;
 
@@ -984,29 +988,45 @@ package body Tree_Walk is
    function Do_First_Last_Length (N : Node_Id;  Attr : Attribute_Id)
                                   return Irep
    is
+      Prefix_Type : constant Entity_Id := Etype (Prefix (N));
    begin
-      if Is_Scalar_Type (Etype (Prefix (N))) then
+      if Is_Scalar_Type (Prefix_Type) then
          --  When applied to a scalar subtype,
          --  the attributes First, Last and Length are substituted by their
          --  value if the range of the subtype is static.
          --  Hence, this branch will only be executed if the subtype does
-         --  not have a static range, which, currently, is unsupported.
-         return Report_Unhandled_Node_Irep
-           (N,
-            "Do_First_Last_Length",
-            "Dynamic subtypes are unsupported");
---        elsif Nkind (Etype (Prefix (N))) = N_Defining_Identifier and then
---          Get_Name_String (Chars (Etype (Etype (Prefix (N))))) = "string"
---        then
---           return Report_Unhandled_Node_Irep
---             (N, "First_Last_Length",
---              "Attribute applied to string is unsupported");
+         --  not have a static range, which, currently, is unsupported but can
+         --  be obtained ftom the front end.
+         Put_Line ("A scalar First_Last_Length");
+         return Do_Scalar_First_Last_Length (Prefix_Type, Attr);
       else
          Put_Line ("An arry First_Last_Len");
          --  It is an array.
          return Do_Array_First_Last_Length (N, Attr);
       end if;
    end Do_First_Last_Length;
+
+   ---------------------------------
+   -- Do_Scalar_First_Last_Length --
+   ---------------------------------
+
+   function Do_Scalar_First_Last_Length (E : Entity_Id; Attr : Attribute_Id)
+                                         return Irep
+   is
+      E_Range   : constant Node_Id := Scalar_Range (E);
+   begin
+      return
+        (case Attr is
+            when Attribute_First =>
+               Do_Expression (Low_Bound (E_Range)),
+            when Attribute_Last =>
+               Do_Expression (High_Bound (E_Range)),
+             when others =>
+               Report_Unhandled_Node_Irep
+                 (N        => E,
+                  Fun_Name => "Do_Scalar_First_Last_Length",
+                  Message  => "Attribute is not First or Last"));
+   end Do_Scalar_First_Last_Length;
 
    ------------------------
    -- Do_If_Expression --
@@ -7280,17 +7300,20 @@ package body Tree_Walk is
          Source_Location => Get_Source_Location (N));
    end Do_Null_Expression;
 
-   function Make_Scalar_I_Type (E : Entity_Id) return Irep is
+   function Make_Resolved_I_Type (E : Entity_Id) return Irep is
       I_Type_Pre : constant Irep := Do_Type_Reference (E);
       I_Type     : constant Irep :=
-        (if Kind (Follow_Symbol_Type (I_Type_Pre, Global_Symbol_Table)) =
-           I_C_Enum_Type
-         then
-            Make_Unsignedbv_Type (ASVAT.Size_Model.Static_Size (E))
+        (if Is_Scalar_Type (E) then
+             (if Kind (Follow_Symbol_Type
+              (I_Type_Pre, Global_Symbol_Table)) = I_C_Enum_Type
+              then
+                 Make_Unsignedbv_Type (ASVAT.Size_Model.Static_Size (E))
+              else
+                 I_Type_Pre)
          else
             I_Type_Pre);
    begin
       return I_Type;
-   end Make_Scalar_I_Type;
+   end Make_Resolved_I_Type;
 
 end Tree_Walk;

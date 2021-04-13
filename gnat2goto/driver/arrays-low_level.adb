@@ -4,6 +4,7 @@ with Sem_Eval;                use Sem_Eval;
 with Follow;                  use Follow;
 with ASVAT.Size_Model;        use ASVAT.Size_Model;
 with Treepr;                  use Treepr;
+with Symbol_Table_Info;       use Symbol_Table_Info;
 with Ada.Text_IO; use Ada.Text_IO;
 package body Arrays.Low_Level is
 
@@ -1057,7 +1058,9 @@ package body Arrays.Low_Level is
    is
       Source_Location  : constant Irep := Get_Source_Location (N);
       N_Entity         : constant Entity_Id :=
-        (if Nkind (N) in N_Has_Entity then
+        (if Nkind (N) = N_Defining_Identifier then
+              N
+         elsif Nkind (N) in N_Has_Entity then
               Entity (N)
          elsif Nkind (N) in N_Has_Etype then
               Etype (N)
@@ -1085,76 +1088,107 @@ package body Arrays.Low_Level is
       Put_Line ("Get_Dimension_Bounds");
       Print_Node_Briefly (N);
       Print_Node_Briefly (Array_Type);
+      Print_Node_Briefly (N_Entity);
+      Print_Node_Briefly (Etype (N_Entity));
+      if Nkind (N) in N_Has_Etype then
+         Print_Node_Briefly (Etype (N));
+      else
+         Put_Line ("No Etype");
+      end if;
+      Print_Node_Subtree (Index);
       Put_Line ("Constrained " &
                   Boolean'Image (Is_Constrained (Array_Type)));
+      Put_Line ("Constrained N_entity " &
+                  Boolean'Image (Is_Constrained (N_Entity)));
+      Put_Line ("Constrained Etype (N_entity) " &
+                  Boolean'Image (Is_Constrained (Etype (N_Entity))));
       Put_Line ("Is_Constr_Subt_For_U_Nominal " &
                   Boolean'Image
                   (Is_Constr_Subt_For_U_Nominal (Array_Type)));
+      Put_Line ("Is_Constr_Subt_For_U_Nominal Entity" &
+                  Boolean'Image
+                  (Is_Constr_Subt_For_U_Nominal (N_Entity)));
       Put_Line ("Nkind (Index) = N_Range " &
                   Boolean'Image (Nkind (Index) = N_Range));
-      if Is_Constrained (Array_Type)  or else
-         (Is_Type (N_Entity) and then
-             Is_Constr_Subt_For_U_Nominal (Array_Type)) or else
-        Nkind (Index) = N_Range
+      if Is_Constrained (Array_Type) --  or else.
+--           (Is_Type (N_Entity) and then
+--               Is_Constr_Subt_For_U_Nominal ()) or else
+--          Nkind (Index) = N_Range
       then
          return Get_Bounds (Index);
       end if;
 
-      --  The array is unconstrained but N must refer to an array object
-      --  that has first and last auxillary variables declared for each
-      --  dimension.
-      Print_Node_Briefly (N);
-      declare
-         Dim_String_Pre : constant String := Integer'Image (Dim);
-         Dim_String     : constant String :=
-           Dim_String_Pre (2 .. Dim_String_Pre'Last);
+      if Is_Object (N_Entity) then
+         --  The array is unconstrained but N must refer to an array object
+         --  that has first and last auxillary variables declared for each
+         --  dimension.
+         declare
+            Dim_String_Pre : constant String := Integer'Image (Dim);
+            Dim_String     : constant String :=
+              Dim_String_Pre (2 .. Dim_String_Pre'Last);
 
-         pragma Assert (Is_Object (N_Entity),
-                        "Get_Dimension_Bounds - Not an object " &
-                          Entity_Kind'Image (Ekind (N_Entity)));
+            Index_Etype : constant Entity_Id :=
+              Etype (case Nkind (Index) is
+                        when N_Defining_Identifier | N_Range =>
+                           Index,
+                        when N_Identifier | N_Expanded_Name =>
+                           Entity (Index),
+                        when others =>
+                           Defining_Identifier ("4", Index));
 
-         Index_Etype : constant Entity_Id :=
-           Etype (case Nkind (Index) is
-                     when N_Defining_Identifier | N_Range =>
-                        Index,
-                     when N_Identifier | N_Expanded_Name =>
-                        Entity (Index),
-                     when others =>
-                        Defining_Identifier ("4", Index));
+            Object_Name    : constant String := Unique_Name (N_Entity);
 
-         Object_Name    : constant String := Unique_Name (N_Entity);
+            First_Var      : constant String :=
+              Object_Name & First_Var_Str & Dim_String;
+            Last_Var       : constant String :=
+              Object_Name & Last_Var_Str & Dim_String;
 
-         First_Var      : constant String :=
-           Object_Name & First_Var_Str & Dim_String;
-         Last_Var       : constant String :=
-           Object_Name & Last_Var_Str & Dim_String;
+            pragma Assert (Global_Symbol_Table.Contains (Intern (First_Var)),
+                           First_Var);
+            pragma Assert (Global_Symbol_Table.Contains (Intern (Last_Var)),
+                           Last_Var);
 
-         pragma Assert (Global_Symbol_Table.Contains (Intern (First_Var)),
-                        First_Var);
-         pragma Assert (Global_Symbol_Table.Contains (Intern (Last_Var)),
-                        Last_Var);
+            First_Sym      : constant Irep :=
+              Make_Symbol_Expr
+                (Source_Location => Source_Location,
+                 I_Type          => Do_Type_Reference (Index_Etype),
+                 Identifier      => First_Var);
+            Last_Sym      : constant Irep :=
+              Make_Symbol_Expr
+                (Source_Location => Source_Location,
+                 I_Type          => Do_Type_Reference (Index_Etype),
+                 Identifier      => Last_Var);
+         begin
+            return Dimension_Bounds'
+              (Low  => Typecast_If_Necessary
+                 (Expr           => First_Sym,
+                  New_Type       => Index_T,
+                  A_Symbol_Table => Global_Symbol_Table),
+               High => Typecast_If_Necessary
+                 (Expr           => Last_Sym,
+                  New_Type       => Index_T,
+                  A_Symbol_Table => Global_Symbol_Table));
+         end;
+      elsif Nkind (N) in N_Subexpr then
+         --  It may be an unconstrained array result
+         declare
+            Array_Irep : constant Irep := Do_Expression (N);
+            Array_I_Type : constant Irep := Get_Type (Array_Irep);
+         begin
+            if Kind (Array_I_Type) = I_Struct_Type then
+               return Get_Bounds_From_Struc (Array_Irep, Pos (Dim));
+            end if;
+         end;
+      end if;
 
-         First_Sym      : constant Irep :=
-           Make_Symbol_Expr
-             (Source_Location => Source_Location,
-              I_Type          => Do_Type_Reference (Index_Etype),
-              Identifier      => First_Var);
-         Last_Sym      : constant Irep :=
-           Make_Symbol_Expr
-             (Source_Location => Source_Location,
-              I_Type          => Do_Type_Reference (Index_Etype),
-              Identifier      => Last_Var);
-      begin
-         return Dimension_Bounds'
-           (Low  => Typecast_If_Necessary
-              (Expr           => First_Sym,
-               New_Type       => Index_T,
-               A_Symbol_Table => Global_Symbol_Table),
-            High => Typecast_If_Necessary
-              (Expr           => Last_Sym,
-               New_Type       => Index_T,
-               A_Symbol_Table => Global_Symbol_Table));
-      end;
+      Report_Unhandled_Node_Empty
+        (N        => N,
+         Fun_Name => "Get_Dimension_Bounds",
+         Message  => "Unsupported unconstrained array");
+      return Dimension_Bounds'
+        (Low  => Index_T_Zero,
+         High => Index_T_One);
+
    end Get_Dimension_Bounds;
 
    --------------------------
@@ -1168,11 +1202,27 @@ package body Arrays.Low_Level is
       Array_I_Type    : constant Irep := Get_Type (The_Array);
       Array_I_Kind    : constant Irep_Kind := Kind (Array_I_Type);
    begin
+      Put_Line ("Get_Pointer_To_Array");
+      Print_Irep (The_Array);
+      Print_Irep (Array_I_Type);
+      if Array_I_Kind = I_Array_Type then
+         Put_Line ("An array type");
+         Print_Irep (Make_Address_Of_Expr
+           (Object          => Make_Index_Expr
+                (I_Array         => The_Array,
+                 Index           => Index_T_Zero,
+                 Source_Location => Source_Location,
+                 I_Type          => Comp_I_Type,
+                 Range_Check     => False),
+                   Source_Location => Source_Location,
+                   I_Type          => Make_Pointer_Type (Comp_I_Type),
+            Range_Check     => False));
+      else
+         Put_Line ("Not an array type");
+      end if;
+
       return
-        (if Array_I_Kind = I_Pointer_Type then
-            --  The_Array is already a pointer - nothing to be done.
-            The_Array
-         elsif Array_I_Kind  = I_Array_Type then
+        (if Array_I_Kind  = I_Array_Type then
                Make_Address_Of_Expr
            (Object          => Make_Index_Expr
                 (I_Array         => The_Array,
@@ -1182,7 +1232,10 @@ package body Arrays.Low_Level is
                  Range_Check     => False),
                    Source_Location => Source_Location,
                    I_Type          => Make_Pointer_Type (Comp_I_Type),
-                   Range_Check     => False)
+            Range_Check     => False)
+         elsif Array_I_Kind = I_Pointer_Type then
+         --  The_Array is already a pointer - nothing to be done.
+            The_Array
          else
          --  The array must be an array_struc type.
          --  This is checked by the subprogram's precondition.
@@ -1509,6 +1562,9 @@ package body Arrays.Low_Level is
       Source_Location : constant Irep := Get_Source_Location (Array_Node);
       --  The front-end ensures that the array has at least one dimension.
       Array_Node_Kind   : constant Node_Kind := Nkind (Array_Node);
+      Array_Is_Object   : constant Boolean :=
+        Array_Node_Kind in N_Has_Entity and then
+        Is_Object (Entity (Array_Node));
       Array_Type        : constant Entity_Id :=
         (case Array_Node_Kind is
             when N_Defining_Identifier =>
@@ -1576,7 +1632,8 @@ package body Arrays.Low_Level is
       --  symbol table if this function is called a in an initialisation of
       --  the object's declaration but an unconstrained array result variable
       --  should not be treated in the same way as an ordinary object.
-      if Global_Symbol_Table.Contains (Array_Id) and then
+      if not Array_Is_Object and then
+        Global_Symbol_Table.Contains (Array_Id) and then
         Kind (Global_Symbol_Table (Array_Id).SymType) = I_Struct_Type
       then
          --  It is an unconstrained array result from a function call
@@ -1593,7 +1650,7 @@ package body Arrays.Low_Level is
             High_Static       => 0,
             Low_Dynamic       => Index_T_Zero,
             High_Dynamic      => Index_T_Zero);
-      elsif Is_Constrained (Array_Type) or else Is_Object (Array_Type) then
+      elsif Is_Constrained (Array_Type) or else Array_Is_Object then
          declare
             Dimension_Number  : Positive := 1;
             Dimension_Iter    : Node_Id := First_Index (Array_Type);

@@ -189,9 +189,7 @@ package Tree_Walk is
                                Source_Expr : Node_Id);
 
    --  If a type is an enumeration it needs to be converted to an unsignedbv.
-   function Make_Scalar_I_Type (E : Entity_Id) return Irep
-   with Pre  => Is_Scalar_Type (E),
-        Post => Kind (Make_Scalar_I_Type'Result) in
-                Class_Bitvector_Type;
+   function Make_Resolved_I_Type (E : Entity_Id) return Irep
+   with Pre  => Is_Type (E);
 
 end Tree_Walk;

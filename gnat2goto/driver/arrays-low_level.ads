@@ -253,7 +253,7 @@ package Arrays.Low_Level is
    function Get_Array_Size_From_Bounds (Bounds : Static_And_Dynamic_Bounds)
                                         return Irep;
 
-   function Get_Bounds_From_Struc (Array_Struc : Irep; Dimension   : Pos)
+   function Get_Bounds_From_Struc (Array_Struc : Irep; Dimension : Pos)
                                    return Dimension_Bounds
      with Pre => Kind (Get_Type (Array_Struc)) = I_Struct_Type;
 

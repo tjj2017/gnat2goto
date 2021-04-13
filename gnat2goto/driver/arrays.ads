@@ -6,7 +6,6 @@ with Sinfo;             use Sinfo;
 with Ireps;             use Ireps;
 with Types;             use Types;
 
-with Symbol_Table_Info; use Symbol_Table_Info;
 with GOTO_Utils;        use GOTO_Utils;
 
 package Arrays is
@@ -20,17 +19,6 @@ package Arrays is
    --  For an unconstrained array parameter adds the array friend variables
    --  Array_Name___first_<Dimension> and Array_Name___last_<Dimension>
    --  to the subprogram parameter list for each dimension of the array.
-
-   procedure Declare_Array_Friends (Array_Name : String;
-                                    Init_Expr  : Irep;
-                                    Array_Type : Entity_Id;
-                                    Block      : Irep)
-     with Pre => Is_Array_Type (Array_Type) and
-          Kind (Block) = I_Code_Block;
-   --  An unconstrained array object declaration has to be suplemented
-   --  by the declaration of the array friend variables
-   --  Array_Name___first_<Dimension> and Array_Name___last_<Dimension>
-   --  for each dimension of the array.
 
    function All_Dimensions_Static (The_Array : Entity_Id) return Boolean
      with Pre => Is_Array_Type (The_Array);
@@ -75,7 +63,7 @@ package Arrays is
    function Do_Array_Subtype (Subtype_Node : Node_Id;
                               The_Entity   : Entity_Id) return Irep
      with Pre => Is_Array_Type (The_Entity),
-     Post => Kind (Do_Array_Subtype'Result) = I_Array_Type;
+     Post => Kind (Do_Array_Subtype'Result) in I_Array_Type | I_Struct_Type;
    --  Create an array subtype.  If the array subtype is constrained
    --  but the constraint is not static a new variable is inserted into the
    --  symol table and its value set to the goto expression representing
@@ -98,65 +86,17 @@ package Arrays is
      with Pre => Nkind (N) = N_Attribute_Reference and then
                  Attr in Attribute_First | Attribute_Last | Attribute_Length;
 
-   function Do_Array_Length (N : Node_Id) return Irep
-     with Pre => Nkind (N) = N_Attribute_Reference;
-
-   function Do_Array_First (N : Node_Id) return Irep
-     with Pre => Nkind (N) = N_Attribute_Reference;
-
-   function Do_Array_Last (N : Node_Id) return Irep
-     with Pre => Nkind (N) = N_Attribute_Reference;
-
-   function Get_Array_Component_Type (N : Node_Id) return Entity_Id
-     with Post => Is_Type (Get_Array_Component_Type'Result);
-
    function Do_Slice (N : Node_Id) return Irep
      with Pre  => Nkind (N) = N_Slice;
 
    function Do_Indexed_Component (N : Node_Id) return Irep
      with Pre  => Nkind (N) = N_Indexed_Component;
 
-   function Get_Data_Component_From_Type (Array_Struct_Type : Irep)
-                                          return Irep
-     with Pre => Kind (Array_Struct_Type) in I_Array_Type,
-     Post => Kind (Get_Type (Get_Data_Component_From_Type'Result))
-       in I_Pointer_Type;
-
-   function Get_First_Index (Array_Struct : Irep) return Irep
-     with Pre => (Kind (Array_Struct) in Class_Expr
-                  and then Kind (Get_Type (Array_Struct)) in
-                    I_Symbol_Type | I_Struct_Type),
-     Post => Kind (Get_First_Index'Result) = I_Member_Expr;
-
-   function Get_Last_Index (Array_Struct : Irep) return Irep
-     with Pre => (Kind (Array_Struct) in Class_Expr
-                  and then Kind (Get_Type (Array_Struct)) in
-                    I_Symbol_Type | I_Struct_Type),
-     Post => Kind (Get_Last_Index'Result) = I_Member_Expr;
-
-   function Get_Data_Member (Array_Struct : Irep;
-                             A_Symbol_Table : Symbol_Table)
-                             return Irep
-     with Pre => (Kind (Array_Struct) in Class_Expr
-                  and then Kind (Get_Type (Array_Struct)) in
-                    I_Symbol_Type | I_Struct_Type),
-       Post => Kind (Get_Data_Member'Result) = I_Member_Expr;
-
    function Get_Non_Array_Component_Type (A : Entity_Id) return Entity_Id
      with Pre => Is_Array_Type (A);
    --  When presented with an array repeatedly obtains the component
    --  type of the array until the component type is not an array subtype.
    --  It returns this component type.
-
-   function Get_Underlying_Array_From_Slice (N : Node_Id) return Node_Id
-     with Pre => Nkind (N) = N_Slice;
-
-   function Offset_Array_Data (Base : Irep; Offset : Irep) return Irep
-     with Pre => (Kind (Base) in Class_Expr
-                  and then Kind (Offset) in Class_Expr),
-     Post => Kind (Offset_Array_Data'Result) in Class_Expr;
-
-   function Make_Array_Default_Initialiser (E : Entity_Id) return Irep;
 
    procedure Pass_Array_Friends (Actual_Array : Entity_Id;  Args : Irep)
      with Pre => Is_Array_Type (Etype (Actual_Array));
@@ -169,27 +109,5 @@ private
 
    function Do_RHS_Array_Assign (N : Node_Id) return Irep_Array
      with Pre => Nkind (N) in N_Subexpr;
-
-   function Make_Array_First_Expr
-     (Base_Type : Node_Id; Base_Irep : Irep) return Irep;
-
-   function Build_Array_Size (First : Irep; Last : Irep; Idx_Type : Irep)
-                              return Irep
-     with Pre => (Kind (First) in Class_Expr
-                  and Kind (Last) in Class_Expr
-                  and Kind (Idx_Type) in Class_Type),
-     Post => Kind (Build_Array_Size'Result) = I_Op_Add;
-
-   function Get_First_Index_Component (Array_Struct : Irep)
-                                       return Irep;
-
-   function Get_Last_Index_Component (Array_Struct : Irep) return Irep;
-
-   function Get_Data_Component (Array_Struct : Irep;
-                                A_Symbol_Table : Symbol_Table) return Irep
-     with Pre => (Kind (Array_Struct) in Class_Expr
-                  and then Kind (Get_Type (Array_Struct)) in
-                    I_Symbol_Type | I_Struct_Type),
-     Post => Kind (Get_Type (Get_Data_Component'Result)) = I_Pointer_Type;
 
 end Arrays;
