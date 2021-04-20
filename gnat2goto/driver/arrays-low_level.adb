@@ -355,6 +355,9 @@ package body Arrays.Low_Level is
                   Accum_Length => Accum_Length);
             end if;
          else
+            Put_Line ("Calc_Length");
+            Print_Node_Briefly (N);
+            Print_Node_Briefly (Get_Constrained_Subtype (N));
             declare
                --  In concatination the array can only have one dimension.
                Array_Type  : constant Entity_Id := Get_Constrained_Subtype (N);
@@ -411,6 +414,8 @@ package body Arrays.Low_Level is
       else
          Result := Accum_Length.Dynamic_Index;
       end if;
+      Put_Line ("Calculate_Concat_Length");
+      Print_Irep (Result);
       return Result;
    end Calculate_Concat_Length;
 
@@ -713,22 +718,34 @@ package body Arrays.Low_Level is
          begin
             Append_Declare_And_Init
               (Symbol     => Dest_Low_Var,
-               Value      => Dest_Bounds.Low_Dynamic,
+               Value      => Typecast_If_Necessary
+                 (Expr           => Dest_Bounds.Low_Dynamic,
+                  New_Type       => Index_T,
+                  A_Symbol_Table => Global_Symbol_Table),
                Block      => Block,
                Source_Loc => Dest_Location);
             Append_Declare_And_Init
               (Symbol     => Dest_High_Var,
-               Value      => Dest_Bounds.High_Dynamic,
+               Value      => Typecast_If_Necessary
+                 (Expr           => Dest_Bounds.High_Dynamic,
+                  New_Type       => Index_T,
+                  A_Symbol_Table => Global_Symbol_Table),
                Block      => Block,
                Source_Loc => Dest_Location);
             Append_Declare_And_Init
               (Symbol     => Source_Low_Var,
-               Value      => Source_Bounds.Low_Dynamic,
+               Value      => Typecast_If_Necessary
+                 (Expr           => Source_Bounds.Low_Dynamic,
+                  New_Type       => Index_T,
+                  A_Symbol_Table => Global_Symbol_Table),
                Block      => Block,
                Source_Loc => Src_Location);
             Append_Declare_And_Init
               (Symbol     => Source_High_Var,
-               Value      => Source_Bounds.High_Dynamic,
+               Value      => Typecast_If_Necessary
+                 (Expr           => Source_Bounds.High_Dynamic,
+                  New_Type       => Index_T,
+                  A_Symbol_Table => Global_Symbol_Table),
                Block      => Block,
                Source_Loc => Src_Location);
 
@@ -1119,6 +1136,7 @@ package body Arrays.Low_Level is
       end if;
 
       if Is_Object (N_Entity) then
+         Put_Line ("Get_Dimension_Bounds - Is an object");
          --  The array is unconstrained but N must refer to an array object
          --  that has first and last auxillary variables declared for each
          --  dimension.
