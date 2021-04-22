@@ -70,6 +70,8 @@ package Arrays.Low_Level is
       Called_Array : Irep;
    end record;
 
+   function Is_Unconstrained_Array_Result (Expr : Irep) return Boolean;
+
    --  Type for gathering the lower and upper bounds of an array dimension.
    type Dimension_Bounds is record
       Low, High : Irep;
@@ -138,6 +140,16 @@ package Arrays.Low_Level is
 
    function All_Dimensions_Static (The_Array : Entity_Id) return Boolean
      with Pre => Is_Array_Type (The_Array);
+
+   procedure Assign_Array
+     (Block         : Irep;
+      Destination   : Irep;
+      Dest_Bounds   : Static_And_Dynamic_Bounds;
+      Source        : Irep;
+      Source_Bounds : Static_And_Dynamic_Bounds);
+   --  A low level arrauy assignment from Source_Irep to Destination Irep.
+   --  The assignment can be simple if both arrays are constrained and
+   --  have static bounds.
 
    procedure Assign_To_Array_Component (Block      : Irep;
                                         The_Array  : Irep;
@@ -224,13 +236,11 @@ package Arrays.Low_Level is
    function Compute_Array_Byte_Size (Array_Type : Entity_Id) return Irep;
 
    procedure Copy_Array (Block          : Irep;
-                         Source_Type    : Entity_Id;
                          Dest_Bounds    : Static_And_Dynamic_Bounds;
                          Source_Bounds  : Static_And_Dynamic_Bounds;
                          Dest_Irep      : Irep;
                          Source_Irep    : Irep)
-     with Pre => Is_Array_Type (Source_Type) and
-                Kind (Get_Type (Dest_Irep)) in I_Array_Type | I_Pointer_Type
+     with Pre => Kind (Get_Type (Dest_Irep)) in I_Array_Type | I_Pointer_Type
              and
                 Kind (Get_Type (Source_Irep)) in I_Array_Type | I_Pointer_Type;
 

@@ -77,9 +77,8 @@ package Arrays is
      with Pre  => Nkind (N) in N_Array_Type_Definition,
      Post => Kind (Do_Unconstrained_Array_Definition'Result) = I_Struct_Type;
 
-   function Do_Array_Assignment (N : Node_Id) return Irep
-     with Pre => Nkind (N) = N_Assignment_Statement,
-     Post => Kind (Do_Array_Assignment'Result) = I_Code_Assign;
+   procedure Do_Array_Assignment (Block : Irep; N : Node_Id)
+     with Pre => Nkind (N) = N_Assignment_Statement;
 
    function Do_Array_First_Last_Length (N : Node_Id; Attr : Attribute_Id)
                                         return Irep

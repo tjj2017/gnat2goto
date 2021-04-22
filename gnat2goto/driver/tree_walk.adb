@@ -93,9 +93,11 @@ package body Tree_Walk is
    with Pre  => Nkind (N) = N_Aggregate,
         Post => Kind (Do_Aggregate_Literal_Record'Result) = I_Struct_Expr;
 
-   function Do_Assignment_Statement (N  : Node_Id) return Irep
-   with Pre  => Nkind (N) = N_Assignment_Statement,
-        Post => Kind (Do_Assignment_Statement'Result) = I_Code_Assign;
+   --  A single Ada statement may result in a sequence of goto statements,
+   --  so a procedure with a code block parameter is used rather than
+   --  a funtion returning a single goto assignment statement
+   procedure Do_Assignment_Statement (Block : Irep; N : Node_Id)
+   with Pre  => Nkind (N) = N_Assignment_Statement;
 
    function Do_Call_Parameters (N : Node_Id) return Irep
    with Pre  => Nkind (N) in N_Procedure_Call_Statement | N_Function_Call,
@@ -811,7 +813,7 @@ package body Tree_Walk is
    -- Do_Assignment_Statement --
    -----------------------------
 
-   function Do_Assignment_Statement (N : Node_Id) return Irep
+   procedure Do_Assignment_Statement (Block : Irep; N : Node_Id)
    is
    begin
       if Ekind (Underlying_Type (Etype (Name (N)))) in Array_Kind then
@@ -828,35 +830,38 @@ package body Tree_Walk is
                Declare_Itype (Lhs_Type);
             end if;
          end;
-         return Do_Array_Assignment (N);
-      end if;
+         Do_Array_Assignment (Block, N);
+      else
 
-      declare
-         LHS : constant Irep := Do_Expression (Name (N));
-         function RHS return Irep;
-         function RHS return Irep is
-            N_RHS : constant Node_Id := Expression (N);
-            Bare_RHS : constant Irep := Do_Expression (N_RHS);
-            pragma Assert (Kind (Bare_RHS) in Class_Expr and then
-                           Kind (Get_Type (LHS)) in Class_Type);
+         declare
+            LHS : constant Irep := Do_Expression (Name (N));
+            function RHS return Irep;
+            function RHS return Irep is
+               N_RHS : constant Node_Id := Expression (N);
+               Bare_RHS : constant Irep := Do_Expression (N_RHS);
+               pragma Assert (Kind (Bare_RHS) in Class_Expr and then
+                              Kind (Get_Type (LHS)) in Class_Type);
+            begin
+               return
+                 (if Do_Range_Check (N_RHS)
+                  then Make_Range_Assert_Expr
+                    (N => N,
+                     Value => Bare_RHS,
+                     Bounds_Type => Get_Type (LHS))
+                  else Bare_RHS);
+            end RHS;
          begin
-            return
-              (if Do_Range_Check (N_RHS)
-               then Make_Range_Assert_Expr
-                 (N => N,
-                  Value => Bare_RHS,
-                  Bounds_Type => Get_Type (LHS))
-               else Bare_RHS);
-         end RHS;
-      begin
-         return Make_Code_Assign
-           (Lhs => LHS,
-            Rhs => Typecast_If_Necessary
-              (Expr => RHS,
-               New_Type => Get_Type (LHS),
-               A_Symbol_Table => Global_Symbol_Table),
-            Source_Location => Get_Source_Location (N));
-      end;
+            Append_Op
+              (Block,
+               Make_Code_Assign
+                 (Lhs => LHS,
+                  Rhs => Typecast_If_Necessary
+                    (Expr => RHS,
+                     New_Type => Get_Type (LHS),
+                     A_Symbol_Table => Global_Symbol_Table),
+                  Source_Location => Get_Source_Location (N)));
+         end;
+      end if;
    end Do_Assignment_Statement;
 
    ------------------------
@@ -6988,7 +6993,7 @@ package body Tree_Walk is
             null;
 
          when N_Assignment_Statement =>
-            Append_Op (Block, Do_Assignment_Statement (N));
+            Do_Assignment_Statement (Block, N);
 
          when N_Exit_Statement =>
             Append_Op (Block, Do_Exit_Statement (N));

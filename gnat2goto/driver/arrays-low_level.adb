@@ -1,7 +1,6 @@
 with Nlists;                  use Nlists;
 with Sem_Util;                use Sem_Util;
 with Sem_Eval;                use Sem_Eval;
-with Follow;                  use Follow;
 with ASVAT.Size_Model;        use ASVAT.Size_Model;
 with Treepr;                  use Treepr;
 with Symbol_Table_Info;       use Symbol_Table_Info;
@@ -123,7 +122,72 @@ package body Arrays.Low_Level is
       end if;
    end Add_To_Index;
 
-   function Get_Dynamic_Index (Index : Static_And_Dynamic_Index) return Irep
+   function Is_Unconstrained_Array_Result (Expr : Irep) return Boolean is
+      (Kind (Get_Type (Expr)) = I_Struct_Type);
+
+   procedure Assign_Array
+     (Block         : Irep;
+      Destination   : Irep;
+      Dest_Bounds   : Static_And_Dynamic_Bounds;
+      Source        : Irep;
+      Source_Bounds : Static_And_Dynamic_Bounds)
+   is
+      Source_Location  : constant Irep := Get_Source_Location (Destination);
+      Target_I_Type    : constant Irep := Get_Type (Destination);
+      Component_I_Type : constant Irep := Get_Subtype (Target_I_Type);
+   begin
+      if not Dest_Bounds.Is_Unconstrained then
+         if Dest_Bounds.Has_Static_Bounds and
+           Source_Bounds.Is_Unconstrained and
+           Source_Bounds.Has_Static_Bounds and
+           not Is_Unconstrained_Array_Result (Source)
+         then
+            Put_Line ("Assignment_Op - Simple assignment");
+            --  Both source and destination have static bounds.
+            --   A simple assignment should work.
+            declare
+               Assignment : constant Irep :=
+                 Make_Code_Assign
+                   (Rhs             => Typecast_If_Necessary
+                      (Expr           => Source,
+                       New_Type       => Target_I_Type,
+                       A_Symbol_Table => Global_Symbol_Table),
+                    Lhs             => Destination,
+                    Source_Location => Source_Location,
+                    I_Type          => Target_I_Type,
+                    Range_Check     => False);
+            begin
+               Append_Op (Block, Assignment);
+            end;
+         else
+            Put_Line ("Assign_Op - Copy");
+            Put_Line ("Source");
+            Print_Irep (Source);
+            declare
+               Resolved_Dest   : constant Irep := Get_Pointer_To_Array
+                 (Destination, Component_I_Type);
+               Resolved_Source : constant Irep := Get_Pointer_To_Array
+                 (Source, Component_I_Type);
+            begin
+               Copy_Array
+                 (Block         => Block,
+                  Dest_Bounds   => Dest_Bounds,
+                  Source_Bounds => Source_Bounds,
+                  Dest_Irep     => Resolved_Dest,
+                  Source_Irep   => Resolved_Source);
+            end;
+         end if;
+      else
+         Report_Unhandled_Node_Empty
+           (N        => Types.Empty,
+            Fun_Name => "Assign_Array",
+            Message  => "Assignment to an unconstrained array object " &
+              Get_Identifier (Destination) &
+              "is unsupported");
+      end if;
+   end Assign_Array;
+
+      function Get_Dynamic_Index (Index : Static_And_Dynamic_Index) return Irep
    is
      (if Index.Is_Static then
          Integer_Constant_To_Expr
@@ -136,7 +200,6 @@ package body Arrays.Low_Level is
 
    procedure Copy_Array_Dynamic
      (Block            : Irep;
-      Source_Type      : Entity_Id;
       Dest_Low         : Irep;
       Dest_High        : Irep;
       Source_Low       : Irep;
@@ -146,7 +209,6 @@ package body Arrays.Low_Level is
 
    procedure Copy_Array_Static
      (Block            : Irep;
-      Source_Type      : Entity_Id;
       Dest_Low         : Int;
       Dest_High        : Int;
       Source_Low       : Int;
@@ -661,7 +723,6 @@ package body Arrays.Low_Level is
    ----------------
 
    procedure Copy_Array (Block          : Irep;
-                         Source_Type    : Entity_Id;
                          Dest_Bounds    : Static_And_Dynamic_Bounds;
                          Source_Bounds  : Static_And_Dynamic_Bounds;
                          Dest_Irep      : Irep;
@@ -676,7 +737,6 @@ package body Arrays.Low_Level is
          Put_Line ("Copy_Array - Static");
          Copy_Array_Static
            (Block       => Block,
-            Source_Type => Source_Type,
             Dest_Low    => Dest_Bounds.Low_Static,
             Dest_High   => Dest_Bounds.High_Static,
             Source_Low  => Source_Bounds.Low_Static,
@@ -751,10 +811,9 @@ package body Arrays.Low_Level is
 
             Put_Line ("Copy_Array - Dynamic");
             Copy_Array_Dynamic
-              (Block       => Block,
-               Source_Type => Source_Type,
-               Dest_Low    => Dest_Low_Var,
-               Dest_High   => Dest_High_Var,
+              (Block          => Block,
+               Dest_Low       => Dest_Low_Var,
+               Dest_High      => Dest_High_Var,
                Source_Low  => Source_Low_Var,
                Source_High => Source_High_Var,
                Dest_Irep   => Dest_Irep,
@@ -769,7 +828,6 @@ package body Arrays.Low_Level is
 
    procedure Copy_Array_Dynamic
      (Block            : Irep;
-      Source_Type      : Entity_Id;
       Dest_Low         : Irep;
       Dest_High        : Irep;
       Source_Low       : Irep;
@@ -780,18 +838,7 @@ package body Arrays.Low_Level is
       pragma Unreferenced (Source_High);  -- Used in precondition.
       Source_Location : constant Irep := Get_Source_Location (Dest_Irep);
 
-      Component_Pre_Src  : constant Irep :=
-        Do_Type_Reference (Component_Type (Source_Type));
-      Component_Source   : constant Irep :=
-        (if Kind (Follow_Symbol_Type (Component_Pre_Src,
-         Global_Symbol_Table)) = I_C_Enum_Type
-         then
-            Make_Unsignedbv_Type
-           (ASVAT.Size_Model.Static_Size
-                (Component_Type (Source_Type)))
-         else
-            Component_Pre_Src);
-
+      Component_Source : constant Irep := Get_Subtype (Get_Type (Source_Irep));
       Component_Dest   : constant Irep := Get_Subtype (Get_Type (Dest_Irep));
 
       Loop_Var : constant Irep :=
@@ -893,7 +940,6 @@ package body Arrays.Low_Level is
 
    procedure Copy_Array_Static
      (Block            : Irep;
-      Source_Type      : Entity_Id;
       Dest_Low         : Int;
       Dest_High        : Int;
       Source_Low       : Int;
@@ -905,18 +951,7 @@ package body Arrays.Low_Level is
       pragma Unreferenced (Source_High);
       Source_Location : constant Irep := Get_Source_Location (Dest_Irep);
 
-      Component_Pre_Src  : constant Irep :=
-        Do_Type_Reference (Component_Type (Source_Type));
-      Component_Source   : constant Irep :=
-        (if Kind (Follow_Symbol_Type (Component_Pre_Src,
-         Global_Symbol_Table)) = I_C_Enum_Type
-         then
-            Make_Unsignedbv_Type
-           (ASVAT.Size_Model.Static_Size
-                (Component_Type (Source_Type)))
-         else
-            Component_Pre_Src);
-
+      Component_Source : constant Irep := Get_Subtype (Get_Type (Source_Irep));
       Component_Dest : constant Irep := Get_Subtype (Get_Type (Dest_Irep));
 
    begin
