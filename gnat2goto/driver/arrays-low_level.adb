@@ -863,8 +863,12 @@ package body Arrays.Low_Level is
            I_Type          => Index_T,
            Range_Check     => False);
 
-      Loop_First : constant Irep := Dest_Low;
-      Loop_Last  : constant Irep := Dest_High;
+      Loop_First : constant Irep := Index_T_Zero;
+      Loop_Last  : constant Irep := Make_Op_Sub
+        (Rhs             => Dest_Low,
+         Lhs             => Dest_High,
+         Source_Location => Source_Location,
+         I_Type          => Index_T);
 --          Make_Op_Sub
 --            (Rhs             => Dest_Low,
 --             Lhs             => Dest_High,

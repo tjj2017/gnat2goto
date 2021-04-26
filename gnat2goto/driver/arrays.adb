@@ -106,7 +106,8 @@ package body Arrays is
       Block      : Irep)
    with Pre => Is_Array_Type (Underlying_Type (Etype (Array_Node)));
 
-   procedure Array_Assignment_Op (Source_Expr  : Node_Id;
+   procedure Array_Assignment_Op (S            : String;
+                                  Source_Expr  : Node_Id;
                                   N_Dimensions : Pos;
                                   Dest_Bounds  : Static_And_Dynamic_Bounds;
                                   Target_Array : Irep;
@@ -308,13 +309,15 @@ package body Arrays is
 --           Simple_Array_Assignment;
 --        elsif Is_
 
-   procedure Array_Assignment_Op (Source_Expr  : Node_Id;
+   procedure Array_Assignment_Op (S            : String;
+                                  Source_Expr  : Node_Id;
                                   N_Dimensions : Pos;
                                   Dest_Bounds  : Static_And_Dynamic_Bounds;
                                   Target_Array : Irep;
                                   Block        : Irep)
    is
-      Source_Location    : constant Irep := Get_Source_Location (Source_Expr);
+      --        Source_Location    : constant Irep :=
+      --  Get_Source_Location (Source_Expr);
 
       RHS_Node_Kind      : constant Node_Kind := Nkind (Source_Expr);
       RHS_Entity         : constant Node_Id :=
@@ -329,16 +332,17 @@ package body Arrays is
 
       Source_Type        : constant Entity_Id :=
         Underlying_Type (Etype (Source_Expr));
-      Component_I_Type   : constant Irep :=
-        Make_Resolved_I_Type (Component_Type (Source_Type));
+--        Component_I_Type   : constant Irep :=
+--          Make_Resolved_I_Type (Component_Type (Source_Type));
       Source_I_Type      : constant Irep :=
         (if RHS_Is_Object then
             Global_Symbol_Table (Intern (Unique_Name (RHS_Entity))).SymType
          else
             Do_Type_Reference (Source_Type));
 
-      Target_I_Type      : constant Irep := Get_Type (Target_Array);
+--        Target_I_Type      : constant Irep := Get_Type (Target_Array);
    begin
+      Put_Line ("Array_Assignment_Op " & S);
       Put_Line ("Array_Assignment_Op Low " &
                   Int'Image (Dest_Bounds.Low_Static));
       Put_Line ("Array_Assignment_Op High "
@@ -417,55 +421,6 @@ package body Arrays is
                Dest_Bounds   => Dest_Bounds,
                Source        => Resolved_Source_Expr,
                Source_Bounds => Source_Bounds);
-            if not Dest_Bounds.Is_Unconstrained then
-               if Dest_Bounds.Has_Static_Bounds and
-                 All_Dimensions_Static (Source_Type) and
-                 Kind (Source_I_Type) /= I_Struct_Type
-               then
-                  Put_Line ("Assignment_Op - Simple assignment");
-                  declare
-                     --  Both source and destination have static bounds.
-                     --   A simple assignment should work.
-                     Assignment : constant Irep :=
-                       Make_Code_Assign
-                         (Rhs             => Typecast_If_Necessary
-                            (Expr           => Resolved_Source_Expr,
-                             New_Type       => Target_I_Type,
-                             A_Symbol_Table => Global_Symbol_Table),
-                          Lhs             => Target_Array,
-                          Source_Location => Source_Location,
-                          I_Type          => Target_I_Type,
-                          Range_Check     => False);
-                  begin
-                     Append_Op (Block, Assignment);
-                  end;
-               else
-                  Put_Line ("Assign_Op - Copy");
-                  Put_Line ("Source");
-                  Print_Node_Briefly (Source_Expr);
-                  declare
-
-                     Resolved_Dest   : constant Irep := Get_Pointer_To_Array
-                       (Target_Array, Component_I_Type);
-                     Resolved_Source : constant Irep := Get_Pointer_To_Array
-                       (Resolved_Source_Expr, Component_I_Type);
-                  begin
-                     Copy_Array
-                       (Block         => Block,
-                        Dest_Bounds   => Dest_Bounds,
-                        Source_Bounds => Source_Bounds,
-                        Dest_Irep     => Resolved_Dest,
-                        Source_Irep   => Resolved_Source);
-                  end;
-               end if;
-            else
-               Report_Unhandled_Node_Empty
-                 (N        => Source_Expr,
-                  Fun_Name => "Array_Assignment_Op",
-                  Message  => "Assignment to an unconstrained array object " &
-                    Get_Identifier (Target_Array) &
-                    "is unsupported");
-            end if;
          end;
       end if;
    end Array_Assignment_Op;
@@ -663,7 +618,8 @@ package body Arrays is
             Message  => "Assignment expression cannot be unconstrained");
       else
          Array_Assignment_Op
-           (Source_Expr  => Source_Expr,
+           ("1",
+            Source_Expr  => Source_Expr,
             N_Dimensions => Number_Dimensions (Underlying),
             Dest_Bounds  => Array_Bounds,
             Target_Array => Destination,
@@ -844,7 +800,8 @@ package body Arrays is
       if Present (Init_Expr) then
          Put_Line ("Do_Array_Object_Declaration-Initialisation");
          Array_Assignment_Op
-           (Source_Expr  => Init_Expr,
+           ("2",
+            Source_Expr  => Init_Expr,
             N_Dimensions => Number_Dimensions (Target_Type),
             Dest_Bounds  => Array_Bounds,
             Target_Array => The_Array,
@@ -3203,6 +3160,7 @@ package body Arrays is
                     High_Dynamic      => High_Index.Dynamic_Index);
             begin
                Put_Line ("Process_Catination - completing");
+               Print_Node_Subtree (Array_Range);
                Put_Line ("Isstatic " & Boolean'Image (Accum_Index.Is_Static));
                Put_Line ("Static length " &
                            Int'Image (UI_To_Int (Static_Len)));
@@ -3213,9 +3171,33 @@ package body Arrays is
                   Print_Irep (Get_Rhs (Dynamic_Len));
                end if;
 
+               Put_Line ("Dest_Bounds");
+               Put_Line ("Has_Static Dest_Bounds " &
+                           Boolean'Image (Dest_Bounds.Has_Static_Bounds));
+               Put_Line ("Low static " &
+                           Int'Image (Dest_Bounds.Low_Static));
+               Put_Line ("High static " &
+                           Int'Image (Dest_Bounds.High_Static));
+               Print_Irep (Dest_Bounds.Low_Dynamic);
+               Print_Irep (Dest_Bounds.High_Dynamic);
+               if Kind (Dest_Bounds.Low_Dynamic) = I_Op_Add then
+                  Print_Irep (Get_Lhs (Dest_Bounds.Low_Dynamic));
+                  Print_Irep (Get_Rhs (Dest_Bounds.High_Dynamic));
+               end if;
+
+               Put_Line ("New_Index is static " &
+                           Boolean'Image (New_Index.Is_Static));
+               Put_Line ("New_Index " &
+                           Int'Image (UI_To_Int (New_Index.Static_Index)));
+               Print_Irep (New_Index.Dynamic_Index);
+               if Kind (New_Index.Dynamic_Index) = I_Op_Add then
+                  Print_Irep (Get_Lhs (New_Index.Dynamic_Index));
+                  Print_Irep (Get_Rhs (New_Index.Dynamic_Index));
+               end if;
                if Constrained then
                   Array_Assignment_Op
-                    (Source_Expr  => N,
+                    ("3",
+                     Source_Expr  => N,
                      N_Dimensions => 1,
                      Dest_Bounds  => Dest_Bounds,
                      Target_Array => Dest_Array,
