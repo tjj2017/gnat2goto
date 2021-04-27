@@ -1672,7 +1672,9 @@ package body Arrays is
       Put_Line ("Backwards_Ok " & Boolean'Image (Backwards_OK (N)));
       Put_Line ("RHS is static expr " &
                   Boolean'Image (Is_OK_Static_Expression (RHS_Node)));
-      if RHS_Kind not in N_Slice | N_Aggregate | N_Op_Concat then
+      if LHS_Kind /= N_Slice and
+        RHS_Kind not in N_Slice | N_Aggregate | N_Op_Concat
+      then
          Put_Line ("Assignment without temporary");
          Do_Array_Assignment_Op
            (Block       => Block,
@@ -1689,14 +1691,22 @@ package body Arrays is
                      (Intern (Unique_Name (LHS_Type)))));
          --  Declare a temporary array to construct the result
          declare
-            LHS_I_Type        : constant Irep := Do_Type_Reference (LHS_Type);
-            Temp_Array        : constant Irep :=
+            LHS_I_Type         : constant Irep := Do_Type_Reference (LHS_Type);
+            Temp_Array         : constant Irep :=
               Fresh_Var_Symbol_Expr (LHS_I_Type, "temp_arr_ass");
-            Dest_Bounds       : constant Static_And_Dynamic_Bounds :=
+            Temp_Array_Bounds  : constant Static_And_Dynamic_Bounds :=
               Multi_Dimension_Flat_Bounds ("99", LHS_Node);
-            Temp_Array_Bounds : constant Static_And_Dynamic_Bounds :=
-              Dest_Bounds;
+            pragma Assert (Print_Msg
+                           ("Do_Array_Assignment - Got temp array bounds"));
+            Dest_Bounds        : constant Static_And_Dynamic_Bounds :=
+              Zero_Based_Bounds (LHS_Node);
+            pragma Assert (Print_Msg
+                           ("Do_Array_Assignment - Got dest bounds"));
          begin
+            Append_Op (Block,
+                       Make_Code_Decl
+                         (Symbol          => Temp_Array,
+                          Source_Location => Get_Source_Location (N)));
             --  Assign to the temporary array
             Do_Array_Assignment_Op
               (Block       => Block,
@@ -2765,6 +2775,17 @@ package body Arrays is
       Array_Bounds     : constant Static_And_Dynamic_Bounds :=
         Multi_Dimension_Flat_Bounds ("8", Array_Entity);
       pragma Assert (Print_Msg ("Return from Multi_Dimension_Flat_Bounds 8"));
+      pragma Assert (Print_Msg ("Array bounds unconstrained " &
+                       Boolean'Image (Array_Bounds.Is_Unconstrained)));
+      pragma Assert (Print_Msg ("Array bounds static " &
+                       Boolean'Image (Array_Bounds.Has_Static_Bounds)));
+      pragma Assert (Print_Msg ("Array bounds static low " &
+                       Int'Image (Array_Bounds.Low_Static)));
+      pragma Assert (Print_Msg ("Array bounds static High " &
+                       Int'Image (Array_Bounds.High_Static)));
+      pragma Assert (Print_Irep_Func (Array_Bounds.Low_Dynamic));
+      pragma Assert (Print_Irep_Func (Array_Bounds.High_Dynamic));
+
       Array_Length     : constant Irep :=
         (if Array_Bounds.Has_Static_Bounds then
             Integer_Constant_To_Expr
@@ -2799,6 +2820,7 @@ package body Arrays is
            I_Type          => Index_T,
            Range_Check     => False);
    begin
+      Put_Line ("Make_Constrained_Array_Subtype");
       --  Set the ASVAT.Size_Model size for the array.
       ASVAT.Size_Model.Set_Computed_Size
         (Array_Entity, Array_Model_Size);
@@ -2836,6 +2858,7 @@ package body Arrays is
                A_Symbol_Table    => Global_Symbol_Table);
             --  Return the dynamic array type
             --  using the declared array length variable.
+            Put_Line ("Make_Constrained_Array_Subtype - return dynamic");
             return Make_Array_Type
               (I_Subtype => Comp_Irep,
                Size      => Arr_Len_Irep);
@@ -2843,6 +2866,7 @@ package body Arrays is
       end if;
       --  Return the array type using the static
       --  length of the array.
+      Put_Line ("Make_Constrained_Array_Subtype - return static");
       return Make_Array_Type
         (I_Subtype => Comp_Irep,
          Size      => Array_Length);

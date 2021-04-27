@@ -1067,12 +1067,19 @@ package body Arrays.Low_Level is
    -- Get_Constrained_Subtype --
    -----------------------------
    function Get_Constrained_Subtype (N : Node_Id) return Entity_Id is
-      E_Type_N : constant Entity_Id := Etype (N);
+      E_Type_N : constant Entity_Id :=
+        (if Nkind (N) in N_Entity and then Is_Type (N) then
+              Underlying_Type (N)
+         else
+            Underlying_Type (Etype (N)));
    begin
       if Is_Constrained (E_Type_N) then
          return E_Type_N;
       end if;
 
+      ???? We ned to check here for a slice which is the result of a
+         ???? function call with an unconstrained result
+           ???? either by delivering an unsupported report or dealing with it
       case Nkind (N) is
          when N_Identifier | N_Expanded_Name =>
             declare
@@ -1969,23 +1976,34 @@ package body Arrays.Low_Level is
                                      Underlying_Array : Entity_Id)
                                      return Static_And_Dynamic_Bounds
    is
-      Source_Location : constant Irep := Get_Source_Location (The_Slice);
-      Slice_Range : constant Entity_Id := Discrete_Range (The_Slice);
+      Source_Location   : constant Irep := Get_Source_Location (The_Slice);
+      Slice_Range       : constant Entity_Id := Discrete_Range (The_Slice);
       Has_Static_Bounds : constant Boolean :=
         All_Dimensions_Static (Underlying_Array) and
         Is_OK_Static_Range (Slice_Range);
+      First_Ix           : constant Node_Id := First_Index (Underlying_Array);
+      Underlying_Range   : constant Node_Id :=
+        (if Nkind (First_Ix) = N_Range then
+              First_Ix
+         else
+            Scalar_Range (Etype (First_Ix)));
    begin
+      Put_Line ("Zero_Based_Slice_Bounds");
       if Has_Static_Bounds then
+         Put_Line ("Has static bounds");
+         Print_Node_Subtree (Slice_Range);
+         Print_Node_Subtree (Underlying_Array);
+         Print_Node_Subtree (Underlying_Range);
          declare
             Slice_Low             : constant Uint :=
               Expr_Value (Low_Bound (Slice_Range));
             Slice_High            : constant Uint :=
               Expr_Value (High_Bound (Slice_Range));
             Underlying_Array_Low  : constant Uint :=
-              Expr_Value (Low_Bound (First_Index (Underlying_Array)));
-            Low_Static            : constant Nat :=
+              Expr_Value (Low_Bound (Underlying_Range));
+            Low_Static            : constant Int :=
               UI_To_Int (Slice_Low - Underlying_Array_Low);
-            High_Static           : constant Nat :=
+            High_Static           : constant Int :=
               UI_To_Int (Slice_High - Underlying_Array_Low);
          begin
             return Static_And_Dynamic_Bounds'
@@ -2021,7 +2039,7 @@ package body Arrays.Low_Level is
             Underlying_Array_Low  : constant Irep :=
               Typecast_If_Necessary
                 (Expr           =>
-                   Do_Expression (Low_Bound (First_Index (Underlying_Array))),
+                   Do_Expression (Low_Bound (Underlying_Range)),
                  New_Type       => Index_T,
                  A_Symbol_Table => Global_Symbol_Table);
             Low_Dynamic            : constant Irep :=
