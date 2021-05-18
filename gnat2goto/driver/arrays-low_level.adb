@@ -342,7 +342,7 @@ package body Arrays.Low_Level is
    begin
       --  A concatination is always 1 dimensional.
       if Is_Constrained (Target_Type) then
-         return Get_Bounds (First_Index (Target_Type));
+         return Get_Bounds_From_Index (First_Index (Target_Type));
       end if;
 
       declare
@@ -419,31 +419,13 @@ package body Arrays.Low_Level is
          else
             Put_Line ("Calc_Length");
             Print_Node_Briefly (N);
-            Print_Node_Briefly (Get_Constrained_Subtype (N));
             declare
-               --  In concatination the array can only have one dimension.
-               Array_Type  : constant Entity_Id := Get_Constrained_Subtype (N);
-               Array_Range : constant Node_Id := First_Index (Array_Type);
-               Constrained : constant Boolean := Is_Constrained (Array_Type);
-               Is_Static   : constant Boolean :=
-                 Constrained and then Is_OK_Static_Range (Array_Range);
-               Static_Len  : constant Uint :=
-                 (if Is_Static then
-                     Calculate_Static_Dimension_Length (Array_Range)
-                  else
-                     Uint_0);
-               Dynamic_Len : constant Irep :=
-                 (if not Is_Static and Constrained then
-                     Calculate_Dimension_Length (Get_Bounds (Array_Range))
-                  else
-                     Ireps.Empty);
+               Next_Bounds : constant Static_And_Dynamic_Bounds :=
+                 Multi_Dimension_Flat_Bounds ("100", N);
                Next_Length : constant Static_And_Dynamic_Index :=
-                 Static_And_Dynamic_Index'
-                   (Is_Static     => Is_Static,
-                    Static_Index  => Static_Len,
-                    Dynamic_Index => Dynamic_Len);
+                 Get_Array_Size_From_Bounds (Next_Bounds);
             begin
-               if Constrained then
+               if not Next_Bounds.Is_Unconstrained then
                   Add_To_Index (Index        => Accum_Length,
                                 Value_To_Add => Next_Length);
                else
@@ -1001,7 +983,7 @@ package body Arrays.Low_Level is
       Bounds : constant Static_And_Dynamic_Bounds :=
         Multi_Dimension_Flat_Bounds ("45", The_Array);
    begin
-      return Get_Array_Size_From_Bounds (Bounds);
+      return Get_Array_Size_From_Bounds (Bounds).Dynamic_Index;
    end Get_Array_Flat_Size;
 
    --------------------------------
@@ -1009,33 +991,45 @@ package body Arrays.Low_Level is
    --------------------------------
 
    function Get_Array_Size_From_Bounds (Bounds : Static_And_Dynamic_Bounds)
-                                       return Irep
+                                        return Static_And_Dynamic_Index
    is
-     (if Bounds.Has_Static_Bounds then
-         Integer_Constant_To_Expr
-        (Value           => UI_From_Int
-             (Bounds.High_Static - Bounds.Low_Static + 1),
-         Expr_Type       => Index_T,
-         Source_Location => Internal_Source_Location)
-      else
-         Make_Op_Add
-        (Rhs             => Integer_Constant_To_Expr
-             (Value           => Uint_1,
+      Result : Static_And_Dynamic_Index;
+   begin
+      if Bounds.Has_Static_Bounds then
+         Result.Is_Static     := True;
+         Result.Static_Index  :=
+           UI_From_Int (Bounds.High_Static - Bounds.Low_Static + 1);
+         Result.Dynamic_Index :=
+           Integer_Constant_To_Expr
+             (Value           => Result.Static_Index,
               Expr_Type       => Index_T,
-              Source_Location => Internal_Source_Location),
-         Lhs             => Make_Op_Sub
-           (Rhs             => Bounds.Low_Dynamic,
-            Lhs             => Bounds.High_Dynamic,
-            Source_Location => Internal_Source_Location,
-            I_Type          => Index_T),
-         Source_Location => Internal_Source_Location,
-         I_Type          => Index_T));
+              Source_Location => Internal_Source_Location);
+      else
+         Result.Is_Static     := False;
+         Result.Static_Index  := Uint_0;
+         Result.Dynamic_Index :=
+           Make_Op_Add
+             (Rhs             => Integer_Constant_To_Expr
+                (Value           => Uint_1,
+                 Expr_Type       => Index_T,
+                 Source_Location => Internal_Source_Location),
+              Lhs             => Make_Op_Sub
+                (Rhs             => Bounds.Low_Dynamic,
+                 Lhs             => Bounds.High_Dynamic,
+                 Source_Location => Internal_Source_Location,
+                 I_Type          => Index_T),
+              Source_Location => Internal_Source_Location,
+              I_Type          => Index_T);
+      end if;
+
+      return Result;
+   end Get_Array_Size_From_Bounds;
 
    -----------------
    -- Get_Bounds --
    ---------------
 
-   function Get_Bounds (Index : Node_Id) return Dimension_Bounds
+   function Get_Bounds_From_Index (Index : Node_Id) return Dimension_Bounds
    is
       Bounds : constant Node_Id := Get_Range (Index);
       --  The front-end sometimes rewrites nodes giving them a different
@@ -1046,6 +1040,7 @@ package body Arrays.Low_Level is
         Do_Expression (Original_Node (High_Bound (Bounds)));
    begin
       Put_Line ("Get_Bounds");
+      Print_Node_Briefly (Index);
       Print_Node_Briefly (Bounds);
       Print_Node_Briefly (High_Bound (Bounds));
       Print_Node_Briefly (Original_Node (High_Bound (Bounds)));
@@ -1061,56 +1056,7 @@ package body Arrays.Low_Level is
                   (Expr           => High,
                    New_Type       => Index_T,
                    A_Symbol_Table => Global_Symbol_Table));
-   end Get_Bounds;
-
-   -----------------------------
-   -- Get_Constrained_Subtype --
-   -----------------------------
-   function Get_Constrained_Subtype (N : Node_Id) return Entity_Id is
-      E_Type_N : constant Entity_Id :=
-        (if Nkind (N) in N_Entity and then Is_Type (N) then
-              Underlying_Type (N)
-         else
-            Underlying_Type (Etype (N)));
-   begin
-      if Is_Constrained (E_Type_N) then
-         return E_Type_N;
-      end if;
-
-      ???? We ned to check here for a slice which is the result of a
-         ???? function call with an unconstrained result
-           ???? either by delivering an unsupported report or dealing with it
-      case Nkind (N) is
-         when N_Identifier | N_Expanded_Name =>
-            declare
-               Dec_Node : constant Node_Id :=
-                 Declaration_Node (Entity (N));
-            begin
-               pragma Assert (Has_Init_Expression (Dec_Node));
-               return Get_Constrained_Subtype (Expression (Dec_Node));
-            end;
-         when N_Op_Concat =>
-            --  There will not be a constrained subtype.
-            --  return the unconstrained subtype.
-            return E_Type_N;
-         when N_Function_Call =>
-            Report_Unhandled_Node_Empty
-              (N        => N,
-               Fun_Name => "Get_Constrained_Subtype",
-               Message  => "Unsupported: " &
-                 "functions returning unconstrained array types.");
-            return E_Type_N;
-         when N_Type_Conversion | N_Qualified_Expression =>
-            return Get_Constrained_Subtype (Expression (N));
-         when others =>
-            Report_Unhandled_Node_Empty
-              (N        => N,
-               Fun_Name => "Get_Constrained_Subtype",
-               Message  => "Unsuported unconstrained expression kind " &
-                 Node_Kind'Image (Nkind (N)));
-            return E_Type_N;
-      end case;
-   end Get_Constrained_Subtype;
+   end Get_Bounds_From_Index;
 
    --------------------------
    -- Get_Dimension_Bounds --
@@ -1178,7 +1124,7 @@ package body Arrays.Low_Level is
 --               Is_Constr_Subt_For_U_Nominal ()) or else
 --          Nkind (Index) = N_Range
       then
-         return Get_Bounds (Index);
+         return Get_Bounds_From_Index (Index);
       end if;
 
       if Is_Object (N_Entity) then
@@ -1641,8 +1587,6 @@ package body Arrays.Low_Level is
                Etype (Entity (Array_Node)),
             when others =>
                Etype (Array_Node));
-      Array_Id         : constant Symbol_Id :=
-        Intern (Unique_Name (Array_Type));
    begin
       Put_Line ("Multi_Dimension_Flat_Bounds " & S);
       Print_Node_Briefly (Array_Node);
@@ -1696,24 +1640,17 @@ package body Arrays.Low_Level is
       --  symbol table if this function is called a in an initialisation of
       --  the object's declaration but an unconstrained array result variable
       --  should not be treated in the same way as an ordinary object.
-      if not Array_Is_Object and then
-        Global_Symbol_Table.Contains (Array_Id) and then
-        Kind (Global_Symbol_Table (Array_Id).SymType) = I_Struct_Type
+      if not Is_Constrained (Array_Type) and
+        Nkind (Array_Node) = N_Function_Call
       then
          --  It is an unconstrained array result from a function call
          --  or it is the result variable of unconstrained array function
-         Report_Unhandled_Node_Empty
-           (N        => Array_Node,
-            Fun_Name => "Multi_Dimension_Flat_Bounds ",
-            Message  => "Unexpected unconstrained array result");
-         --  Return something for error recovery.
-         return Static_And_Dynamic_Bounds'
-           (Is_Unconstrained  => True,
-            Has_Static_Bounds => False,
-            Low_Static        => 0,
-            High_Static       => 0,
-            Low_Dynamic       => Index_T_Zero,
-            High_Dynamic      => Index_T_Zero);
+         Put_Line ("Unconstrained result");
+         Print_Node_Subtree (Array_Node);
+         return Flat_Bounds_From_Array_Struc
+           (Array_Struc  => Do_Expression (Array_Node),
+            N_Dimensions => Number_Dimensions (Array_Type));
+
       elsif Is_Constrained (Array_Type) or else Array_Is_Object then
          declare
             Dimension_Number  : Positive := 1;
@@ -1947,21 +1884,11 @@ package body Arrays.Low_Level is
       Array_Is_Slice    : constant Boolean := Nkind (The_Array) = N_Slice;
       Array_Type        : constant Entity_Id :=
         (if Array_Is_Slice then
-              Get_Constrained_Subtype (Prefix (The_Array))
+              Underlying_Type (Etype (Prefix (The_Array)))
          else
-            Get_Constrained_Subtype (Etype (The_Array)));
-
-      Is_Unconstrained  : constant Boolean := not Is_Constrained (Array_Type);
+            Underlying_Type (Etype (The_Array)));
    begin
-      if Is_Unconstrained then
-         return Static_And_Dynamic_Bounds'
-           (Is_Unconstrained  => True,
-            Has_Static_Bounds => False,
-            Low_Static        => 0,
-            High_Static       => 0,
-            Low_Dynamic       => Ireps.Empty,
-            High_Dynamic      => Ireps.Empty);
-      elsif not Array_Is_Slice then
+      if not Array_Is_Slice then
          --  The array may be multidimensional
          return Multi_Dimension_Flat_Bounds ("1", Array_Type);
       else

@@ -117,7 +117,7 @@ package body Aggregates is
                then
                   declare
                      Bounds : constant Dimension_Bounds :=
-                       Get_Bounds (Next_Choice);
+                       Get_Bounds_From_Index (Next_Choice);
                   begin
                      Put_Line ("Into a range");
                      Print_Irep (Bounds.Low);
@@ -406,7 +406,7 @@ package body Aggregates is
                   else
                      declare
                         Bounds : constant Dimension_Bounds :=
-                          Get_Bounds (Next_Choice);
+                          Get_Bounds_From_Index (Next_Choice);
                      begin
                         Assign_Value_To_Dynamic_Array_Components
                           (Block            => Block,

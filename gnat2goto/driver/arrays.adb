@@ -405,15 +405,7 @@ package body Arrays is
                  New_Type       => Source_I_Type,
                  A_Symbol_Table => Global_Symbol_Table);
             Source_Bounds : constant Static_And_Dynamic_Bounds :=
-              (if Kind (Source_I_Type) = I_Struct_Type
-               then
-               --  It is an array_struc result from a function
-               --  with an unconstrained array result.
-                  Flat_Bounds_From_Array_Struc
-                 (Resolved_Source_Expr, N_Dimensions)
-               else
-                  Multi_Dimension_Flat_Bounds
-                 ("50", Source_Expr));
+              Multi_Dimension_Flat_Bounds ("50", Source_Expr);
          begin
             Assign_Array
               (Block         => Block,
@@ -462,14 +454,9 @@ package body Arrays is
 
       declare
          Bounds : constant Static_And_Dynamic_Bounds :=
-           (if not Src_Is_Object and then
-            Kind (Src_Array_I_Type) = I_Struct_Type then
-                 Flat_Bounds_From_Array_Struc
-              (Array_Struc  => Do_Expression (Array_Node),
-               N_Dimensions => Number_Dimensions (Src_Array_Type))
-            else
-               Multi_Dimension_Flat_Bounds ("5", Array_Node));
-         Array_Size : constant Irep := Get_Array_Size_From_Bounds (Bounds);
+               Multi_Dimension_Flat_Bounds ("5", Array_Node);
+         Array_Size : constant Static_And_Dynamic_Index :=
+           Get_Array_Size_From_Bounds (Bounds);
 
          Needs_Size_Var : constant Boolean :=
            (not Is_Constrained (Src_Array_Type) or else
@@ -520,7 +507,7 @@ package body Arrays is
             if Needs_Size_Var then
                Append_Declare_And_Init
                  (Symbol     => Array_Size_Var,
-                  Value      => Array_Size,
+                  Value      => Array_Size.Dynamic_Index,
                   Block      => Block,
                   Source_Loc => Source_Loc);
             end if;
@@ -560,7 +547,7 @@ package body Arrays is
                ASVAT.Size_Model.Set_Computed_Size
                  (Id        => Id,
                   Size_Expr => Make_Op_Mul
-                    (Rhs             => Array_Size,
+                    (Rhs             => Array_Size.Dynamic_Index,
                      Lhs             => Typecast_If_Necessary
                        (Expr           =>
                             ASVAT.Size_Model.Computed_Size (Comp_Type),
@@ -604,12 +591,7 @@ package body Arrays is
       pragma Assert (Print_Node (Dest_Type));
       pragma Assert (Print_Node (Underlying, True));
       Array_Bounds : constant Static_And_Dynamic_Bounds :=
-        (if Is_Constrained (Underlying) or else
-         Is_Constr_Subt_For_U_Nominal (Underlying)
-         then
-            Multi_Dimension_Flat_Bounds ("20", Underlying)
-         else
-            Unconstrained_Bounds);
+            Multi_Dimension_Flat_Bounds ("20", Underlying);
    begin
       if Array_Bounds.Is_Unconstrained then
          Report_Unhandled_Node_Empty
@@ -648,13 +630,7 @@ package body Arrays is
                        Boolean'Image
                        (Is_Constr_Subt_For_U_Nominal (Underlying))));
       Array_Bounds : Static_And_Dynamic_Bounds :=
-        (if Is_Constrained (Underlying)
---           or else
---              Is_Constr_Subt_For_U_Nominal (Underlying)
-         then
-            Multi_Dimension_Flat_Bounds ("4", Dec_Node)
-         else
-            Unconstrained_Bounds);
+            Multi_Dimension_Flat_Bounds ("4", Dec_Node);
       pragma Assert (Print_Msg ("Do_Array_Object_Declaration Low " &
                        Array_Name));
       pragma Assert (Print_Msg ("Do_Array_Object_Declaration Low " &
@@ -1301,7 +1277,7 @@ package body Arrays is
       Index_Type : constant Entity_Id :=
         Base_Type (Etype (Index));
 
-      Bounds : constant Dimension_Bounds := Get_Bounds (Index);
+      Bounds : constant Dimension_Bounds := Get_Bounds_From_Index (Index);
    begin
       Put_Line ("Declare_First_Last_Vars");
       Print_Node_Briefly (Index);
@@ -3127,46 +3103,16 @@ package body Arrays is
                        N
                   elsif Nkind (N) in N_Has_Entity then
                        Entity (N)
+                  elsif Nkind (N) in N_Has_Etype then
+                       Etype (N)
                   else
                      Types.Empty);
-               Array_Is_Object : constant Boolean :=
-                 Present (Array_Entity) and then Is_Object (Array_Entity);
-               Array_Type  : constant Entity_Id := Get_Constrained_Subtype (N);
-               First_Idx   : constant Node_Id := First_Index (Array_Type);
-               Array_Range : constant Node_Id :=
-                 (if Nkind (First_Idx) /= N_Range then
-                       Scalar_Range (Etype (First_Idx))
-                  else
-                     First_Idx);
-               Constrained : constant Boolean := Is_Constrained (Array_Type);
-               Is_Static   : constant Boolean :=
-                 Constrained and then Is_OK_Static_Range (Array_Range);
-               Static_Len  : constant Uint :=
-                 (if Is_Static then
-                     Calculate_Static_Dimension_Length (Array_Range)
-                  else
-                     Uint_0);
-               Dynamic_Len : constant Irep :=
-                 (if Is_Static then
-                     Integer_Constant_To_Expr
-                    (Value           => Static_Len,
-                     Expr_Type       => Index_T,
-                     Source_Location => Source_Loc)
-                  elsif Constrained then
-                     Calculate_Dimension_Length (Get_Bounds (Array_Range))
-                  elsif Array_Is_Object then
-                     Calculate_Dimension_Length
-                       (Get_Dimension_Bounds
-                         (N     => N,
-                          Dim   => 1,
-                          Index => Array_Range))
-                  else
-                     Ireps.Empty);
-               Next_Length : constant Static_And_Dynamic_Index :=
-                 Static_And_Dynamic_Index'
-                   (Is_Static     => Is_Static,
-                    Static_Index  => Static_Len,
-                    Dynamic_Index => Dynamic_Len);
+               Array_Type      : constant Entity_Id :=
+                 Underlying_Type (Array_Entity);
+               Array_Bounds    : constant Static_And_Dynamic_Bounds :=
+                 Multi_Dimension_Flat_Bounds ("102", Array_Type);
+               Next_Length    : constant Static_And_Dynamic_Index :=
+                 Get_Array_Size_From_Bounds (Array_Bounds);
 
                New_Index   : constant Static_And_Dynamic_Index :=
                  Add_To_Index (Accum_Index, Next_Length);
@@ -3184,15 +3130,14 @@ package body Arrays is
                     High_Dynamic      => High_Index.Dynamic_Index);
             begin
                Put_Line ("Process_Catination - completing");
-               Print_Node_Subtree (Array_Range);
-               Put_Line ("Isstatic " & Boolean'Image (Accum_Index.Is_Static));
+               Put_Line ("Isstatic " & Boolean'Image (Next_Length.Is_Static));
                Put_Line ("Static length " &
-                           Int'Image (UI_To_Int (Static_Len)));
-               Print_Irep (Dynamic_Len);
-               if Kind (Dynamic_Len) = I_Op_Add then
+                           Int'Image (UI_To_Int (Next_Length.Static_Index)));
+               Print_Irep (Next_Length.Dynamic_Index);
+               if Kind (Next_Length.Dynamic_Index) = I_Op_Add then
                   Put_Line ("An op add");
-                  Print_Irep (Get_Lhs (Dynamic_Len));
-                  Print_Irep (Get_Rhs (Dynamic_Len));
+                  Print_Irep (Get_Lhs (Next_Length.Dynamic_Index));
+                  Print_Irep (Get_Rhs (Next_Length.Dynamic_Index));
                end if;
 
                Put_Line ("Dest_Bounds");
@@ -3218,7 +3163,7 @@ package body Arrays is
                   Print_Irep (Get_Lhs (New_Index.Dynamic_Index));
                   Print_Irep (Get_Rhs (New_Index.Dynamic_Index));
                end if;
-               if Constrained then
+               if not Array_Bounds.Is_Unconstrained then
                   Array_Assignment_Op
                     ("3",
                      Source_Expr  => N,

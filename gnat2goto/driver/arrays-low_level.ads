@@ -193,7 +193,8 @@ package Arrays.Low_Level is
      with Pre => Nkind (N) = N_Op_Concat;
    --  Calculates the length of an array concatination.
 
-   function Calculate_Dimension_Length (Bounds : Dimension_Bounds) return Irep;
+   function Calculate_Dimension_Length (Bounds : Dimension_Bounds)
+                                        return Irep;
 
    function Calculate_Index_Offset (Array_Node  : Node_Id;
                                     Array_Type  : Entity_Id;
@@ -261,20 +262,15 @@ package Arrays.Low_Level is
      with Pre => Is_Array_Type (Etype (The_Array));
 
    function Get_Array_Size_From_Bounds (Bounds : Static_And_Dynamic_Bounds)
-                                        return Irep;
+                                        return Static_And_Dynamic_Index;
 
    function Get_Bounds_From_Struc (Array_Struc : Irep; Dimension : Pos)
                                    return Dimension_Bounds
      with Pre => Kind (Get_Type (Array_Struc)) = I_Struct_Type;
 
-   function Get_Bounds (Index : Node_Id) return Dimension_Bounds;
-   --  If the array is constrained, returns the lower and upper bounds of
+   function Get_Bounds_From_Index (Index : Node_Id) return Dimension_Bounds;
+   --  If the array Index is constrained, returns the lower and upper bounds of
    --  the index constraint.
-
-   function Get_Constrained_Subtype (N : Node_Id) return Entity_Id;
-   --  Determines the constrained array subtype of an array expression.
-   --  If no constrained subtype is found returns the unconstrained
-   --  type of the expression.
 
    function Get_Dimension_Bounds (N : Node_Id; Dim : Positive; Index : Node_Id)
                                   return Dimension_Bounds;
