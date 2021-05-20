@@ -425,6 +425,9 @@ package body Arrays.Low_Level is
                Next_Length : constant Static_And_Dynamic_Index :=
                  Get_Array_Size_From_Bounds (Next_Bounds);
             begin
+               Print_Node_Briefly (N);
+               Put_Line ("Next_Bounds.Is_Unconstrained " &
+                           Boolean'Image (Next_Bounds.Is_Unconstrained));
                if not Next_Bounds.Is_Unconstrained then
                   Add_To_Index (Index        => Accum_Length,
                                 Value_To_Add => Next_Length);
@@ -1573,20 +1576,24 @@ package body Arrays.Low_Level is
       --  The front-end ensures that the array has at least one dimension.
       Array_Node_Kind   : constant Node_Kind := Nkind (Array_Node);
       Array_Is_Object   : constant Boolean :=
-        Array_Node_Kind in N_Has_Entity and then
-        Is_Object (Entity (Array_Node));
+        (Array_Node_Kind in N_Entity and then Is_Object (Array_Node)) or else
+        (Array_Node_Kind in N_Has_Entity and then
+         Is_Object (Entity (Array_Node)));
       Array_Type        : constant Entity_Id :=
-        (case Array_Node_Kind is
-            when N_Defining_Identifier =>
-               Array_Node,
-            when N_Full_Type_Declaration | N_Subtype_Declaration =>
-               Defining_Identifier ("50", Array_Node),
-            when N_Object_Declaration | N_Object_Renaming_Declaration =>
-               Etype (Defining_Identifier ("6", Array_Node)),
-            when N_Identifier | N_Expanded_Name =>
-               Etype (Entity (Array_Node)),
-            when others =>
-               Etype (Array_Node));
+        (if Array_Node_Kind = N_Defining_Identifier and then
+         Is_Type (Array_Node)
+         then
+            Array_Node
+         else
+            (case Array_Node_Kind is
+               when N_Full_Type_Declaration | N_Subtype_Declaration =>
+                  Defining_Identifier ("50", Array_Node),
+               when N_Object_Declaration | N_Object_Renaming_Declaration =>
+                  Etype (Defining_Identifier ("6", Array_Node)),
+               when N_Identifier | N_Expanded_Name =>
+                  Etype (Entity (Array_Node)),
+               when others =>
+                  Etype (Array_Node)));
    begin
       Put_Line ("Multi_Dimension_Flat_Bounds " & S);
       Print_Node_Briefly (Array_Node);
@@ -1652,6 +1659,9 @@ package body Arrays.Low_Level is
             N_Dimensions => Number_Dimensions (Array_Type));
 
       elsif Is_Constrained (Array_Type) or else Array_Is_Object then
+         Put_Line ("Array_Is_Object");
+         Print_Node_Briefly (Array_Node);
+         Print_Node_Briefly (Array_Type);
          declare
             Dimension_Number  : Positive := 1;
             Dimension_Iter    : Node_Id := First_Index (Array_Type);
