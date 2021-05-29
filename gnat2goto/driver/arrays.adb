@@ -202,7 +202,6 @@ package body Arrays is
 
    procedure Make_Constrained_Array_From_Initialization
      (Block        : Irep;
-      Target_Type  : Entity_Id;
       Array_Name   : String;
       Init_Expr    : Node_Id;
       The_Array    : out Irep;
@@ -456,6 +455,8 @@ package body Arrays is
       Put_Line (Array_Name);
       Print_Node_Briefly (Array_Node);
       Print_Node_Briefly (Src_Array_Type);
+      Print_Irep (Array_Bounds.Low_Dynamic);
+      Print_Irep (Array_Bounds.High_Dynamic);
       Put_Line ("Is an object " &
                   Boolean'Image (Src_Is_Object));
 
@@ -504,15 +505,25 @@ package body Arrays is
          Decl      : constant Irep := Make_Code_Decl
            (Symbol => Array_Irep,
             Source_Location => Source_Loc);
+
       begin
          Put_Line ("Array_Object_And_Friends");
          Put_Line ("Needs_Size_Var " & Boolean'Image (Needs_Size_Var));
          Print_Irep (Src_Array_I_Type);
-         Print_Node_Subtree (Src_Array_Type);
+         Print_Node_Briefly (Src_Array_Type);
          if not Global_Symbol_Table.Contains (Id) then
             --  If a size variable is needed to define the size of the
             --  goto array object, declare it before the array.
             Put_Line ("The symbol table does not contain the array");
+            Print_Irep (Array_Size_Var);
+            Print_Irep (Array_Size.Dynamic_Index);
+            if Kind (Array_Size.Dynamic_Index) = I_Op_Add then
+               Put_Line ("LHS");
+               Print_Irep (Get_Lhs (Array_Size.Dynamic_Index));
+               Put_Line ("RHS");
+               Print_Irep (Get_Rhs (Array_Size.Dynamic_Index));
+            end if;
+
             if Needs_Size_Var then
                Append_Declare_And_Init
                  (Symbol     => Array_Size_Var,
@@ -691,11 +702,14 @@ package body Arrays is
             --  is used to define the size of the array.
             Arr_Len_Irep : constant Irep :=
               (if Array_Bounds.Has_Static_Bounds then
-                  Array_Length
+                  Typecast_If_Necessary
+                 (Expr           => Array_Length,
+                  New_Type       => Index_T,
+                  A_Symbol_Table => Global_Symbol_Table)
                else
                   Make_Symbol_Expr
                  (Source_Location => Source_Loc,
-                  I_Type          => Make_Unsignedbv_Type (64),
+                  I_Type          => Index_T,
                   Range_Check     => False,
                   Identifier      => Array_Name & "_$array_size"));
 
@@ -720,6 +734,7 @@ package body Arrays is
             Decl : constant Irep := Make_Code_Decl
               (Symbol => Arr_Len_Irep,
                Source_Location => Source_Loc);
+
          begin
             --  Set the ASVAT.Size_Model size for the array.
             ASVAT.Size_Model.Set_Computed_Size
@@ -733,16 +748,13 @@ package body Arrays is
                --  and assign the array length expression.
                Append_Op (Block,
                           Make_Code_Assign
-                            (Rhs             =>
-                               Make_Op_Typecast
-                                 (Op0             => Array_Length,
-                                  Source_Location => Source_Loc,
-                                  I_Type          =>
-                                    Make_Unsignedbv_Type (64),
-                                  Range_Check     => False),
+                            (Rhs             => Typecast_If_Necessary
+                               (Expr           => Array_Length,
+                                New_Type       => Index_T,
+                                A_Symbol_Table => Global_Symbol_Table),
                              Lhs             => Arr_Len_Irep,
                              Source_Location => Source_Loc,
-                             I_Type          => Make_Unsignedbv_Type (64),
+                             I_Type          => Index_T,
                              Range_Check     => False));
             end if;
 
@@ -767,7 +779,6 @@ package body Arrays is
          --  initialization, which must be present.
          Make_Constrained_Array_From_Initialization
            (Block        => Block,
-            Target_Type  => Target_Type,
             Array_Name   => Array_Name,
             Init_Expr    => Init_Expr,
             The_Array    => The_Array,
@@ -858,7 +869,7 @@ package body Arrays is
          else
             False);
       Src_I_Type      : constant Irep :=
-        Global_Symbol_Table (Intern (Array_Name)).SymType;
+        Get_Type (Do_Expression (Src_Array));
    begin
       Put_Line ("Declare_Array_Friends");
       Print_Node_Briefly (Src_Array);
@@ -1042,39 +1053,41 @@ package body Arrays is
          --  An object of an unconstrained type
          --  (if the object is declared without a constraint)
          --  will have a lower bound of Index_Type'First and an upper bound
-         --  of Index_Type'First + Flat_Bounds.High - 1
+         --  of Index_Type'First + Flat_Bounds.High
          Put_Line ("Src expr is a concat");
          Print_Node_Subtree (Src_Array);
          Print_Node_Subtree (Array_Type);
 --           pragma Assert (False);
          declare
+            Index_Type      : constant Irep :=
+              Do_Type_Reference (Etype (First_Index (Array_Type)));
             Unconstr_Bounds : constant Dimension_Bounds :=
               Get_Bounds_From_Index (First_Index (Array_Type));
-            Low_Bound_Irep : constant Irep :=
-              Unconstr_Bounds.Low;
             Bounds : constant Dimension_Bounds :=
               Dimension_Bounds'
-                (Low  => Low_Bound_Irep,
-                 High => Make_Op_Sub
-                   (Rhs             => Index_T_One,
-                    Lhs             => Make_Op_Add
+                (Low  => Typecast_If_Necessary
+                   (Expr           => Unconstr_Bounds.Low,
+                    New_Type       => Index_T,
+                    A_Symbol_Table => Global_Symbol_Table),
+                 High => Typecast_If_Necessary
+                   (Expr           => Make_Op_Add
                       (Rhs             => Typecast_If_Necessary
                            (Expr           => Flat_Bounds.High_Dynamic,
                             New_Type       => Index_T,
                             A_Symbol_Table => Global_Symbol_Table),
                        Lhs             => Typecast_If_Necessary
-                         (Expr           => Low_Bound_Irep,
+                         (Expr           => Unconstr_Bounds.Low,
                           New_Type       => Index_T,
                           A_Symbol_Table => Global_Symbol_Table),
                        Source_Location => Source_Location,
                        I_Type          => Index_T),
-                    Source_Location => Source_Location,
-                    I_Type          => Index_T));
+                    New_Type       => Index_T,
+                    A_Symbol_Table => Global_Symbol_Table));
          begin
             Declare_First_Last_From_Bounds
               (Prefix     => Array_Name,
                Dimension  => "1",
-               Index_Type => Index_T,
+               Index_Type => Index_Type,
                Bounds     => Bounds,
                Block      => Block);
          end;
@@ -1118,53 +1131,17 @@ package body Arrays is
            Range_Check     => False,
            Identifier      => Last_Name);
 
-      Dec_First : constant Irep :=
-        Make_Code_Decl
-          (Symbol          => First_Sym,
-           Source_Location => Source_Loc,
-           I_Type          => Index_Type,
-           Range_Check     => False);
-
-      Dec_Last : constant Irep :=
-        Make_Code_Decl
-          (Symbol          => Last_Sym,
-           Source_Location => Source_Loc,
-           I_Type          => Index_Type,
-           Range_Check     => False);
-
       First_Val : constant Irep :=
-        (if Index_Type = Index_T then
-            Bounds.Low
-         else
-            Make_Op_Typecast
-           (Op0             => Bounds.Low,
-            Source_Location => Source_Loc,
-            I_Type          => Index_Type));
+        Typecast_If_Necessary
+          (Expr           => Bounds.Low,
+           New_Type       => Index_Type,
+           A_Symbol_Table => Global_Symbol_Table);
 
       Last_Val : constant Irep :=
-        (if Index_Type = Index_T then
-            Bounds.High
-         else
-            Make_Op_Typecast
-           (Op0             => Bounds.High,
-            Source_Location => Source_Loc,
-            I_Type          => Index_Type));
-
-      Assign_First : constant Irep :=
-        Make_Code_Assign
-          (Rhs             => First_Val,
-           Lhs             => First_Sym,
-           Source_Location => Source_Loc,
-           I_Type          => Index_Type,
-           Range_Check     => False);
-
-      Assign_Last : constant Irep :=
-        Make_Code_Assign
-          (Rhs             => Last_Val,
-           Lhs             => Last_Sym,
-           Source_Location => Source_Loc,
-           I_Type          => Index_Type,
-           Range_Check     => False);
+        Typecast_If_Necessary
+          (Expr           => Bounds.High,
+           New_Type       => Index_Type,
+           A_Symbol_Table => Global_Symbol_Table);
    begin
       --  Add the first and last variables to the symbol table.
       New_Object_Symbol_Entry
@@ -1179,10 +1156,16 @@ package body Arrays is
          A_Symbol_Table    => Global_Symbol_Table);
 
       --  Declare and assign values in goto code.
-      Append_Op (Block, Dec_First);
-      Append_Op (Block, Dec_Last);
-      Append_Op (Block, Assign_First);
-      Append_Op (Block, Assign_Last);
+      Append_Declare_And_Init
+        (Symbol     => First_Sym,
+         Value      => First_Val,
+         Block      => Block,
+         Source_Loc => Source_Loc);
+      Append_Declare_And_Init
+        (Symbol     => Last_Sym,
+         Value      => Last_Val,
+         Block      => Block,
+         Source_Loc => Source_Loc);
    end Declare_First_Last_From_Bounds;
 
    -----------------------------------------
@@ -2094,7 +2077,9 @@ package body Arrays is
               (case Attr is
                   when Attribute_First => Bounds.Low,
                   when Attribute_Last => Bounds.High,
-                  when others => Calculate_Dimension_Length (Bounds));
+                  when others =>
+                     Calculate_Dimension_Length
+                 ("Do_Array_First_Last_Length -1", Bounds));
 
          end;
       else
@@ -2118,7 +2103,8 @@ package body Arrays is
                               when Attribute_First => Bounds.Low,
                               when Attribute_Last => Bounds.High,
                               when others =>
-                                 Calculate_Dimension_Length (Bounds));
+                                 Calculate_Dimension_Length
+                             ("Do_Array_First_Last_Length -2", Bounds));
                      end;
                   else
                      declare
@@ -2137,7 +2123,8 @@ package body Arrays is
                               when Attribute_First => Bounds.Low,
                               when Attribute_Last => Bounds.High,
                               when others =>
-                                 Calculate_Dimension_Length (Bounds));
+                                 Calculate_Dimension_Length
+                             ("Do_Array_First_Last_Length -3", Bounds));
                      end;
                   end if;
                else
@@ -2436,7 +2423,6 @@ package body Arrays is
    ------------------------------------------------
    procedure Make_Constrained_Array_From_Initialization
      (Block        : Irep;
-      Target_Type  : Entity_Id;
       Array_Name   : String;
       Init_Expr    : Node_Id;
       The_Array    : out Irep;
@@ -2456,18 +2442,19 @@ package body Arrays is
             declare
                Cat_Array_Length : constant Irep :=
                  Calculate_Concat_Length (Init_Expr);
-               Cat_Array_Bounds : constant Dimension_Bounds :=
-                 Calculate_Concat_Bounds
-                   (Target_Type   => Target_Type,
-                    Concat_Length => Cat_Array_Length);
             begin
+               --  Goto arrays start from zero.
                return Static_And_Dynamic_Bounds'
                  (Is_Unconstrained  => False,
                   Has_Static_Bounds => False,
                   Low_Static        => 0,
                   High_Static       => 0,
-                  Low_Dynamic       => Cat_Array_Bounds.Low,
-                  High_Dynamic      => Cat_Array_Bounds.High);
+                  Low_Dynamic       => Index_T_Zero,
+                  High_Dynamic      => Make_Op_Sub
+                    (Rhs             => Index_T_One,
+                     Lhs             => Cat_Array_Length,
+                     Source_Location => Source_Loc,
+                     I_Type          => Index_T));
             end;
          else
             return Multi_Dimension_Flat_Bounds ("500", Init_Expr);
@@ -2907,7 +2894,7 @@ package body Arrays is
             Arr_Len_Irep : constant Irep :=
               Make_Symbol_Expr
                 (Source_Location => Source_Location,
-                 I_Type          => Make_Unsignedbv_Type (64),
+                 I_Type          => Index_T,
                  Range_Check     => False,
                  Identifier      => Arr_Len);
          begin
@@ -2919,14 +2906,10 @@ package body Arrays is
             --  to the computed length.
             New_Object_Symbol_Entry
               (Object_Name       => Arr_Len_Id,
-               Object_Type       => Make_Unsignedbv_Type (64),
-               Object_Init_Value => Make_Op_Typecast
-                 (Op0             => Array_Length,
-                  Source_Location => Source_Location,
-                  I_Type          =>
-                    Make_Unsignedbv_Type (64),
-                  Range_Check     => False),
+               Object_Type       => Index_T,
+               Object_Init_Value => Array_Length,
                A_Symbol_Table    => Global_Symbol_Table);
+
             --  Return the dynamic array type
             --  using the declared array length variable.
             Put_Line ("Make_Constrained_Array_Subtype - return dynamic");

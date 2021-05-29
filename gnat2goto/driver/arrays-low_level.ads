@@ -193,7 +193,7 @@ package Arrays.Low_Level is
      with Pre => Nkind (N) = N_Op_Concat;
    --  Calculates the length of an array concatination.
 
-   function Calculate_Dimension_Length (Bounds : Dimension_Bounds)
+   function Calculate_Dimension_Length (S : String; Bounds : Dimension_Bounds)
                                         return Irep;
 
    function Calculate_Index_Offset (Array_Node  : Node_Id;

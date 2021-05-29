@@ -349,8 +349,8 @@ package body Arrays.Low_Level is
          Index      : constant Node_Id := First_Index (Target_Type);
          Index_Type : constant Entity_Id := Base_Type (Etype (Index));
 
-         Type_Irep : constant Irep :=
-           Do_Type_Reference (Index_Type);
+--           Type_Irep : constant Irep :=
+--             Do_Type_Reference (Index_Type);
 
          --  For unconstrained array type, a concatination takes the
          --  first value of the scalar index type.
@@ -378,13 +378,17 @@ package body Arrays.Low_Level is
               I_Type          => Index_T,
               Range_Check     => False);
 
-         High_Irep : constant Irep :=
-           Typecast_If_Necessary
-             (Expr           => High_Index,
-              New_Type       => Type_Irep,
-              A_Symbol_Table => Global_Symbol_Table);
+--           High_Irep : constant Irep :=
+--             Typecast_If_Necessary
+--               (Expr           => High_Index,
+--                New_Type       => Type_Irep,
+--                A_Symbol_Table => Global_Symbol_Table);
       begin
-         return (Low_Irep, High_Irep);
+         Put_Line ("Calculate_Concat_Bounds");
+         Print_Irep (Concat_Length);
+         Print_Irep (Low_Index);
+         Print_Irep (High_Index);
+         return (Low_Index, High_Index);
       end;
    end Calculate_Concat_Bounds;
 
@@ -470,7 +474,7 @@ package body Arrays.Low_Level is
    -- Calculate_Dimension_Length --
    --------------------------------
 
-   function Calculate_Dimension_Length (Bounds : Dimension_Bounds)
+   function Calculate_Dimension_Length (S : String; Bounds : Dimension_Bounds)
                                         return Irep is
       First_Val : constant Irep :=
         Typecast_If_Necessary
@@ -501,6 +505,12 @@ package body Arrays.Low_Level is
            I_Type          => Index_T,
            Range_Check     => False);
    begin
+      Put_Line ("Calculate_Dimension_Length");
+      Put_Line (S);
+      Print_Irep (Bounds.High);
+      Print_Irep (Last_Val);
+      Print_Irep (Diff);
+      Print_Irep (Length_Val);
       return Length_Val;
    end Calculate_Dimension_Length;
 
@@ -537,7 +547,9 @@ package body Arrays.Low_Level is
                  Lhs             =>
                    Typecast_If_Necessary
                      (Expr           =>
-                          Calculate_Dimension_Length (Bounds_Iter),
+                          Calculate_Dimension_Length
+                        ("Calculate_Index_Offset",
+                         Bounds_Iter),
                       New_Type       => Index_T,
                       A_Symbol_Table => Global_Symbol_Table),
                  Source_Location => Source_Location,
@@ -663,7 +675,8 @@ package body Arrays.Low_Level is
         Multi_Dimension_Flat_Bounds ("31", Array_Type);
       Array_Length   : constant Irep :=
         Calculate_Dimension_Length
-          (Dimension_Bounds'
+          ("Compute_Array_Byte_Size",
+           Dimension_Bounds'
              (Low  => Array_Bounds.Low_Dynamic,
               High => Array_Bounds.High_Dynamic));
       Comp_Type      : constant Entity_Id :=
@@ -1024,7 +1037,8 @@ package body Arrays.Low_Level is
               Source_Location => Internal_Source_Location,
               I_Type          => Index_T);
       end if;
-
+      Put_Line ("Get_Array_Size_From_Bounds");
+      Print_Irep (Result.Dynamic_Index);
       return Result;
    end Get_Array_Size_From_Bounds;
 
@@ -1049,6 +1063,14 @@ package body Arrays.Low_Level is
       Print_Node_Briefly (Original_Node (High_Bound (Bounds)));
       Print_Irep (Low);
       Print_Irep (High);
+      Print_Irep (Typecast_If_Necessary
+                  (Expr           => Low,
+                   New_Type       => Index_T,
+                   A_Symbol_Table => Global_Symbol_Table));
+      Print_Irep (Typecast_If_Necessary
+                  (Expr           => High,
+                   New_Type       => Index_T,
+                   A_Symbol_Table => Global_Symbol_Table));
       return (Low =>
                 Typecast_If_Necessary
                   (Expr           => Low,
@@ -1107,7 +1129,7 @@ package body Arrays.Low_Level is
       else
          Put_Line ("No Etype");
       end if;
-      Print_Node_Subtree (Index);
+      Print_Node_Briefly (Index);
       Put_Line ("Constrained " &
                   Boolean'Image (Is_Constrained (Array_Type)));
       Put_Line ("Constrained N_entity " &
@@ -1683,7 +1705,8 @@ package body Arrays.Low_Level is
                --  Bounds are variable or it is an array object of an
                --  unconstrained subtype.
                Var_Dim_Bounds := Calculate_Dimension_Length
-                 (Get_Dimension_Bounds
+                 ("Multi_Dimension_Flat_Bounds -1",
+                  Get_Dimension_Bounds
                     (Array_Node, Dimension_Number, Dimension_Iter));
             end if;
 
@@ -1705,12 +1728,14 @@ package body Arrays.Low_Level is
                else
                   if Var_Dim_Bounds = Ireps.Empty then
                      Var_Dim_Bounds := Calculate_Dimension_Length
-                       (Get_Dimension_Bounds
+                       ("Multi_Dimension_Flat_Bounds - 2",
+                        Get_Dimension_Bounds
                           (Array_Node, Dimension_Number, Dimension_Iter));
                   else
                      Var_Dim_Bounds := Make_Op_Mul
                        (Rhs             => Calculate_Dimension_Length
-                          (Get_Dimension_Bounds
+                          ("Multi_Dimension_Flat_Bounds - 3",
+                           Get_Dimension_Bounds
                                (Array_Node,
                                 Dimension_Number, Dimension_Iter)),
                         Lhs             => Var_Dim_Bounds,
@@ -1870,7 +1895,8 @@ package body Arrays.Low_Level is
                     I_Type          => Int32_T));
 
             Dim_Length : constant Irep :=
-              Calculate_Dimension_Length (Dim_Bounds);
+              Calculate_Dimension_Length ("Get_Size_From_Array_Struc",
+                                          Dim_Bounds);
 
          begin
             if I = 1 then
