@@ -523,8 +523,7 @@ package body Arrays.Low_Level is
                                     The_Indices : Node_Id) return Irep
    is
       Source_Location : constant Irep := Get_Source_Location (The_Indices);
-      No_Of_Dims  : constant Positive :=
-        Positive (Number_Dimensions (Array_Type));
+      No_Of_Dims  : constant Pos := Number_Dimensions (Array_Type);
       Index_Iter  : Node_Id := First (Expressions (The_Indices));
       Dim_Iter    : Node_Id := First_Index (Array_Type);
       Bounds_Iter : Dimension_Bounds :=
@@ -1087,7 +1086,7 @@ package body Arrays.Low_Level is
    -- Get_Dimension_Bounds --
    --------------------------
 
-   function Get_Dimension_Bounds (N : Node_Id; Dim : Positive; Index : Node_Id)
+   function Get_Dimension_Bounds (N : Node_Id; Dim : Pos; Index : Node_Id)
                                   return Dimension_Bounds
    is
       Source_Location  : constant Irep := Get_Source_Location (N);
@@ -1158,7 +1157,7 @@ package body Arrays.Low_Level is
          --  that has first and last auxillary variables declared for each
          --  dimension.
          declare
-            Dim_String_Pre : constant String := Integer'Image (Dim);
+            Dim_String_Pre : constant String := Pos'Image (Dim);
             Dim_String     : constant String :=
               Dim_String_Pre (2 .. Dim_String_Pre'Last);
 
@@ -1211,7 +1210,7 @@ package body Arrays.Low_Level is
             Array_I_Type : constant Irep := Get_Type (Array_Irep);
          begin
             if Kind (Array_I_Type) = I_Struct_Type then
-               return Get_Bounds_From_Struc (Array_Irep, Pos (Dim));
+               return Get_Bounds_From_Struc (Array_Irep, Dim);
             end if;
          end;
       end if;
@@ -1268,6 +1267,11 @@ package body Arrays.Low_Level is
                    Source_Location => Source_Location,
                    I_Type          => Make_Pointer_Type (Comp_I_Type),
             Range_Check     => False)
+         elsif Array_I_Kind in I_String_Type then
+            Make_Address_Of_Expr
+           (Object          => The_Array,
+            Source_Location => Source_Location,
+            I_Type          => Make_Pointer_Type (Make_String_Type))
          elsif Array_I_Kind = I_Pointer_Type then
          --  The_Array is already a pointer - nothing to be done.
             The_Array
@@ -1685,7 +1689,7 @@ package body Arrays.Low_Level is
          Print_Node_Briefly (Array_Node);
          Print_Node_Briefly (Array_Type);
          declare
-            Dimension_Number  : Positive := 1;
+            Dimension_Number  : Pos := 1;
             Dimension_Iter    : Node_Id := First_Index (Array_Type);
             Dimension_Range   : Node_Id := Get_Range (Dimension_Iter);
             Var_Dim_Bounds    : Irep := Ireps.Empty;

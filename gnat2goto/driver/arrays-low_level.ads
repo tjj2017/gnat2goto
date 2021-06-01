@@ -48,7 +48,7 @@ package Arrays.Low_Level is
 
    --  An Ada type equivalent to the Bounds array of the Array_Struc.
    --  The component type is Bounds_Component.
-   type Bounds_Array is array (Natural range <>) of Irep;
+   type Bounds_Array is array (Nat range <>) of Irep;
 
    function Get_Array_Struc_Type_Size (Dimensions : Pos) return Pos is
      (2 * Dimensions * Integer'Size + Pos (Pointer_Type_Width));
@@ -272,7 +272,7 @@ package Arrays.Low_Level is
    --  If the array Index is constrained, returns the lower and upper bounds of
    --  the index constraint.
 
-   function Get_Dimension_Bounds (N : Node_Id; Dim : Positive; Index : Node_Id)
+   function Get_Dimension_Bounds (N : Node_Id; Dim : Pos; Index : Node_Id)
                                   return Dimension_Bounds;
    --  The pre-condition is rather complex and so is provided by
    --  an assertion in the body.
@@ -286,7 +286,8 @@ package Arrays.Low_Level is
    function Get_Pointer_To_Array (The_Array : Irep; Comp_I_Type : Irep)
                                   return Irep
      with Pre  => Kind (Get_Type (The_Array)) in
-                           I_Array_Type | I_Pointer_Type | I_Struct_Type,
+                     I_Array_Type | I_Pointer_Type | I_Struct_Type |
+                     I_String_Type,
        Post => Kind (Get_Type (Get_Pointer_To_Array'Result)) =
                                                              I_Pointer_Type;
 

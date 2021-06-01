@@ -10,6 +10,8 @@ with GOTO_Utils;        use GOTO_Utils;
 
 package Arrays is
 
+   function Is_Unconstrained_Array_Result (Expr : Irep) return Boolean;
+
    procedure Add_Array_Friends (Array_Name : String;
                                 Array_Type : Entity_Id;
                                 Param_List : Irep)
@@ -80,6 +82,10 @@ package Arrays is
    procedure Do_Array_Assignment (Block : Irep; N : Node_Id)
      with Pre => Nkind (N) = N_Assignment_Statement;
 
+   function Do_Array_Concatination (N : Node_Id) return Irep
+   with Pre  =>  Nkind (N) = N_Op_Concat;
+--      Post => Is_Unconstrained_Array_Result (Do_Array_Concatination'Result);
+
    function Do_Array_First_Last_Length (N : Node_Id; Attr : Attribute_Id)
                                         return Irep
      with Pre => Nkind (N) = N_Attribute_Reference and then
@@ -91,14 +97,19 @@ package Arrays is
    function Do_Indexed_Component (N : Node_Id) return Irep
      with Pre  => Nkind (N) = N_Indexed_Component;
 
+   function Get_Array_Reference (Array_Irep : Irep; Component_Irep : Irep)
+                                 return Irep;
+
    function Get_Non_Array_Component_Type (A : Entity_Id) return Entity_Id
      with Pre => Is_Array_Type (A);
    --  When presented with an array repeatedly obtains the component
    --  type of the array until the component type is not an array subtype.
    --  It returns this component type.
 
-   procedure Pass_Array_Friends (Actual_Array : Entity_Id;  Args : Irep)
-     with Pre => Is_Array_Type (Etype (Actual_Array));
+   procedure Pass_Array_Friends (Actual_Array : Entity_Id;
+                                 Array_Irep   : Irep;
+                                 Args         : Irep)
+     with Pre => Is_Array_Type (Underlying_Type (Etype (Actual_Array)));
 
    procedure Build_Unconstrained_Array_Result (Block       : Irep;
                                                Result_Var  : Irep;

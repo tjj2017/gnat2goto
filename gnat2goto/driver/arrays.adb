@@ -97,6 +97,9 @@ package body Arrays is
    end Debug_Help;
    use Debug_Help;
 
+   function Is_Unconstrained_Array_Result (Expr : Irep) return Boolean
+     renames Arrays.Low_Level.Is_Unconstrained_Array_Result;
+
    procedure Array_Object_And_Friends
      (Array_Name   : String;
       Array_Node   : Node_Id;
@@ -165,18 +168,10 @@ package body Arrays is
    --  Their names of the variables are <Prefix>___first_<Dimension>,
    --  and <Prefix>___last_<Dimension>.
 
-   function Do_Constrained_First_Last (E         : Entity_Id;
-                                       Dimension : Positive)
-                                       return Dimension_Bounds
-     with Pre => Is_Array_Type (Etype (E)) and then
-                 not Is_Formal (E);
-
-   function Do_Unconstrained_First_Last (The_Array  : Node_Id;
-                                         Dimension  : Positive;
-                                         Source_Loc : Irep)
-                                         return Dimension_Bounds
-     with Pre => Is_Array_Type (Etype (The_Array)) and not
-     Is_Constrained (Etype (The_Array));
+   function Do_Array_First_Last (N         : Node_Id;
+                                 Dimension : Pos)
+                                 return Dimension_Bounds
+     with Pre => Is_Array_Type (Etype (N));
 
    function Get_Dimension_Index (The_Array : Entity_Id; Dim : Pos)
                                  return Node_Id;
@@ -2031,129 +2026,53 @@ package body Arrays is
       end if;
    end Do_RHS_Array_Assign;
 
+   function Do_Array_Concatination (N : Node_Id) return Irep is
+      --  Eventually concatination should be handled by a ggoto function
+      --  similar to that used for an aggregate.
+      --  For now to provide error recovery just return a string literal?
+      Dummy   : constant String := "unsupported";
+      Recover : constant Irep :=
+        Make_String_Constant_Expr
+          (Source_Location => Get_Source_Location (N),
+           I_Type => Make_String_Type,
+           Value => Dummy);
+   begin
+      Report_Unhandled_Node_Empty
+        (N        => N,
+         Fun_Name => "Do_Array_Concatination",
+         Message  => "Array concatitination operator currenly unsupported");
+      return Recover;
+   end Do_Array_Concatination;
+
    function Do_Array_First_Last_Length (N : Node_Id; Attr : Attribute_Id)
                                         return Irep
    is
-      Source_Loc  : constant Irep := Get_Source_Location (N);
       The_Prefix  : constant Node_Id := Prefix (N);
       Attr_Expr   : constant Node_Id := First (Expressions (N));
-      Dimension   : constant Integer :=
+      Dimension   : constant Pos :=
         (if Present (Attr_Expr) then
          --  Ada rules require the dimension expression to be static.
-            Integer (UI_To_Int (Intval (Attr_Expr)))
+            UI_To_Int (Intval (Attr_Expr))
          else
          --  No dimension expression defaults to dimension 1
             1);
+      Bounds      : constant Dimension_Bounds :=
+        Do_Array_First_Last (The_Prefix, Dimension);
    begin
-      Put_Line ("Do_First_Last_Len");
-      Print_Node_Briefly (N);
-      Print_Node_Briefly (The_Prefix);
-      if Nkind (The_Prefix) in N_Has_Entity then
-         declare
-            The_Entity  : constant Entity_Id := Entity (The_Prefix);
-            Arr_Subtype : constant Entity_Id :=
-              (if Is_Array_Type (The_Entity) then
-                    The_Entity
-               else
-                  Etype (The_Entity));
-            pragma Assert (Print_Node (The_Entity));
-            pragma Assert (Print_Msg ("Is_Constrained entity " &
-                             Boolean'Image
-                             (Is_Constrained (Etype (The_Prefix)))));
-            Bounds      : constant Dimension_Bounds :=
-              (if not Is_Constrained (Arr_Subtype) then
-               --  It must be an unconstrained array.
-               --  Use the extra variables or parameters associated
-               --  with the array.
-                  Do_Unconstrained_First_Last
-                 (The_Entity, Dimension, Source_Loc)
-               else
-               --  Use the subtype definition which will be constrained.
-                  Do_Constrained_First_Last (Arr_Subtype, Dimension));
-
-         begin
-            Put_Line ("Have got bounds");
-            return
-              (case Attr is
-                  when Attribute_First => Bounds.Low,
-                  when Attribute_Last => Bounds.High,
-                  when others =>
-                     Calculate_Dimension_Length
-                 ("Do_Array_First_Last_Length -1", Bounds));
-
-         end;
-      else
-         if Nkind (The_Prefix) = N_Function_Call then
-            declare
-               Prefix_Etype : constant Entity_Id :=
-                 Etype (The_Prefix);
-            begin
-               Put_Line ("Do_First_Last_Len - A function call");
-               Print_Node_Briefly (Prefix_Etype);
-               Put_Line ("Is_Constrained (Prefix_Etype " &
-                           Boolean'Image (Is_Constrained (Prefix_Etype)));
-               if Is_Array_Type (Prefix_Etype) then
-                  if Is_Constrained (Prefix_Etype) then
-                     declare
-                        Bounds : constant Dimension_Bounds :=
-                          Do_Constrained_First_Last (Prefix_Etype, Dimension);
-                     begin
-                        return
-                          (case Attr is
-                              when Attribute_First => Bounds.Low,
-                              when Attribute_Last => Bounds.High,
-                              when others =>
-                                 Calculate_Dimension_Length
-                             ("Do_Array_First_Last_Length -2", Bounds));
-                     end;
-                  else
-                     declare
-                        Bounds : constant Dimension_Bounds :=
-                          Do_Unconstrained_First_Last
-                            (The_Array  => The_Prefix,
-                             Dimension  => Dimension,
-                             Source_Loc => Source_Loc);
-                     begin
-                        Report_Unhandled_Node_Empty
-                          (N        => The_Prefix,
-                           Fun_Name => "Do_Array_First_Last_Length",
-                           Message  => "Unconstrained array");
-                        return
-                          (case Attr is
-                              when Attribute_First => Bounds.Low,
-                              when Attribute_Last => Bounds.High,
-                              when others =>
-                                 Calculate_Dimension_Length
-                             ("Do_Array_First_Last_Length -3", Bounds));
-                     end;
-                  end if;
-               else
-                  Report_Unhandled_Node_Empty
-                    (N        => The_Prefix,
-                     Fun_Name => "Do_Array_First_Last_Length",
-                     Message  => "The function result is not an array");
-               end if;
-            end;
-         else
-            Report_Unhandled_Node_Empty
-              (N        => The_Prefix,
-               Fun_Name => "Do_Array_First_Last_Length",
-               Message  => "Unrecognised prefix kind " &
-              Node_Kind'Image (Nkind (N)));
-         end if;
-      end if;
-      --  Error recovery value - return nondet value
-      return Make_Side_Effect_Expr_Nondet
-        (I_Type => Index_T,
-         Source_Location => Get_Source_Location (N));
-
+      return
+        (case Attr is
+            when Attribute_First => Bounds.Low,
+            when Attribute_Last => Bounds.High,
+            when others =>
+               Calculate_Dimension_Length
+           ("Do_Array_First_Last_Length -1", Bounds));
    end Do_Array_First_Last_Length;
 
-   function Do_Constrained_First_Last (E : Entity_Id;
-                                       Dimension : Positive)
-                                       return Dimension_Bounds
+   function Do_Array_First_Last (N : Node_Id;
+                                 Dimension : Pos)
+                                 return Dimension_Bounds
    is
-      Dim_Index : Node_Id := First_Index (E);
+      Dim_Index : Node_Id := First_Index (Etype (N));
    begin
       --  Get the right index for the dimension
       for I in 2 .. Dimension loop
@@ -2162,17 +2081,15 @@ package body Arrays is
 
       --  Now get the lower and upper bounds of the dimension
       Put_Line ("About to call Get_Dimension_Bounds");
-      Print_Node_Briefly (E);
-      Print_Node_Briefly (Declaration_Node (E));
+      Print_Node_Briefly (N);
 
       declare
          Dim_Index_Type   : constant Entity_Id :=
-           Etype (Get_Dimension_Index (E, Pos (Dimension)));
+           Etype (Get_Dimension_Index (N, Dimension));
          Index_I_Type     : constant Irep :=
            Make_Resolved_I_Type (Dim_Index_Type);
-
          Bounds : constant Dimension_Bounds :=
-           Get_Dimension_Bounds (Declaration_Node (E), Dimension, Dim_Index);
+           Get_Dimension_Bounds (N, Dimension, Dim_Index);
 
          First  : constant Irep := Typecast_If_Necessary
            (Expr           => Bounds.Low,
@@ -2185,144 +2102,16 @@ package body Arrays is
       begin
          return (First, Last);
       end;
-   end Do_Constrained_First_Last;
-
-   function Do_Unconstrained_First_Last (The_Array  : Node_Id;
-                                         Dimension  : Positive;
-                                         Source_Loc : Irep)
-                                         return Dimension_Bounds
-   is
-      Array_Type       : constant Entity_Id :=
-        Underlying_Type (Etype (The_Array));
-      Array_I_Type     : constant Irep := Do_Type_Reference (Array_Type);
-      Dim_Index_Type   : constant Entity_Id :=
-        Etype (Get_Dimension_Index (Array_Type, Pos (Dimension)));
-      Index_I_Type     : constant Irep :=
-        Make_Resolved_I_Type (Dim_Index_Type);
-   begin
-      Put_Line ("Do_Unconstrained_First_Last");
-      Print_Node_Briefly (The_Array);
-      Put_Line ("Has Entity " & Boolean'Image (Nkind (The_Array) in
-                 N_Entity | N_Has_Entity));
-      if Nkind (The_Array) in N_Entity | N_Has_Entity then
-         declare
-            Array_Entity : constant Entity_Id :=
-              (if Nkind (The_Array) in N_Entity then
-                    The_Array
-               else
-                  Entity (The_Array));
-            Raw_String   : constant String := Integer'Image (Dimension);
-            Dim_String   : constant String :=
-              Raw_String (2 .. Raw_String'Last);
-            Array_Name   : constant String := Unique_Name (Array_Entity);
-            Prefix       : constant String := Array_Name & "___";
-            First_Name   : constant String := Prefix & "first_" & Dim_String;
-            Last_Name    : constant String := Prefix & "last_" & Dim_String;
-            First_Id     : constant Symbol_Id := Intern (First_Name);
-            Last_Id      : constant Symbol_Id := Intern (Last_Name);
-         begin
-            Put_Line (First_Name);
-            Put_Line (Last_Name);
-            if Global_Symbol_Table.Contains (First_Id) then
-               Put_Line ("Symbol table contains " & First_Name);
-            else
-               Put_Line (First_Name & " not in symbol table");
-            end if;
-            if Global_Symbol_Table.Contains (Last_Id) then
-               Put_Line ("Symbol table contains " & Last_Name);
-            else
-               Put_Line (Last_Name & " not in symbol table");
-            end if;
-
-            if Global_Symbol_Table.Contains (First_Id) and
-              Global_Symbol_Table.Contains (Last_Id)
-            then
-               declare
-                  Attr_Type   : constant Irep :=
-                    Global_Symbol_Table (First_Id).SymType;
-                  First_Expr  : constant Irep :=
-                    Make_Symbol_Expr
-                      (Source_Location => Source_Loc,
-                       I_Type          => Attr_Type,
-                       Range_Check     => False,
-                       Identifier      => First_Name);
-                  Last_Expr  : constant Irep :=
-                    Make_Symbol_Expr
-                      (Source_Location => Source_Loc,
-                       I_Type          => Attr_Type,
-                       Range_Check     => False,
-                       Identifier      => Last_Name);
-               begin
-                  return
-                    (Typecast_If_Necessary
-                       (Expr           => First_Expr,
-                        New_Type       => Index_I_Type,
-                        A_Symbol_Table => Global_Symbol_Table),
-                     Typecast_If_Necessary
-                       (Expr           => Last_Expr,
-                        New_Type       => Index_I_Type,
-                        A_Symbol_Table => Global_Symbol_Table));
-               end;
-            end if;
-         end;
-      end if;
-
-      if Kind (Array_I_Type) = I_Struct_Type then
-         Put_Line ("Do_Unconstrained_First_Last - An Array Struc");
-         --  It is an unconstrained array function result.
-         Put_Line ("Nkind (The_Array) " &
-                     Node_Kind'Image (Nkind (The_Array)));
-         Print_Node_Subtree (The_Array);
-         Print_Irep (Do_Expression (The_Array));
-         declare
-            Bounds : constant Dimension_Bounds := Get_Bounds_From_Struc
-              (Do_Expression (The_Array), Pos (Dimension));
-
-            --  Should there be a check here that the dimension of the
-            --  array is consistent with bounds in unconstrained result
-            --  structure.
-            --  As the dimension must be static, it should be checked by
-            --  the front-end.
-            Dim_First : constant Irep :=
-              Typecast_If_Necessary
-                (Expr           =>  Bounds.Low,
-                 New_Type       => Index_I_Type,
-                 A_Symbol_Table => Global_Symbol_Table);
-            Dim_Last  : constant Irep :=
-              Typecast_If_Necessary
-                (Expr           => Bounds.High,
-                 New_Type       => Index_I_Type,
-                 A_Symbol_Table => Global_Symbol_Table);
-         begin
-            return (Dim_First, Dim_Last);
-         end;
-      else
-         declare
-            --  Need to put return some dimension on error - use (0, 0).
-            Bound_0 : constant Irep :=
-              Typecast_If_Necessary
-                (Expr           => Index_T_Zero,
-                 New_Type       => Index_I_Type,
-                 A_Symbol_Table => Global_Symbol_Table);
-         begin
-            Report_Unhandled_Node_Empty
-              (N        => The_Array,
-               Fun_Name => "Do_Unconstrained_First_Last",
-               Message  => "Array has neither first-last vars " &
-                 "is not an unconstrained funtion result");
-            return (Bound_0, Bound_0);
-         end;
-      end if;
-   end Do_Unconstrained_First_Last;
+   end Do_Array_First_Last;
 
    -------------------------
    -- Get_Dimension_Index --
    -------------------------
 
-   function Get_Dimension_Index (The_Array : Entity_Id; Dim : Pos)
+   function Get_Dimension_Index (The_Array : Node_Id; Dim : Pos)
                                  return Node_Id
    is
-      Dim_Iter : Node_Id := First_Index (The_Array);
+      Dim_Iter : Node_Id := First_Index (Underlying_Type (Etype (The_Array)));
    begin
       for I in 2 .. Dim loop
          Dim_Iter := Next_Index (Dim_Iter);
@@ -2789,6 +2578,14 @@ package body Arrays is
         Indexed_Data;
    end Do_Indexed_Component;
 
+   -------------------------
+   -- Get_Array_Reference --
+   -------------------------
+
+   function Get_Array_Reference (Array_Irep : Irep; Component_Irep : Irep)
+                                 return Irep is
+     (Get_Pointer_To_Array (Array_Irep, Component_Irep));
+
    ----------------------------------
    -- Get_Non_Array_Component_Type --
    ----------------------------------
@@ -2955,14 +2752,13 @@ package body Arrays is
    end Make_Unconstrained_Array_Subtype;
 
    procedure Build_Unconstrained_Array_Result  (Block       : Irep;
-                                               Result_Var  : Irep;
-                                               Return_Expr : Node_Id)
+                                                Result_Var  : Irep;
+                                                Return_Expr : Node_Id)
    is
       Source_Loc   : constant Irep := Get_Source_Location (Return_Expr);
       Array_Type   : constant Entity_Id :=
         Underlying_Type (Etype (Return_Expr));
-      N_Dimensions : constant Positive :=
-        Positive (Number_Dimensions (Array_Type));
+      N_Dimensions : constant Pos := Number_Dimensions (Array_Type);
       Comp_Type    : constant Entity_Id := Component_Type (Array_Type);
    begin
       Put_Line ("Build_Unconstrained_Array_Result");
@@ -2982,7 +2778,7 @@ package body Arrays is
 
          --  This array of the first and last of each dimension
          --  must have a lower bound of zero.
-         Array_Dim_Bounds : Bounds_Array (0 .. Integer (2 * N_Dimensions - 1));
+         Array_Dim_Bounds : Bounds_Array (0 .. (2 * N_Dimensions - 1));
 
          Array_Bounds     : constant Static_And_Dynamic_Bounds :=
            Multi_Dimension_Flat_Bounds ("32", Array_Type);
@@ -3088,23 +2884,23 @@ package body Arrays is
       end;
    end Build_Unconstrained_Array_Result;
 
-   procedure Pass_Array_Friends (Actual_Array : Entity_Id;  Args : Irep) is
+   procedure Pass_Array_Friends (Actual_Array : Entity_Id;
+                                 Array_Irep   : Irep;
+                                 Args         : Irep) is
 --        Array_Name   : constant String := Unique_Name (Actual_Array);
-      Array_Type   : constant Entity_Id := Etype (Actual_Array);
-      Loc           : constant Irep := Get_Source_Location (Actual_Array);
+      Array_Type   : constant Entity_Id :=
+        Underlying_Type (Etype (Actual_Array));
 
-      Index_Iter : Node_Id := First_Index (Array_Type);
+      Index_Iter   : Node_Id := First_Index (Array_Type);
    begin
-      for Dimension in 1 .. Integer (Number_Dimensions (Array_Type)) loop
+      for Dimension in 1 .. Number_Dimensions (Array_Type) loop
          pragma Assert (Present (Index_Iter));
          declare
-            --  The actual array is either constrained or it is a formal
-            --  parameter of a subprogram from which the call is made.
             Bounds : constant Dimension_Bounds :=
-              (if Is_Formal (Actual_Array) then
-                  Do_Unconstrained_First_Last (Actual_Array, Dimension, Loc)
+              (if Is_Unconstrained_Array_Result (Array_Irep) then
+                    Get_Bounds_From_Struc (Array_Irep, Dimension)
                else
-                  Do_Constrained_First_Last (Array_Type, Dimension));
+                  Do_Array_First_Last (Actual_Array, Dimension));
          begin
             Append_Argument (Args, Bounds.Low);
             Append_Argument (Args, Bounds.High);

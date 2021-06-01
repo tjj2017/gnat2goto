@@ -919,41 +919,36 @@ package body Tree_Walk is
 
       procedure Handle_Parameter (Formal : Entity_Id; Actual : Node_Id) is
          Is_Out          : constant Boolean := Out_Present (Parent (Formal));
-         Formal_Ada_Type : constant Entity_Id := Etype (Formal);
+         Formal_Ada_Type : constant Entity_Id :=
+           Underlying_Type (Etype (Formal));
          Formal_Type     : constant Irep :=
            Follow_Symbol_Type (Do_Type_Reference (Formal_Ada_Type),
                                Global_Symbol_Table);
-         Actual_Irep      : Irep;
-         Expression    : constant Irep := Do_Expression (Actual);
+         Expression      : constant Irep := Do_Expression (Actual);
+         Actual_Irep     : Irep;
       begin
          if Is_Array_Type (Formal_Ada_Type) then
             declare
                Actual_Array : constant Entity_Id := Entity (Actual);
---                 Component_Subtype : constant Entity_Id :=
---                   Etype (Actual_Array);
---                 Component_Irep : constant Irep :=
---                   Do_Type_Reference (Component_Subtype);
+               Component_Subtype : constant Entity_Id :=
+                 Component_Type (Formal_Ada_Type);
+               Component_Irep : constant Irep :=
+                 Do_Type_Reference (Component_Subtype);
             begin
                --  If it is an unconstrained array formal parameter
                --  the First, Last and Length array friend variables
                --  have to be added to the argument list.
                if not Is_Constrained (Formal_Ada_Type) then
-                  Pass_Array_Friends (Actual_Array, Args);
+                  Pass_Array_Friends (Actual_Array, Expression, Args);
                end if;
                --  Now handle the array parameter.  The front-end ensures that
                --  the array is type compliant.
                --  Arrays are always passed by reference.
-               Append_Argument (Args,
-                                Make_Address_Of_Expr
-                                  (Object          => Expression,
-                                   Source_Location => Internal_Source_Location,
-                                   I_Type          =>
-                                     Make_Pointer_Type
-                                       (I_Subtype =>
-                                            Do_Type_Reference
-                                          (Component_Type (Formal_Ada_Type)),
-                                        Width     => Pointer_Type_Width),
-                                   Range_Check     => False));
+               Put_Line ("Handle_Parameter");
+               Print_Irep (Expression);
+               Append_Argument
+                 (Args,
+                  Get_Array_Reference (Expression, Component_Irep));
             end;
          else
             --  Formal parameter is not an array type.
@@ -4098,8 +4093,7 @@ package body Tree_Walk is
       if Nkind (N) = N_Op_Abs then
          return Do_Op_Abs (N);
       elsif Nkind (N) = N_Op_Concat then
-         return Report_Unhandled_Node_Irep (N, "Do_Operator_General",
-                                            "Concat unsupported");
+         return Do_Array_Concatination (N);
       elsif Nkind (N) = N_Op_Not then
          declare
             Ret_Type : constant Irep := Do_Type_Reference (Etype (N));
@@ -4136,6 +4130,16 @@ package body Tree_Walk is
          then
             return Report_Unhandled_Node_Irep (N, "Do_Operator_General",
                                                "Wrong node kind");
+         end if;
+         if Nkind (N) in N_Op_Eq | N_Op_Ne and then
+           Is_Array_Type (Underlying_Type (Etype (N)))
+         then
+            --  Array equality probably has to be handled by a goto
+            --  function call similar to that used for aggregate expressions.
+            Report_Unhandled_Node_Empty
+              (N        => N,
+               Fun_Name => "Do_Operator_General",
+               Message  => "Array equality currently unsupported");
          end if;
          return Do_Operator_Simple (N);
       end if;
@@ -5237,7 +5241,8 @@ package body Tree_Walk is
             --  specification is processed
 
             if Is_Array_Type (Return_Type) and then
-              Kind (Return_I_Type) = I_Struct_Type
+              Kind (Return_I_Type) = I_Struct_Type and then
+              not Is_Unconstrained_Array_Result (Do_Expression (Return_Expr))
             then
                --  It is an unconstrained array result type
                Build_Unconstrained_Array_Result
