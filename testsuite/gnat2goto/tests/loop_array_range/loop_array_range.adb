@@ -8,5 +8,11 @@ begin
       Sum := Sum + My_Arr(I);
    end loop;
 
-   pragma Assert(Sum=6);
+   pragma Assert (Sum = 10);
+
+   for I in My_Arr'Range loop
+      Sum := Sum + My_Arr(I);
+   end loop;
+
+  pragma Assert(Sum=6);
 end Loop_Array_Range;

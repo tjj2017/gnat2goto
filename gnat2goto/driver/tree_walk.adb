@@ -944,8 +944,6 @@ package body Tree_Walk is
                --  Now handle the array parameter.  The front-end ensures that
                --  the array is type compliant.
                --  Arrays are always passed by reference.
-               Put_Line ("Handle_Parameter");
-               Print_Irep (Expression);
                Append_Argument
                  (Args,
                   Get_Array_Reference (Expression, Component_Irep));
@@ -964,9 +962,6 @@ package body Tree_Walk is
               (Typecast_If_Necessary (Handle_Enum_Symbol_Members (Expression),
                Formal_Type, Global_Symbol_Table), Is_Out);
             Append_Argument (Args, Actual_Irep);
-            Put_Line ("Handle_Parameter");
-            Put_Line (Unique_Name (Formal));
-            Print_Irep (Actual_Irep);
          end if;
 
       end Handle_Parameter;
@@ -997,10 +992,8 @@ package body Tree_Walk is
          --  Hence, this branch will only be executed if the subtype does
          --  not have a static range, which, currently, is unsupported but can
          --  be obtained ftom the front end.
-         Put_Line ("A scalar First_Last_Length");
          return Do_Scalar_First_Last_Length (Prefix_Type, Attr);
       else
-         Put_Line ("An arry First_Last_Len");
          --  It is an array.
          return Do_Array_First_Last_Length (N, Attr);
       end if;
@@ -1931,7 +1924,6 @@ package body Tree_Walk is
          end;
       end if;
 
-      Put_Line ("Do_Function_Call");
       if not (Nkind (Name (N)) in N_Has_Entity)
         and then Nkind (Name (N)) /= N_Aspect_Specification
         and then Nkind (Name (N)) /= N_Attribute_Definition_Clause
@@ -2231,41 +2223,6 @@ package body Tree_Walk is
      (N : Node_Id; Underlying : Irep) return Irep
    is (Underlying);
 
---     function Do_Index_Or_Discriminant_Constraint
---       (N : Node_Id; Underlying : Irep; Block : Irep) return Irep
---     is
---        Parent_Node  : constant Node_Id := Parent (N);
---      Parent_Type  : constant Node_Id := Etype (Subtype_Mark (Parent_Node));
---        Subtype_Node : constant Node_Id := Parent (Parent_Node);
---     begin
---        Put_Line ("Do_Index_Or_Discriminant_Constraint");
---        Print_Node_Briefly (N);
---        Print_Node_Briefly (Parent_Node);
---        Print_Node_Briefly (Subtype_Node);
---        Print_Node_Briefly (Subtype_Mark (Parent_Node));
---        Print_Node_Briefly (Parent_Type);
---        Print_Irep (Block);
---        if Is_Array_Type (Parent_Type) then
---           Put_Line ("It's an array");
---           Put_Line ("It is constrained " &
---                       Boolean'Image (Is_Constrained (Parent_Type)));
---           Print_Node_Briefly (Component_Type (Parent_Type));
---           --  The subtype declaration is a constrained subtype of an
---           --  unconstrained array.
---           return Do_Array_Subtype
---             (Subtype_Node   => Subtype_Node,
---              Parent_Type    => Parent_Type,
---              Is_Constrained => Is_Constrained (Parent_Type),
---              First_Index    => First (Constraints (N)),
---              Block          => Block);
---        else
---           --  It is a record subtype with a discriminant constraint.
---           --  At the moment nothing is done here but this may change
---           --  when record declaration code is reworked.
---           return Underlying;
---        end if;
---     end Do_Index_Or_Discriminant_Constraint;
-
    -----------------------------------------
    --          Do_Range_In_Case           --
    -----------------------------------------
@@ -2533,7 +2490,6 @@ package body Tree_Walk is
                            I_Type => Get_Type (Loopvar_Numeric_Rep),
                           Source_Location => Internal_Source_Location);
                      begin
-                        Put_Line ("About to assign loop var");
                         Init := Make_Code_Assign
                           (Lhs => Sym_Loopvar,
                            Rhs => Typecast_If_Necessary
@@ -2555,7 +2511,6 @@ package body Tree_Walk is
                            I_Type          => Make_Bool_Type,
                            Range_Check     => False);
                         --  Assignment has the given type.
-                        Put_Line ("About define loop increment");
                         Post :=
                           Make_Side_Effect_Expr_Assign
                             (Lhs => Sym_Loopvar,
@@ -5209,8 +5164,6 @@ package body Tree_Walk is
       Return_Expr  : constant Node_Id := Expression (N);
       Return_Value : Irep := CProver_Nil;
    begin
-      Put_Line ("Do_Simple_Return_Statement");
-      Print_Node_Briefly (N);
       if Present (Return_Expr) then
          --  It is a function return.
          --  Set the return variable.
@@ -5233,13 +5186,8 @@ package body Tree_Walk is
                  Range_Check     => False,
                  Identifier      => Result_Name);
          begin
-            Put_Line ("Simple return statement");
-            Put_Line ("Function " & Fun_Name);
-            Put_Line ("Result " & Result_Name);
-
             --  The result variable is declared when the subprogram
             --  specification is processed
-
             if Is_Array_Type (Return_Type) and then
               Kind (Return_I_Type) = I_Struct_Type and then
               not Is_Unconstrained_Array_Result (Do_Expression (Return_Expr))
@@ -5263,8 +5211,6 @@ package body Tree_Walk is
             end if;
          end;
       end if;
-      Put_Line ("The return value");
-      Print_Irep (Return_Value);
       Append_Op (Block,
                  Make_Code_Return
                    (Return_Value => Return_Value,
@@ -5481,11 +5427,6 @@ package body Tree_Walk is
       All_Handlers : constant Irep :=
         Make_Code_Block (Source_Location => Loc);
    begin
-      Put_Line ("Do_Subprogram_Or_Block");
-      Print_Node_Briefly (N);
-      if Nkind (N) = N_Subprogram_Body then
-         Print_Node_Briefly (Specification (N));
-      end if;
       if Nkind (N) = N_Subprogram_Body then
          declare
             Subprog_Spec   : constant Node_Id := Specification (N);
@@ -5515,11 +5456,6 @@ package body Tree_Walk is
                        Range_Check     => False);
 
                begin
-                  Put_Line ("It's a function");
-                  Print_Node_Briefly (Subprog_Spec);
-                  Put_Line (Subprog_Name);
-                  Print_Node_Briefly (Etype (Subprog_Entity));
-                  Put_Line ("Appending");
                   Append_Op (Reps, Result_Dec);
                end;
             end if;
@@ -5630,23 +5566,6 @@ package body Tree_Walk is
       Param_List   : constant Irep := Make_Parameter_List;
       Param_Iter   : Node_Id := First (Parameter_Specifications (N));
    begin
-      if Is_Function and then Is_Array_Type (Ret_Type_Node) then
-         if not Is_Constrained (Ret_Type_Node) then
-            Report_Unhandled_Node_Empty
-              (N        => N,
-               Fun_Name => "Do_Subprogram_Specification",
-               Message  =>
-                 "Functions returning an unconstrained array are unsupported");
-         elsif not All_Dimensions_Static (Ret_Type_Node) then
-            Report_Unhandled_Node_Empty
-              (N        => N,
-               Fun_Name => "Do_Subprogram_Specification",
-               Message  =>
-                 "Functions returning an array with non-static bounds " &
-                 "are unsupported");
-         end if;
-      end if;
-
       while Present (Param_Iter) loop
          declare
             Param_Sort : constant Node_Id := Parameter_Type (Param_Iter);

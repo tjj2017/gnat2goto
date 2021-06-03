@@ -8,8 +8,6 @@ with Symbol_Table_Info;     use Symbol_Table_Info;
 with Tree_Walk;             use Tree_Walk;
 with Follow;                use Follow;
 with Arrays;                use Arrays;
-with Ada.Text_IO; use Ada.Text_IO;
-with Treepr; use Treepr;
 
 package body Gnat2goto_Itypes is
 
@@ -132,8 +130,6 @@ package body Gnat2goto_Itypes is
 
    function Do_Itype_Array_Subtype (N : Node_Id) return Irep is
    begin
-      Put_Line ("Do_Itype_Array_Subtype");
-      Print_Node_Briefly (N);
       return
         Do_Array_Subtype
           (Subtype_Node => N,

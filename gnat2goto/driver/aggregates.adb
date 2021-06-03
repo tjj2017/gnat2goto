@@ -5,8 +5,6 @@ with GOTO_Utils;          use GOTO_Utils;
 with Tree_Walk;           use Tree_Walk;
 with Follow;              use Follow;
 with ASVAT.Size_Model;    use ASVAT.Size_Model;
-with Ada.Text_IO; use Ada.Text_IO;
-with Treepr;            use Treepr;
 package body Aggregates is
 
    -------------------------------
@@ -46,7 +44,6 @@ package body Aggregates is
       Ada_Tick_First_Irep   : constant Irep := Do_Expression (Ada_Tick_First);
 
    begin
-      Put_Line ("Into Array_Dynamic_Named_Assoc");
       if Has_Others_Choice then
          if Others_Expr /= Ireps.Empty then
             --  It is complex to compute which elements are
@@ -90,7 +87,6 @@ package body Aggregates is
       --  Now assign the expressions for each choice list.
       --  Iterate through the component associations.
       while Present (Next_Comp_Assoc) loop
-         Put_Line ("Into loop");
          --  Get the associated expression and iterate through the choices
          --  specifying this expression.
          declare
@@ -107,8 +103,6 @@ package body Aggregates is
             while Present (Next_Choice) and then
               Nkind (Next_Choice) /= N_Others_Choice
             loop
-               Put_Line ("Into choices loop");
-               Print_Node_Briefly (Next_Choice);
                --  A choice may be a range of indices.
                if Nkind (Next_Choice) in
                  N_Range | N_Subtype_Indication or else
@@ -119,9 +113,6 @@ package body Aggregates is
                      Bounds : constant Dimension_Bounds :=
                        Get_Bounds_From_Index (Next_Choice);
                   begin
-                     Put_Line ("Into a range");
-                     Print_Irep (Bounds.Low);
-                     Print_Irep (Bounds.High);
                      Assign_Value_To_Dynamic_Array_Components
                        (Block            => Block,
                         The_Array        => Target,
@@ -322,12 +313,6 @@ package body Aggregates is
       Ada_Tick_First_Irep   : constant Irep := Do_Expression (Ada_Tick_First);
 
    begin
-      Put_Line ("Array_Static_Named_Assoc");
-      Print_Node_Briefly (Etype (N));
-      Put_Line ("Low " & Int'Image (Low_Bound));
-      Put_Line ("High " & Int'Image (High_Bound));
-      Put_Line ("Ada_Tick_First " &
-                  Int'Image (UI_To_Int (Ada_Tick_First_Static)));
       if Has_Others_Choice then
          if Others_Expr /= Ireps.Empty then
             --  It is complex to compute which elements are
@@ -558,9 +543,6 @@ package body Aggregates is
          else
             Component_Pre);
    begin
-      Put_Line ("Update array from aggregate");
-      Put_Line ("Low " & Int'Image (Dest_Bounds.Low_Static));
-      Put_Line ("High " & Int'Image (Dest_Bounds.High_Static));
       if N_Dimensions > 1 then
          Report_Unhandled_Node_Empty
            (Agg,
@@ -575,11 +557,9 @@ package body Aggregates is
       elsif Dest_Bounds.Has_Static_Bounds and
         All_Dimensions_Static (Aggregate_Subtype)
       then
-         Put_Line ("Static Bounds");
          --  The target array and
          --  The aggregate have static bounds.
          if Positional_Assoc then
-            Put_Line ("Positional");
             Array_Static_Positional
               (Block      => Block,
                Low_Bound  => Dest_Bounds.Low_Static,
@@ -588,7 +568,6 @@ package body Aggregates is
                Target     => Dest_Array,
                Comp_Type  => Component_Irep);
          elsif Present (Component_Associations (Agg)) then
-            Put_Line ("Named");
             --  Named associations.
             Array_Static_Named_Assoc
               (Block      => Block,
