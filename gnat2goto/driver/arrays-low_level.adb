@@ -5,7 +5,6 @@ with ASVAT.Size_Model;        use ASVAT.Size_Model;
 with Symbol_Table_Info;       use Symbol_Table_Info;
 with Range_Check;             use Range_Check;
 with Ada.Text_IO; use Ada.Text_IO;
-with Treepr; use Treepr;
 package body Arrays.Low_Level is
 
    function Add_One_To_Index (Index : Static_And_Dynamic_Index)
@@ -1017,7 +1016,7 @@ package body Arrays.Low_Level is
          else
             Ireps.Empty);
       Array_Irep       : constant Irep :=
-        (if Kind (Array_Irep_Pre) = I_Pointer_Type then
+        (if Kind (Get_Type (Array_Irep_Pre)) = I_Pointer_Type then
               Make_Dereference_Expr
            (Object          => Array_Irep_Pre,
             Source_Location => Source_Location,
@@ -1035,15 +1034,6 @@ package body Arrays.Low_Level is
       if Is_Constrained (Array_Type) then
          return Get_Bounds_From_Index (Index);
       end if;
-
-      Put_Line ("Get_Dimension_Bounds");
-      Print_Node_Briefly (N);
-      Print_Node_Briefly (N_Entity);
-      Put_Line ("Is_Object " & Boolean'Image (Is_Object (N_Entity)));
-      Put_Line ("Is_Access_Type " & Boolean'Image (Is_Access_Type (N_Entity)));
-      Put_Line ("Is_Constr_Array_Result " &
-                  Boolean'Image (Is_Unconstr_Array_Result));
-      Print_Irep (Do_Expression (N));
 
       if not Is_Unconstr_Array_Result and then Is_Object (N_Entity) then
          --  The array is unconstrained but N must refer to an array object
@@ -1081,7 +1071,6 @@ package body Arrays.Low_Level is
                  I_Type          => Do_Type_Reference (Index_Etype),
                  Identifier      => Last_Var);
          begin
-            Put_Line ("First var : " & First_Var);
             if Global_Symbol_Table.Contains (Intern (First_Var)) and
               Global_Symbol_Table.Contains (Intern (Last_Var))
             then
