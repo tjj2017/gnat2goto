@@ -548,7 +548,9 @@ package body Aggregates is
            (Agg,
             "Update_Array_From_Aggregate",
             "Multi-dimensional aggregates unsupported");
-      elsif not Is_Scalar_Type (Component_Type (Aggregate_Subtype)) then
+      elsif not (Is_Scalar_Type (Component_Type (Aggregate_Subtype)) or else
+                 Is_Access_Type (Component_Type (Aggregate_Subtype)))
+      then
          Report_Unhandled_Node_Empty
            (Agg,
             "Update_Array_From_Aggregate",

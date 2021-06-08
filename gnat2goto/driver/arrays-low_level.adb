@@ -1007,20 +1007,28 @@ package body Arrays.Low_Level is
             Pre_1_Array_Type);
       Array_Type       : constant Entity_Id :=
         Underlying_Type (Pre_2_Array_Type);
+
+      Array_I_Type     : constant Irep := Do_Type_Reference (Array_Type);
+
+      Array_Is_Expr    : constant Boolean := N_Kind in N_Subexpr;
+      Array_Irep_Pre   : constant Irep :=
+        (if Array_Is_Expr then
+            Do_Expression (N)
+         else
+            Ireps.Empty);
+      Array_Irep       : constant Irep :=
+        (if Kind (Array_Irep_Pre) = I_Pointer_Type then
+              Make_Dereference_Expr
+           (Object          => Array_Irep_Pre,
+            Source_Location => Source_Location,
+            I_Type          => Array_I_Type)
+         else
+            Array_Irep_Pre);
+      Is_Unconstr_Array_Result : constant Boolean :=
+        Array_Is_Expr and then Is_Unconstrained_Array_Result (Array_Irep);
    begin
       --  In lieu of pre-condition
       pragma Assert (Is_Array_Type (Array_Type));
-      Print_Node_Briefly (N);
-      Print_Node_Briefly (Etype (N));
-      Print_Node_Briefly (Array_Type);
-      Print_Node_Briefly (N_Entity);
-      Print_Node_Briefly (Index);
-      Put_Line ("Entity kind " & Entity_Kind'Image (Ekind (Etype (N))));
-      Put_Line ("Entity kind " & Entity_Kind'Image (Ekind (N_Entity)));
-      Put_Line ("Is_Constrained " &
-                  Boolean'Image (Is_Constrained (Array_Type)));
-      Put_Line ("Is_Constr_Subt_For_U_Nominal " &
-                  Boolean'Image (Is_Constr_Subt_For_U_Nominal (Array_Type)));
       pragma Assert (Is_Object (N_Entity) or else Nkind (Index) = N_Range
                      or else Is_Constrained (Array_Type)
                        or else Is_Constr_Subt_For_U_Nominal (Array_Type));
@@ -1028,33 +1036,16 @@ package body Arrays.Low_Level is
          return Get_Bounds_From_Index (Index);
       end if;
 
-      if N_Kind in N_Has_Etype and then
-        Is_Access_Type (Etype (N)) and then
-        not Is_Constrained (Array_Type) and then
-        Is_Object (N_Entity)
-      then
-         --  A pointer to an object of an unconstrained type.
-         --  It may be possible to obtain the bounds from the
-         --  the object referenced by the pointer.
-         declare
-            The_Object : constant Irep :=
-              Make_Dereference_Expr
-                (Object          => N,
-                 Source_Location => Source_Location,
-                 I_Type          => ,
-                 Range_Check     => )
+      Put_Line ("Get_Dimension_Bounds");
+      Print_Node_Briefly (N);
+      Print_Node_Briefly (N_Entity);
+      Put_Line ("Is_Object " & Boolean'Image (Is_Object (N_Entity)));
+      Put_Line ("Is_Access_Type " & Boolean'Image (Is_Access_Type (N_Entity)));
+      Put_Line ("Is_Constr_Array_Result " &
+                  Boolean'Image (Is_Unconstr_Array_Result));
+      Print_Irep (Do_Expression (N));
 
-      then
-         Report_Unhandled_Node_Empty
-        (N        => N,
-         Fun_Name => "Get_Dimension_Bounds",
-         Message  => "Unsupported unconstrained array");
-      return Dimension_Bounds'
-        (Low  => Index_T_Zero,
-         High => Index_T_One);
-
-
-      if Is_Object (N_Entity) then
+      if not Is_Unconstr_Array_Result and then Is_Object (N_Entity) then
          --  The array is unconstrained but N must refer to an array object
          --  that has first and last auxillary variables declared for each
          --  dimension.
@@ -1079,11 +1070,6 @@ package body Arrays.Low_Level is
             Last_Var       : constant String :=
               Object_Name & Last_Var_Str & Dim_String;
 
-            pragma Assert (Global_Symbol_Table.Contains (Intern (First_Var)),
-                           First_Var);
-            pragma Assert (Global_Symbol_Table.Contains (Intern (Last_Var)),
-                           Last_Var);
-
             First_Sym      : constant Irep :=
               Make_Symbol_Expr
                 (Source_Location => Source_Location,
@@ -1095,26 +1081,31 @@ package body Arrays.Low_Level is
                  I_Type          => Do_Type_Reference (Index_Etype),
                  Identifier      => Last_Var);
          begin
-            return Dimension_Bounds'
-              (Low  => Typecast_If_Necessary
-                 (Expr           => First_Sym,
-                  New_Type       => Index_T,
-                  A_Symbol_Table => Global_Symbol_Table),
-               High => Typecast_If_Necessary
-                 (Expr           => Last_Sym,
-                  New_Type       => Index_T,
-                  A_Symbol_Table => Global_Symbol_Table));
-         end;
-      elsif Nkind (N) in N_Subexpr then
-         --  It may be an unconstrained array result
-         declare
-            Array_Irep : constant Irep := Do_Expression (N);
-            Array_I_Type : constant Irep := Get_Type (Array_Irep);
-         begin
-            if Kind (Array_I_Type) = I_Struct_Type then
-               return Get_Bounds_From_Struc (Array_Irep, Dim);
+            Put_Line ("First var : " & First_Var);
+            if Global_Symbol_Table.Contains (Intern (First_Var)) and
+              Global_Symbol_Table.Contains (Intern (Last_Var))
+            then
+               return Dimension_Bounds'
+                 (Low  => Typecast_If_Necessary
+                    (Expr           => First_Sym,
+                     New_Type       => Index_T,
+                     A_Symbol_Table => Global_Symbol_Table),
+                  High => Typecast_If_Necessary
+                    (Expr           => Last_Sym,
+                     New_Type       => Index_T,
+                     A_Symbol_Table => Global_Symbol_Table));
+            else
+               Report_Unhandled_Node_Empty
+                 (N        => N,
+                  Fun_Name => "Get_Dimension_Bounds",
+                  Message  => "Unconstrained array has no defined bounds");
+               return Dimension_Bounds'
+                 (Low  => Index_T_Zero,
+                  High => Index_T_Zero);
             end if;
          end;
+      elsif Is_Unconstr_Array_Result then
+         return Get_Bounds_From_Struc (Array_Irep, Dim);
       end if;
 
       Report_Unhandled_Node_Empty

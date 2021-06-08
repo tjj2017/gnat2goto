@@ -87,8 +87,8 @@ package body Arrays is
 
    function Do_Array_First_Last (N         : Node_Id;
                                  Dimension : Pos)
-                                 return Dimension_Bounds
-     with Pre => Is_Array_Type (Etype (N));
+                                 return Dimension_Bounds;
+--       with Pre => Is_Array_Type (Etype (N));
 
    function Get_Dimension_Index (The_Array : Entity_Id; Dim : Pos)
                                  return Node_Id;
@@ -1518,7 +1518,14 @@ package body Arrays is
                                  Dimension : Pos)
                                  return Dimension_Bounds
    is
-      Dim_Index : Node_Id := First_Index (Etype (N));
+      N_Etype    : constant Entity_Id := Etype (N);
+      Array_Type : constant Entity_Id :=
+        (if Is_Access_Type (N_Etype) then
+              Designated_Type (N_Etype)
+         else
+            N_Etype);
+
+      Dim_Index : Node_Id := First_Index (Array_Type);
    begin
       --  Get the right index for the dimension
       for I in 2 .. Dimension loop
@@ -1528,7 +1535,7 @@ package body Arrays is
       --  Now get the lower and upper bounds of the dimension
       declare
          Dim_Index_Type   : constant Entity_Id :=
-           Etype (Get_Dimension_Index (N, Dimension));
+           Etype (Get_Dimension_Index (Array_Type, Dimension));
          Index_I_Type     : constant Irep :=
            Make_Resolved_I_Type (Dim_Index_Type);
          Bounds : constant Dimension_Bounds :=
@@ -1990,6 +1997,125 @@ package body Arrays is
             Bounds      => Array_Dim_Bounds);
       end;
    end Build_Unconstrained_Array_Result;
+
+   function Make_Unconstrained_Array_Result (Result_Expr : Node_Id)
+                                             return Irep
+   is
+      Source_Loc   : constant Irep := Get_Source_Location (Result_Expr);
+      Expr_Irep    : constant Irep := Do_Expression (Result_Expr);
+      The_Array : constant Node_Id :=
+        (if Nkind (Result_Expr) = N_Explicit_Dereference then
+              Prefix (Result_Expr)
+         else
+            Result_Expr);
+      Array_Type   : constant Entity_Id :=
+        Underlying_Type (Etype (The_Array));
+      N_Dimensions : constant Pos := Number_Dimensions (Array_Type);
+      Comp_Type    : constant Entity_Id := Component_Type (Array_Type);
+   begin
+      if Is_Unconstrained_Array_Result (Expr_Irep) then
+         --  If the result expression is already an unconstrained array result
+         --  no processing required, just return the irep for the expression.
+         return Expr_Irep;
+      end if;
+
+      Declare_Itype (Array_Type);
+      --  Some of the following declarations must occur after the
+      --  call to Declare_Itype as the array type may be an Itype and
+      --  its details need to be recorded in the symbol table.
+      --  For instance, Do_Type_Reference requires the Irep type information
+      --  for the Array type to be in the global symbol table.
+      declare
+         Comp_I_Type  : constant Irep :=
+           Make_Resolved_I_Type (Comp_Type);
+
+         Array_I_Type : constant Irep :=
+           Do_Type_Reference (Array_Type);
+
+         --  This array of the first and last of each dimension
+         --  must have a lower bound of zero.
+         Array_Dim_Bounds : Bounds_Array (0 .. (2 * N_Dimensions - 1));
+
+         Index : Node_Id := First_Index (Array_Type);
+
+         New_Name         : constant String :=
+           Fresh_Var_Name ("array_result_");
+         Array_Result_Obj : constant Irep :=
+           Fresh_Var_Symbol_Expr (Array_I_Type, New_Name & "_obj");
+         Array_Result_Fun : constant String := New_Name & "_fun";
+
+         Func_Irep         : constant Irep :=
+           Make_Code_Type (Parameters  => Make_Parameter_List, -- No params.
+                           Ellipsis    => False,
+                           Return_Type => Array_I_Type,
+                           Inlined     => False,
+                           Knr         => False);
+
+         Result_Block      : constant Irep := Make_Code_Block (Source_Loc);
+         Obj_Dec           : constant Irep := Make_Code_Decl
+           (Symbol          => Array_Result_Obj,
+            Source_Location => Source_Loc,
+            I_Type          => Array_I_Type,
+            Range_Check     => False);
+      begin
+         --  Declare the result variable
+         Append_Op (Result_Block, Obj_Dec);
+
+         --  Fill the bounds array.
+         for I in 1 .. N_Dimensions loop
+            declare
+               Dim_Bounds  : constant Dimension_Bounds :=
+                 Get_Dimension_Bounds (The_Array, I, Index);
+            begin
+               --  Assign the first value for this dimension.
+               Array_Dim_Bounds (I * 2 - 2) :=
+                 Typecast_If_Necessary
+                   (Expr           => Dim_Bounds.Low,
+                    New_Type       => Bounds_Component,
+                    A_Symbol_Table => Global_Symbol_Table);
+               --  Now the last value for this dimension.
+               Array_Dim_Bounds (I * 2 - 1) :=
+                Typecast_If_Necessary
+                   (Expr           => Dim_Bounds.High,
+                    New_Type       => Bounds_Component,
+                    A_Symbol_Table => Global_Symbol_Table);
+            end;
+            Index := Next_Index (Index);
+         end loop;
+
+         --  Initialise the result Array_Struc
+         Init_Array_Struc
+           (Block       => Result_Block,
+            Array_Struc => Array_Result_Obj,
+            Array_Ptr   => Get_Pointer_To_Array (Expr_Irep, Comp_I_Type),
+            Location    => Source_Loc,
+            Bounds      => Array_Dim_Bounds);
+
+         --  Now add the return statement.
+         Append_Op (Result_Block,
+                    Make_Code_Return (Return_Value    => Array_Result_Obj,
+                                      Source_Location => Source_Loc));
+         --  Create the array result function from the body
+         --  and return a call to the function.
+         declare
+            Array_Result_Func_Symbol : constant Symbol :=
+              New_Function_Symbol_Entry
+             (Name           => Array_Result_Fun,
+              Symbol_Type    => Func_Irep,
+              Value          => Result_Block,
+              A_Symbol_Table => Global_Symbol_Table);
+            Func_Call : constant Irep :=
+              Make_Side_Effect_Expr_Function_Call
+                (Arguments       => Make_Argument_List,  -- Null arg list.
+                 I_Function      => Symbol_Expr (Array_Result_Func_Symbol),
+                 Source_Location => Source_Loc,
+                 I_Type          => Array_I_Type,
+                 Range_Check     => False);
+         begin
+            return Func_Call;
+         end;
+      end;
+   end Make_Unconstrained_Array_Result;
 
    procedure Pass_Array_Friends (Actual_Array : Entity_Id;
                                  Array_Irep   : Irep;

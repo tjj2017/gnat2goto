@@ -114,7 +114,8 @@ package Arrays is
    procedure Build_Unconstrained_Array_Result (Block       : Irep;
                                                Result_Var  : Irep;
                                                Return_Expr : Node_Id);
-
+   function Make_Unconstrained_Array_Result (Result_Expr : Node_Id)
+                                             return Irep;
 private
 
    function Do_RHS_Array_Assign (N : Node_Id) return Irep_Array

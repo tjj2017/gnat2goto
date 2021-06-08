@@ -33,52 +33,6 @@ with ASVAT.Size_Model;
 with ASVAT.Modelling;
 
 package body Tree_Walk is
-   function Defining_Identifier (N : Node_Id) return Entity_Id;
-   function Defining_Identifier (N : Node_Id) return Entity_Id is
-      NT : constant Node_Kind := Nkind (N);
-   begin
-      if not
-        (NT = N_Component_Declaration
-        or else NT = N_Defining_Program_Unit_Name
-        or else NT = N_Discriminant_Specification
-        or else NT = N_Entry_Body
-        or else NT = N_Entry_Declaration
-        or else NT = N_Entry_Index_Specification
-        or else NT = N_Exception_Declaration
-        or else NT = N_Exception_Renaming_Declaration
-        or else NT = N_Formal_Object_Declaration
-        or else NT = N_Formal_Package_Declaration
-        or else NT = N_Formal_Type_Declaration
-        or else NT = N_Full_Type_Declaration
-        or else NT = N_Implicit_Label_Declaration
-        or else NT = N_Incomplete_Type_Declaration
-        or else NT = N_Iterated_Component_Association
-        or else NT = N_Iterator_Specification
-        or else NT = N_Loop_Parameter_Specification
-        or else NT = N_Number_Declaration
-        or else NT = N_Object_Declaration
-        or else NT = N_Object_Renaming_Declaration
-        or else NT = N_Package_Body_Stub
-        or else NT = N_Parameter_Specification
-        or else NT = N_Private_Extension_Declaration
-        or else NT = N_Private_Type_Declaration
-        or else NT = N_Protected_Body
-        or else NT = N_Protected_Body_Stub
-        or else NT = N_Protected_Type_Declaration
-        or else NT = N_Single_Protected_Declaration
-        or else NT = N_Single_Task_Declaration
-        or else NT = N_Subtype_Declaration
-        or else NT = N_Task_Body
-        or else NT = N_Task_Body_Stub
-         or else NT = N_Task_Type_Declaration)
-      then
-         Put_Line ("Defining_Identifier - Tree_Walk");
-         Put_Line ("Illegal node to Defining_Identifier");
-         Print_Node_Subtree (Parent (N));
-      end if;
-      return Sinfo.Defining_Identifier (N);
-   end Defining_Identifier;
-
    --  Used to provide a dummy block for Itype delarations
    --  where such declarations cannot produce a block, e.g., in expressions.
    Dummy_Block : constant Irep :=
@@ -1602,7 +1556,26 @@ package body Tree_Walk is
          when N_Or_Else              => return Do_Or_Else (N);
          when N_Attribute_Reference  =>
             case Get_Attribute_Id (Attribute_Name (N)) is
-               when Attribute_Access => return Do_Address_Of (N);
+               when Attribute_Access =>
+                  declare
+                     Pre_Prefix      : constant Node_Id := Prefix (N);
+                     Resolved_Prefix : constant Node_Id :=
+                       (if Nkind (Pre_Prefix) = N_Explicit_Dereference then
+                             Prefix (Pre_Prefix)
+                        else
+                           Pre_Prefix);
+                     N_Type : constant Entity_Id :=
+                       Underlying_Type (Etype (Resolved_Prefix));
+                  begin
+                     if Is_Array_Type (N_Type) and then
+                       not Is_Constrained (N_Type)
+                     then
+                        return Make_Address_Of
+                          (Make_Unconstrained_Array_Result (Resolved_Prefix));
+                     else
+                        return Do_Address_Of (N);
+                     end if;
+                  end;
                when Attribute_Address =>
                   --  Use the ASVAT.Address_Model to create the address.
                   return ASVAT.Address_Model.Do_ASVAT_Address_Of (N);
@@ -7193,14 +7166,19 @@ package body Tree_Walk is
    begin
       ASVAT.Size_Model.Set_Static_Size (E          => E,
                                         Model_Size => Pointer_Type_Width);
-      return Make_Pointer_Type
-      --  If this is a pointer to a record make it a pointer to
-      --  a struct_tag_type rather than the record type.
-      --  This prevents infinite recursion in the definition of types.
-        (if Is_Record_Type (Under_Type) then
-              Make_Struct_Tag_Type (Unique_Name (Under_Type))
-         else
-            Do_Type_Reference (Under_Type));
+--      if Is_Array_Type (Under_Type) and then not Is_Constrained (Under_Type)
+--        then
+--           return Do_Type_Reference (Under_Type);
+--        else
+         return Make_Pointer_Type
+         --  If this is a pointer to a record make it a pointer to
+         --  a struct_tag_type rather than the record type.
+         --  This prevents infinite recursion in the definition of types.
+           (if Is_Record_Type (Under_Type) then
+                 Make_Struct_Tag_Type (Unique_Name (Under_Type))
+            else
+               Do_Type_Reference (Under_Type));
+--        end if;
    end Do_Access_To_Object_Definition;
 
    function Get_No_Return_Check return Irep is
