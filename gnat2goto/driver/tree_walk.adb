@@ -5872,6 +5872,8 @@ package body Tree_Walk is
       --  The full view may contain declarations not yet processed
       --  by gnat2goto.
       In_Table := Find (Global_Symbol_Table, Type_Id);
+      Put_Line ("Do_Type_Reference");
+      Put_Line (Type_Name);
       if In_Table /= No_Element then
          Type_Irep := Element (In_Table).SymType;
 

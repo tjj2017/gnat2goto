@@ -1,23 +1,3 @@
-Standard_Output from gnat2goto u_array_address_model:
-----------At: Get_Dimension_Bounds----------
-----------Unconstrained array has no defined bounds----------
-N_Identifier "pv" (Node_Id=2384) (source,analyzed)
- Parent = N_Explicit_Dereference (Node_Id=2386)
- Sloc = 8894  u_array_address_model.adb:25:22
- Chars = "pv" (Name_Id=300001454)
- Etype = N_Defining_Identifier "pointer" (Entity_Id=2287)
- Entity = N_Defining_Identifier "pv" (Entity_Id=2327)
- Associated_Node = N_Defining_Identifier "pv" (Entity_Id=2327)
-----------At: Get_Dimension_Bounds----------
-----------Unconstrained array has no defined bounds----------
-N_Identifier "pv" (Node_Id=2409) (source,analyzed)
- Parent = N_Explicit_Dereference (Node_Id=2410)
- Sloc = 9077  u_array_address_model.adb:31:7
- Chars = "pv" (Name_Id=300001454)
- Etype = N_Defining_Identifier "pointer" (Entity_Id=2287)
- Entity = N_Defining_Identifier "pv" (Entity_Id=2327)
- Associated_Node = N_Defining_Identifier "pv" (Entity_Id=2327)
-
 Standard_Error from gnat2goto u_array_address_model:
 u_array_address_model.adb:10:04: warning: in instantiation at s-atacco.ads:43
 u_array_address_model.adb:10:04: warning: Object is unconstrained array type

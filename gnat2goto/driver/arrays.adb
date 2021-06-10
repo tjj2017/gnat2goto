@@ -13,6 +13,7 @@ with Sem_Eval;              use Sem_Eval;
 with Gnat2goto_Itypes;      use Gnat2goto_Itypes;
 with Arrays.Low_Level;      use Arrays.Low_Level;
 with Symbol_Table_Info;     use Symbol_Table_Info;
+with Ada.Text_IO; use Ada.Text_IO;
 package body Arrays is
 
    function Is_Unconstrained_Array_Result (Expr : Irep) return Boolean
@@ -1305,6 +1306,10 @@ package body Arrays is
                               The_Entity   : Entity_Id) return Irep
    is
    begin
+      Put_Line ("Do_Array_Subtype");
+      Put_Line (Unique_Name (The_Entity));
+      Put_Line ("Is_Constrained " &
+                  Boolean'Image (Is_Constrained (The_Entity)));
       return (if Is_Constrained (The_Entity) then
                  Make_Constrained_Array_Subtype
                 (Declaration    => Subtype_Node)
@@ -1686,10 +1691,10 @@ package body Arrays is
       Is_Implicit_Deref : constant Boolean := Is_Access_Type (Prefix_Etype);
 
       Array_Type : constant Entity_Id :=
-        (if Is_Implicit_Deref then
+        Underlying_Type ((if Is_Implicit_Deref then
             Designated_Type (Prefix_Etype)
          else
-            Prefix_Etype);
+            Prefix_Etype));
 
       Prefix_Irep       : constant Irep := Do_Expression (The_Prefix);
       Resolved_Type     : constant Irep := Do_Type_Reference (Array_Type);
@@ -1723,8 +1728,7 @@ package body Arrays is
                                   I_Type     => Element_Type,
                                   Location   => Source_Loc);
    begin
-      return
-        Indexed_Data;
+      return Indexed_Data;
    end Do_Indexed_Component;
 
    -------------------------
@@ -1772,94 +1776,100 @@ package body Arrays is
       Comp_Type      : constant Entity_Id := Component_Type (Array_Entity);
       Comp_Irep      : constant Irep :=
         Make_Resolved_I_Type (Comp_Type);
-      --  Get the array zero based bounds.
-      --  If the array is multi-dimmensional, the bounds are calculated
-      --  by flattening th array into a one-dimensional eaquivalent.
-      --  ASVAT represents multimensional arrays as equivalent one
-      --  dimensional arrays.
-      --  All goto arrays are index from 0, so the length is
-      --  upper bound + 1.
-      Array_Bounds     : constant Static_And_Dynamic_Bounds :=
-        Multi_Dimension_Flat_Bounds (Array_Entity);
-
-      Array_Length     : constant Irep :=
-        (if Array_Bounds.Has_Static_Bounds then
-            Integer_Constant_To_Expr
-           (Value           => UI_From_Int (Array_Bounds.High_Static + 1),
-            Expr_Type       => Index_T,
-            Source_Location => Source_Location)
-         else
-            Make_Op_Add
-           (Rhs             => Index_T_One,
-            Lhs             => Array_Bounds.High_Dynamic,
-            Source_Location => Source_Location,
-            Overflow_Check  => False,
-            I_Type          => Index_T,
-            Range_Check     => False));
-
-      Array_Model_Size : constant Irep :=
-        Make_Op_Mul
-          (Rhs             => Typecast_If_Necessary
-             (Expr           =>
-                    ASVAT.Size_Model.Computed_Size (Comp_Type),
-              New_Type       => Index_T,
-              A_Symbol_Table => Global_Symbol_Table),
-           Lhs             => Array_Length,
-           Source_Location => Source_Location,
-           Overflow_Check  => False,
-           I_Type          => Index_T,
-           Range_Check     => False);
    begin
-      --  Set the ASVAT.Size_Model size for the array.
-      ASVAT.Size_Model.Set_Computed_Size
-        (Array_Entity, Array_Model_Size);
-      if not Array_Bounds.Has_Static_Bounds then
-         --  The array has at least one dimension which has an
-         --  Ada variable specifying a bound.
-         --  A variable rather than an expression must be used to define the
-         --  length of the goto array.
-         declare
-            Array_Name   : constant String := Unique_Name (Array_Entity);
-            Arr_Len      : constant String := Array_Name & "_$array_size";
-            Arr_Len_Id   : constant Symbol_Id := Intern (Arr_Len);
-            Arr_Len_Irep : constant Irep :=
-              Make_Symbol_Expr
-                (Source_Location => Source_Location,
-                 I_Type          => Index_T,
-                 Range_Check     => False,
-                 Identifier      => Arr_Len);
-         begin
-            --  If the array subtype is an Itype then there is no point
-            --  declaring the variable in the goto code as the type
-            --  declaration is anonymous and does not appear in the
-            --  goto code.
-            --  Add the new variable to the symbol table and set its value
-            --  to the computed length.
-            New_Object_Symbol_Entry
-              (Object_Name       => Arr_Len_Id,
-               Object_Type       => Index_T,
-               Object_Init_Value => Array_Length,
-               A_Symbol_Table    => Global_Symbol_Table);
+      Put_Line ("Make_Constrained_Array_Subtype");
+      declare
+         --  Get the array zero based bounds.
+         --  If the array is multi-dimmensional, the bounds are calculated
+         --  by flattening th array into a one-dimensional eaquivalent.
+         --  ASVAT represents multimensional arrays as equivalent one
+         --  dimensional arrays.
+         --  All goto arrays are index from 0, so the length is
+         --  upper bound + 1.
+         Array_Bounds     : constant Static_And_Dynamic_Bounds :=
+           Multi_Dimension_Flat_Bounds (Array_Entity);
 
-            --  Return the dynamic array type
-            --  using the declared array length variable.
-            return Make_Array_Type
-              (I_Subtype => Comp_Irep,
-               Size      => Arr_Len_Irep);
-         end;
-      end if;
-      --  Return the array type using the static
-      --  length of the array.
-      return Make_Array_Type
-        (I_Subtype => Comp_Irep,
-         Size      => Array_Length);
+         Array_Length     : constant Irep :=
+           (if Array_Bounds.Has_Static_Bounds then
+               Integer_Constant_To_Expr
+              (Value           => UI_From_Int (Array_Bounds.High_Static + 1),
+               Expr_Type       => Index_T,
+               Source_Location => Source_Location)
+            else
+               Make_Op_Add
+              (Rhs             => Index_T_One,
+               Lhs             => Array_Bounds.High_Dynamic,
+               Source_Location => Source_Location,
+               Overflow_Check  => False,
+               I_Type          => Index_T,
+               Range_Check     => False));
+
+         Array_Model_Size : constant Irep :=
+           Make_Op_Mul
+             (Rhs             => Typecast_If_Necessary
+                (Expr           =>
+                       ASVAT.Size_Model.Computed_Size (Comp_Type),
+                 New_Type       => Index_T,
+                 A_Symbol_Table => Global_Symbol_Table),
+              Lhs             => Array_Length,
+              Source_Location => Source_Location,
+              Overflow_Check  => False,
+              I_Type          => Index_T,
+              Range_Check     => False);
+      begin
+         Put_Line ("Make_Constrained_Array_Subtype");
+         --  Set the ASVAT.Size_Model size for the array.
+         ASVAT.Size_Model.Set_Computed_Size
+           (Array_Entity, Array_Model_Size);
+         if not Array_Bounds.Has_Static_Bounds then
+            --  The array has at least one dimension which has an
+            --  Ada variable specifying a bound.
+            --  A variable rather than an expression must be used to define the
+            --  length of the goto array.
+            declare
+               Array_Name   : constant String := Unique_Name (Array_Entity);
+               Arr_Len      : constant String := Array_Name & "_$array_size";
+               Arr_Len_Id   : constant Symbol_Id := Intern (Arr_Len);
+               Arr_Len_Irep : constant Irep :=
+                 Make_Symbol_Expr
+                   (Source_Location => Source_Location,
+                    I_Type          => Index_T,
+                    Range_Check     => False,
+                    Identifier      => Arr_Len);
+            begin
+               --  If the array subtype is an Itype then there is no point
+               --  declaring the variable in the goto code as the type
+               --  declaration is anonymous and does not appear in the
+               --  goto code.
+               --  Add the new variable to the symbol table and set its value
+               --  to the computed length.
+               New_Object_Symbol_Entry
+                 (Object_Name       => Arr_Len_Id,
+                  Object_Type       => Index_T,
+                  Object_Init_Value => Array_Length,
+                  A_Symbol_Table    => Global_Symbol_Table);
+
+               --  Return the dynamic array type
+               --  using the declared array length variable.
+               return Make_Array_Type
+                 (I_Subtype => Comp_Irep,
+                  Size      => Arr_Len_Irep);
+            end;
+         end if;
+         --  Return the array type using the static
+         --  length of the array.
+         return Make_Array_Type
+           (I_Subtype => Comp_Irep,
+            Size      => Array_Length);
+      end;
    end Make_Constrained_Array_Subtype;
 
    function Make_Unconstrained_Array_Subtype (Declaration    : Node_Id;
                                               Component_Type : Entity_Id)
                                               return Irep
    is
-      Array_Type : constant Entity_Id := Defining_Identifier (Declaration);
+      Array_Type : constant Entity_Id :=
+        Underlying_Type (Defining_Identifier (Declaration));
       Sub : constant Irep :=
         Make_Resolved_I_Type (Component_Type);
       Dimensions  : constant Pos := Number_Dimensions (Array_Type);
@@ -1870,6 +1880,7 @@ package body Arrays is
          Location   => Get_Source_Location (Declaration),
          Dimensions => Dimensions);
    begin
+      Put_Line ("Make_Unconstrained_Array_Subtype");
       --  Set the ASVAT.Size_Model size for the unconstrained array to
       --  the size of the array structure.
       ASVAT.Size_Model.Set_Static_Size
