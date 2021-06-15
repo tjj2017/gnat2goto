@@ -118,8 +118,8 @@ package Tree_Walk is
    with Pre  => Nkind (N) = N_Attribute_Reference;
 
    function Do_Expression (N : Node_Id) return Irep
-     with Pre  => Nkind (N) in N_Subexpr,
-     Post => Kind (Do_Expression'Result) in Class_Expr;
+   with Pre  => Nkind (N) in N_Subexpr,
+        Post => Kind (Do_Expression'Result) in Class_Expr;
 
    function Do_Function_Call (N : Node_Id) return Irep
      with Pre  => Nkind (N) = N_Function_Call,

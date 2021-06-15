@@ -1570,6 +1570,11 @@ package body Tree_Walk is
                      if Is_Array_Type (N_Type) and then
                        not Is_Constrained (N_Type)
                      then
+                        --  An access to an object of an unconstrained type
+                        --  (the object itself must be constrained) is
+                        --  represented by a pointer to an array structure
+                        --  which contains the actual bounds of the object and
+                        --  a pointer to the array object.
                         return Make_Address_Of
                           (Make_Unconstrained_Array_Result (Resolved_Prefix));
                      else
@@ -3205,6 +3210,8 @@ package body Tree_Walk is
       Obj_Id : constant Symbol_Id :=
         Intern (Unique_Name (Defining_Identifier (N)));
    begin
+      Put_Line ("Do_Object_Dec");
+      Put_Line (Unique_Name (Defining_Identifier (N)));
       --  First check for object declarations which are not constants
       if not Constant_Present (N) then
          --  Not any sort of constant.
@@ -3544,6 +3551,7 @@ package body Tree_Walk is
 
       --  Begin processing for Do_Object_Declaration_Full
    begin
+      Put_Line ("Do_Object_Declaration_Full");
       if Is_Array_Type (Defined_Type) then
          Do_Array_Object_Declaration
            (Block       => Block,
@@ -3622,6 +3630,10 @@ package body Tree_Walk is
           (Symbol          => Object_Sym,
            Source_Location => Get_Source_Location (Object_Sym));
    begin
+      Put_Line ("Plain object dec");
+      Put_Line (Unintern (Object_Id));
+      Print_Node_Briefly (Object_Type);
+      Declare_Itype (Object_Type);
       if not Global_Symbol_Table.Contains (Object_Id) then
          Append_Op (Block, Decl);
          New_Object_Symbol_Entry
@@ -5872,8 +5884,6 @@ package body Tree_Walk is
       --  The full view may contain declarations not yet processed
       --  by gnat2goto.
       In_Table := Find (Global_Symbol_Table, Type_Id);
-      Put_Line ("Do_Type_Reference");
-      Put_Line (Type_Name);
       if In_Table /= No_Element then
          Type_Irep := Element (In_Table).SymType;
 
@@ -7166,12 +7176,13 @@ package body Tree_Walk is
             then Subtype_Mark (Sub_Indication)
             else Sub_Indication));
    begin
+      Put_Line ("Do_Access_To_Object_Definition");
+      Print_Node_Briefly (N);
+      Print_Node_Briefly (E);
+      Print_Node_Briefly (Under_Type);
+      Declare_Itype (Under_Type);
       ASVAT.Size_Model.Set_Static_Size (E          => E,
                                         Model_Size => Pointer_Type_Width);
---      if Is_Array_Type (Under_Type) and then not Is_Constrained (Under_Type)
---        then
---           return Do_Type_Reference (Under_Type);
---        else
          return Make_Pointer_Type
          --  If this is a pointer to a record make it a pointer to
          --  a struct_tag_type rather than the record type.

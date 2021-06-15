@@ -12,6 +12,43 @@ with Ada.Text_IO; use Ada.Text_IO;
 
 package body Gnat2goto_Itypes is
 
+   function Do_Anonymous_Type_Definition (E : Entity_Id) return Irep;
+
+   function Do_Itype_Anonymous_Access_Type (N : Node_Id) return Irep;
+
+   ----------------------------------
+   -- Do_Anonymous_Type_Definition --
+   ----------------------------------
+
+   function Do_Anonymous_Type_Definition (E : Entity_Id) return Irep is
+   begin
+      case Ekind (E) is
+         when E_Anonymous_Access_Type =>
+            return
+              Make_Pointer_Type
+                (Base => Do_Type_Reference (Designated_Type (E)));
+
+         when others =>
+            return Report_Unhandled_Node_Irep (E,
+                                               "Do_Anonymous_Type_Definition",
+                                               "Unknown typedef");
+      end case;
+
+   end Do_Anonymous_Type_Definition;
+
+   -------------------------------------
+   -- Do_Itype_Anonymous_Access_Type --
+   ------------------------------------
+
+   function Do_Itype_Anonymous_Access_Type (N : Node_Id) return Irep is
+      Typedef : constant Node_Id := Etype (Itype (N));
+
+      New_Type : constant Irep := Do_Anonymous_Type_Definition (Typedef);
+   begin
+      Do_Type_Declaration (New_Type, Typedef);
+      return New_Type;
+   end Do_Itype_Anonymous_Access_Type;
+
    ------------------------
    -- Do_Itype_Reference --
    ------------------------
@@ -19,29 +56,7 @@ package body Gnat2goto_Itypes is
    procedure Do_Itype_Reference (N : Node_Id) is
       Typedef : constant Node_Id := Etype (Itype (N));
 
-      function Do_Anonymous_Type_Definition return Irep;
-
-      ----------------------------------
-      -- Do_Anonymous_Type_Definition --
-      ----------------------------------
-
-      function Do_Anonymous_Type_Definition return Irep is
-      begin
-         case Ekind (Typedef) is
-            when E_Anonymous_Access_Type =>
-               return
-                 Make_Pointer_Type
-                   (Base => Do_Type_Reference (Designated_Type (Typedef)));
-
-            when others =>
-               return Report_Unhandled_Node_Irep (N,
-                                                "Do_Anonymous_Type_Definition",
-                                                  "Unknown typedef");
-         end case;
-
-      end Do_Anonymous_Type_Definition;
-
-      New_Type : constant Irep := Do_Anonymous_Type_Definition;
+      New_Type : constant Irep := Do_Anonymous_Type_Definition (Typedef);
    begin
       Do_Type_Declaration (New_Type, Typedef);
    end Do_Itype_Reference;
@@ -60,17 +75,13 @@ package body Gnat2goto_Itypes is
             Ty_New : Boolean;
          begin
             Global_Symbol_Table.Insert (Ty_Name, Ty_Symbol, Ty_Cursor, Ty_New);
-            Put_Line ("Declare_Itype");
-            Put_Line (Unique_Name (Ty));
-            Put_Line ("Is new " & Boolean'Image (Ty_New));
+            Put_Line ("New " & Boolean'Image (Ty_New));
             if Ty_New then
-               Put_Line ("About to insert new type");
                declare
                   New_Type : constant Irep := Do_Itype_Definition (Ty);
                   New_Symbol : constant Symbol :=
                     Make_Type_Symbol (Ty_Name, New_Type);
                begin
-                  Print_Irep (New_Type);
                   Global_Symbol_Table.Replace_Element (Ty_Cursor, New_Symbol);
                end;
             end if;
@@ -90,12 +101,7 @@ package body Gnat2goto_Itypes is
       --  Possibly in the long term, since we need this anyhow, it
       --  might become the only way to get a type definition.
       Put_Line ("Do_Itype_Definition");
-      Put_Line (Unique_Name (N));
       Put_Line ("Ekind " & Entity_Kind'Image (Ekind (N)));
-      if Ekind (N) in Array_Kind then
-         Put_Line ("It's an array");
-         Print_Irep (Do_Itype_Array_Subtype (N));
-      end if;
       return (case Ekind (N) is
          when Array_Kind => Do_Itype_Array_Subtype (N),
 --           when E_Array_Type => Do_Itype_Array_Type (N),
@@ -108,8 +114,7 @@ package body Gnat2goto_Itypes is
          when E_Enumeration_Subtype => Do_Itype_Enumeration_Subtype (N),
          when E_Enumeration_Type    => Do_Itype_Enumeration_Type (N),
          when E_Floating_Point_Type => CProver_Nil,
-         when E_Anonymous_Access_Type => Make_Pointer_Type
-                (Base => Do_Type_Reference (Designated_Type (Etype (N)))),
+         when E_Anonymous_Access_Type => Do_Itype_Anonymous_Access_Type (N),
          when E_Modular_Integer_Subtype => Do_Modular_Integer_Subtype (N),
          when others => Report_Unhandled_Node_Irep
           (N,
@@ -143,7 +148,6 @@ package body Gnat2goto_Itypes is
 
    function Do_Itype_Array_Subtype (N : Node_Id) return Irep is
    begin
-      Put_Line ("Do_Itype_Array_Subtype");
       return
         Do_Array_Subtype
           (Subtype_Node => N,
