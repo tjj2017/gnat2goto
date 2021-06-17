@@ -8,7 +8,7 @@ with Symbol_Table_Info;     use Symbol_Table_Info;
 with Tree_Walk;             use Tree_Walk;
 with Follow;                use Follow;
 with Arrays;                use Arrays;
-with Ada.Text_IO; use Ada.Text_IO;
+with ASVAT.Size_Model;
 
 package body Gnat2goto_Itypes is
 
@@ -41,11 +41,12 @@ package body Gnat2goto_Itypes is
    ------------------------------------
 
    function Do_Itype_Anonymous_Access_Type (N : Node_Id) return Irep is
-      Typedef : constant Node_Id := Etype (Itype (N));
+      Typedef : constant Node_Id := Etype (N);
 
       New_Type : constant Irep := Do_Anonymous_Type_Definition (Typedef);
    begin
       Do_Type_Declaration (New_Type, Typedef);
+      ASVAT.Size_Model.Set_Static_Size (Typedef, Pointer_Type_Width);
       return New_Type;
    end Do_Itype_Anonymous_Access_Type;
 
@@ -75,7 +76,6 @@ package body Gnat2goto_Itypes is
             Ty_New : Boolean;
          begin
             Global_Symbol_Table.Insert (Ty_Name, Ty_Symbol, Ty_Cursor, Ty_New);
-            Put_Line ("New " & Boolean'Image (Ty_New));
             if Ty_New then
                declare
                   New_Type : constant Irep := Do_Itype_Definition (Ty);
@@ -100,8 +100,6 @@ package body Gnat2goto_Itypes is
       --  hand must reverse-engineer the type from its Entity.
       --  Possibly in the long term, since we need this anyhow, it
       --  might become the only way to get a type definition.
-      Put_Line ("Do_Itype_Definition");
-      Put_Line ("Ekind " & Entity_Kind'Image (Ekind (N)));
       return (case Ekind (N) is
          when Array_Kind => Do_Itype_Array_Subtype (N),
 --           when E_Array_Type => Do_Itype_Array_Type (N),

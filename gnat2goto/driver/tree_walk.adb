@@ -1307,14 +1307,27 @@ package body Tree_Walk is
       --  the object itself must be constrained.
       --  For goto the constrained array object Irep type is used rather than
       --  the possibly unconstrained Ada type.
+      --  If the array object is a formal parameter it will be represented by
+      --  a pointer to its component type.
+      Underlying   : constant Entity_Id := Underlying_Type (Etype (E));
       Result_Type  : constant Irep :=
-        (if Is_Object (E) and then Is_Array_Type (Etype (E)) then
-              Global_Symbol_Table (Intern (Unique_Name (E))).SymType
+        (if Is_Object (E) and then
+         Is_Array_Type (Underlying_Type (Etype (E)))
+         then
+            (if Is_Formal (E) then
+               --  Formal aray parameters are represented as a pointer
+               Make_Pointer_Type
+              (Do_Type_Reference
+                   (Component_Type (Underlying_Type (Etype (E)))))
+            else
+               Global_Symbol_Table (Intern (Unique_Name (E))).SymType)
          else
             Do_Type_Reference (Etype (E)));
 
+      --  Array parameters are already pointers
       Is_Out_Param : constant Boolean :=
-        Ekind (E) in E_In_Out_Parameter | E_Out_Parameter;
+        Ekind (E) in E_In_Out_Parameter | E_Out_Parameter and then
+        not Is_Array_Type (Underlying);
 
       Symbol_Type  : constant Irep :=
         (if Is_Out_Param
@@ -3210,8 +3223,6 @@ package body Tree_Walk is
       Obj_Id : constant Symbol_Id :=
         Intern (Unique_Name (Defining_Identifier (N)));
    begin
-      Put_Line ("Do_Object_Dec");
-      Put_Line (Unique_Name (Defining_Identifier (N)));
       --  First check for object declarations which are not constants
       if not Constant_Present (N) then
          --  Not any sort of constant.
@@ -3551,7 +3562,6 @@ package body Tree_Walk is
 
       --  Begin processing for Do_Object_Declaration_Full
    begin
-      Put_Line ("Do_Object_Declaration_Full");
       if Is_Array_Type (Defined_Type) then
          Do_Array_Object_Declaration
            (Block       => Block,
@@ -3630,10 +3640,6 @@ package body Tree_Walk is
           (Symbol          => Object_Sym,
            Source_Location => Get_Source_Location (Object_Sym));
    begin
-      Put_Line ("Plain object dec");
-      Put_Line (Unintern (Object_Id));
-      Print_Node_Briefly (Object_Type);
-      Declare_Itype (Object_Type);
       if not Global_Symbol_Table.Contains (Object_Id) then
          Append_Op (Block, Decl);
          New_Object_Symbol_Entry
@@ -5578,7 +5584,7 @@ package body Tree_Walk is
                  (if Is_Access_Param then
                      Etype (Subtype_Mark (Param_Sort))
                   else
-                     Etype (Parameter_Type (Param_Iter)));
+                     Underlying_Type (Etype (Parameter_Type (Param_Iter))));
             begin
                if Is_Array_Type (Param_Ada_Type) then
                   declare
@@ -7176,11 +7182,6 @@ package body Tree_Walk is
             then Subtype_Mark (Sub_Indication)
             else Sub_Indication));
    begin
-      Put_Line ("Do_Access_To_Object_Definition");
-      Print_Node_Briefly (N);
-      Print_Node_Briefly (E);
-      Print_Node_Briefly (Under_Type);
-      Declare_Itype (Under_Type);
       ASVAT.Size_Model.Set_Static_Size (E          => E,
                                         Model_Size => Pointer_Type_Width);
          return Make_Pointer_Type

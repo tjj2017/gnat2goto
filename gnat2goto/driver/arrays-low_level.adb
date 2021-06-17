@@ -1474,7 +1474,7 @@ package body Arrays.Low_Level is
         (Array_Node_Kind in N_Entity and then Is_Object (Array_Node)) or else
         (Array_Node_Kind in N_Has_Entity and then
          Is_Object (Entity (Array_Node)));
-      Array_Type        : constant Entity_Id :=
+      Array_Type        : constant Entity_Id := Underlying_Type
         (if Array_Node_Kind = N_Defining_Identifier and then
          Is_Type (Array_Node)
          then

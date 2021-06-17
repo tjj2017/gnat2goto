@@ -32,7 +32,7 @@ package body Arrays is
                                   Dest_Bounds  : Static_And_Dynamic_Bounds;
                                   Target_Array : Irep;
                                   Block        : Irep)
-   with Pre => Is_Array_Type (Etype (Source_Expr)) and
+   with Pre => Is_Array_Type (Underlying_Type (Etype (Source_Expr))) and
                Kind (Get_Type (Target_Array)) = I_Array_Type;
 
    procedure Declare_Array_Friends (Array_Name  : String;
@@ -1442,29 +1442,32 @@ package body Arrays is
             LHS_I_Type         : constant Irep := Do_Type_Reference (LHS_Type);
             Temp_Array         : constant Irep :=
               Fresh_Var_Symbol_Expr (LHS_I_Type, "temp_arr_ass");
-            Temp_Array_Bounds  : constant Static_And_Dynamic_Bounds :=
-              Multi_Dimension_Flat_Bounds (LHS_Node);
-            Dest_Bounds        : constant Static_And_Dynamic_Bounds :=
-              Zero_Based_Bounds (LHS_Node);
          begin
-            Append_Op (Block,
-                       Make_Code_Decl
-                         (Symbol          => Temp_Array,
-                          Source_Location => Get_Source_Location (N)));
-            --  Assign to the temporary array
-            Do_Array_Assignment_Op
-              (Block       => Block,
-               Destination => Temp_Array,
-               Dest_Type   => LHS_Type,
-               Source_Expr => RHS_Node);
+            declare
+               Temp_Array_Bounds  : constant Static_And_Dynamic_Bounds :=
+                 Multi_Dimension_Flat_Bounds (LHS_Node);
+               Dest_Bounds        : constant Static_And_Dynamic_Bounds :=
+                 Zero_Based_Bounds (LHS_Node);
+            begin
+               Append_Op (Block,
+                          Make_Code_Decl
+                            (Symbol          => Temp_Array,
+                             Source_Location => Get_Source_Location (N)));
+               --  Assign to the temporary array
+               Do_Array_Assignment_Op
+                 (Block       => Block,
+                  Destination => Temp_Array,
+                  Dest_Type   => LHS_Type,
+                  Source_Expr => RHS_Node);
 
-            --  Now assign the temporary array to the desination
-            Assign_Array
-              (Block         => Block,
-               Destination   => Do_Expression (LHS_Node),
-               Dest_Bounds   => Dest_Bounds,
-               Source        => Temp_Array,
-               Source_Bounds => Temp_Array_Bounds);
+               --  Now assign the temporary array to the desination
+               Assign_Array
+                 (Block         => Block,
+                  Destination   => Do_Expression (LHS_Node),
+                  Dest_Bounds   => Dest_Bounds,
+                  Source        => Temp_Array,
+                  Source_Bounds => Temp_Array_Bounds);
+            end;
          end;
       end if;
    end Do_Array_Assignment;
@@ -1717,8 +1720,16 @@ package body Arrays is
          else
             Prefix_Etype));
 
+      Element_Type : constant Irep :=
+        Do_Type_Reference (Component_Type (Array_Type));
+
       Prefix_Irep       : constant Irep := Do_Expression (The_Prefix);
-      Resolved_Type     : constant Irep := Do_Type_Reference (Array_Type);
+      Resolved_Type     : constant Irep :=
+        (if Is_Formal (Entity (The_Prefix)) then
+            --  The array will be represented by a pointer.
+            Make_Pointer_Type (Element_Type)
+         else
+            Do_Type_Reference (Array_Type));
 
       Base_Irep         : constant Irep :=
         (if Is_Implicit_Deref then
@@ -1732,8 +1743,6 @@ package body Arrays is
 --        Base_I_Type       : constant Irep := Get_Type (Base_Irep);
 --        pragma Assert (Kind (Base_I_Type) in I_Array_Type | I_Pointer_Type);
 --
-      Element_Type : constant Irep :=
-        Do_Type_Reference (Component_Type (Array_Type));
 
       Index        : constant Irep := Typecast_If_Necessary
         (Expr           => Calculate_Index_Offset

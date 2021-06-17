@@ -340,16 +340,18 @@ package Arrays.Low_Level is
                       Is_Array_Type (Defining_Identifier (Array_Node)))
                or else (Nkind (Array_Node) in N_Object_Declaration |
                       N_Object_Renaming_Declaration and then
-                 Is_Array_Type (Etype (Defining_Identifier (Array_Node))))
+                        Is_Array_Type (Underlying_Type
+                      (Etype (Defining_Identifier (Array_Node)))))
                or else (Nkind (Array_Node) in N_Has_Etype and then
-                      Is_Array_Type (Etype (Array_Node))));
+                      Is_Array_Type (Underlying_Type
+                        (Etype (Array_Node)))));
    --  In goto Ada multidimensional arrays are flattenned into one dimensional
    --  arrays. This function calculates the zero based bounds of a flattened
    --  multi-dimentional array
 
    function Zero_Based_Bounds (The_Array : Node_Id)
                                return Static_And_Dynamic_Bounds
-     with Pre => Is_Array_Type (Etype (The_Array));
+     with Pre => Is_Array_Type (Underlying_Type (Etype (The_Array)));
    --  Calculate the zero based bounds of an array taking in to account
    --  any adjustment required if The_Array is a slice.
    --  For a slice Indexing is performed on the underlying array on which the
