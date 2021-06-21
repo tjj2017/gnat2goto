@@ -1830,9 +1830,20 @@ package body Tree_Walk is
 
          Do_Type_Declaration (New_Type, E);
 
-         --  Declare the implicit initial subtype too
+         --  Declare the implicit initial subtype too.
+         --  This is an Itype declared by the front-end.
+         --  The model sive of this declaration is needed.
+         --  It will be the same as the new type.
          if Etype (E) /= E then
             Do_Type_Declaration (New_Type, Etype (E));
+            if ASVAT.Size_Model.Has_Static_Size (E) then
+               ASVAT.Size_Model.Set_Static_Size
+                 (Etype (E),
+                  ASVAT.Size_Model.Static_Size (E));
+            else
+               ASVAT.Size_Model.Set_Computed_Size
+                 (Etype (E), ASVAT.Size_Model.Computed_Size (E));
+            end if;
          end if;
 
          --  A declaration of a tagged type is accepted by gnat2goto.
@@ -3647,7 +3658,7 @@ package body Tree_Walk is
             Object_Type       => Get_Type (Object_Sym),
             Object_Init_Value => Init_Expr_Irep,
             A_Symbol_Table    => Global_Symbol_Table);
-         --  The model size of the object hast to be recorded if it has
+         --  The model size of the object has to be recorded if it has
          --  not already been set by an array object declaration.
          if not ASVAT.Size_Model.Has_Size (Object_Def) then
             ASVAT.Size_Model.Set_Size_From_Entity (Object_Def, Object_Type);
@@ -4837,7 +4848,7 @@ package body Tree_Walk is
             return;
          end if;
          Comp_Name := To_Unbounded_String (Unique_Name (Defining_Identifier
-                                                          (Comp)));
+                                           (Comp)));
          Add_Record_Component (To_String (Comp_Name),
                                Etype (Defining_Identifier (Comp)),
                                Comp);
@@ -4879,7 +4890,6 @@ package body Tree_Walk is
    --  Start of processing for Do_Record_Definition
 
    begin
-
       --  Create fields for any discriminants:
       --  This order (discriminant, common fields, variant fields)
       --  seems to match GNAT's record-literal ordering (apparently
@@ -4925,14 +4935,17 @@ package body Tree_Walk is
          end;
       end if;
 
-      if Is_Static then
-         ASVAT.Size_Model.Set_Static_Size
-           (E          => Defining_Identifier (Parent (N)),
-            Model_Size => Static_Size);
-      else
-         ASVAT.Size_Model.Set_Computed_Size
-        (E         =>  Defining_Identifier (Parent (N)),
-         Size_Expr => Dynamic_Size);
+      --  Only add the size of complete records, not its variants.
+      if Nkind (Parent (N)) /= N_Variant_Part then
+         if Is_Static then
+            ASVAT.Size_Model.Set_Static_Size
+              (E          => Defining_Identifier (Parent (N)),
+               Model_Size => Static_Size);
+         else
+            ASVAT.Size_Model.Set_Computed_Size
+              (E         =>  Defining_Identifier (Parent (N)),
+               Size_Expr => Dynamic_Size);
+         end if;
       end if;
 
       return Make_Struct_Type

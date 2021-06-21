@@ -1,2 +1,2 @@
-[assertion.1] file <internal> Ada Check assertion: FAILURE
+[<=.assertion.1] line >= Ada Check assertion: FAILURE
 VERIFICATION FAILED
