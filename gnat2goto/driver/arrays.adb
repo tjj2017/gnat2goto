@@ -1699,7 +1699,7 @@ package body Arrays is
       Raw_Prefix  : constant Node_Id := Prefix (N);
       Pre_Prefix  : constant Node_Id :=
         (if Nkind (Raw_Prefix) = N_Explicit_Dereference then
-            Prefix (Raw_Prefix)
+              Prefix (Raw_Prefix)
          else
             Raw_Prefix);
       --  The prefix may be a slice.  The underlying array needs to be
@@ -1716,55 +1716,53 @@ package body Arrays is
 
       Array_Type : constant Entity_Id :=
         Underlying_Type ((if Is_Implicit_Deref then
-            Designated_Type (Prefix_Etype)
-         else
-            Prefix_Etype));
+                              Designated_Type (Prefix_Etype)
+                         else
+                            Prefix_Etype));
 
       Element_Type : constant Irep :=
         Do_Type_Reference (Component_Type (Array_Type));
 
       Prefix_Irep       : constant Irep := Do_Expression (The_Prefix);
+
+      Resolved_Type     : constant Irep :=
+        (if Nkind (The_Prefix) in N_Has_Entity and then
+         Is_Formal (Entity (The_Prefix))
+         then
+         --  The array will be represented by a pointer.
+            Make_Pointer_Type (Element_Type)
+         else
+            Do_Type_Reference (Array_Type));
+
+      Base_Irep         : constant Irep :=
+        (if Is_Implicit_Deref then
+            Make_Dereference_Expr
+           (I_Type => Resolved_Type,
+            Object => Prefix_Irep,
+            Source_Location => Get_Source_Location (N))
+         else
+            Prefix_Irep);
+
+      --        Base_I_Type       : constant Irep := Get_Type (Base_Irep);
+      --       pragma Assert
+      --         (Kind (Base_I_Type) in I_Array_Type | I_Pointer_Type);
+      --
+
+      Index        : constant Irep := Typecast_If_Necessary
+        (Expr           => Calculate_Index_Offset
+           (Array_Node  => The_Prefix,
+            Array_Type  => Array_Type,
+            The_Indices => N),
+         New_Type       => Index_T,
+         A_Symbol_Table => Global_Symbol_Table);
+
+      Indexed_Data : constant Irep :=
+        Make_Resolved_Index_Expr (The_Array  => Base_Irep,
+                                  Zero_Index => Index,
+                                  I_Type     => Element_Type,
+                                  Location   => Source_Loc);
    begin
-      declare
-         Resolved_Type     : constant Irep :=
-           (if Nkind (The_Prefix) in N_Has_Entity and then
-            Is_Formal (Entity (The_Prefix))
-            then
-            --  The array will be represented by a pointer.
-               Make_Pointer_Type (Element_Type)
-            else
-               Do_Type_Reference (Array_Type));
-
-         Base_Irep         : constant Irep :=
-           (if Is_Implicit_Deref then
-               Make_Dereference_Expr
-              (I_Type => Resolved_Type,
-               Object => Prefix_Irep,
-               Source_Location => Get_Source_Location (N))
-            else
-               Prefix_Irep);
-
-         --        Base_I_Type       : constant Irep := Get_Type (Base_Irep);
-         --       pragma Assert
-         --         (Kind (Base_I_Type) in I_Array_Type | I_Pointer_Type);
-         --
-
-         Index        : constant Irep := Typecast_If_Necessary
-           (Expr           => Calculate_Index_Offset
-              (Array_Node  => The_Prefix,
-               Array_Type  => Array_Type,
-               The_Indices => N),
-            New_Type       => Index_T,
-            A_Symbol_Table => Global_Symbol_Table);
-
-         Indexed_Data : constant Irep :=
-           Make_Resolved_Index_Expr (The_Array  => Base_Irep,
-                                     Zero_Index => Index,
-                                     I_Type     => Element_Type,
-                                     Location   => Source_Loc);
-      begin
-         return Indexed_Data;
-      end;
+      return Indexed_Data;
    end Do_Indexed_Component;
 
    -------------------------

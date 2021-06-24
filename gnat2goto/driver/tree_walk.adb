@@ -238,10 +238,6 @@ package body Tree_Walk is
 
    function Do_Range_In_Case (N : Node_Id; Symbol : Irep) return Irep;
 
-   function Do_Record_Definition (N : Node_Id; Discs : List_Id) return Irep
-   with Pre  => Nkind (N) in N_Record_Definition | N_Variant,
-        Post => Kind (Do_Record_Definition'Result) = I_Struct_Type;
-
    function Do_Signed_Integer_Definition (N : Node_Id) return Irep
    with Pre  => Nkind (N) = N_Signed_Integer_Type_Definition,
         Post => Kind (Do_Signed_Integer_Definition'Result) =
@@ -3556,6 +3552,7 @@ package body Tree_Walk is
                                          DCs : Node_Id) return Irep
       is
       begin
+         Put_Line ("Make_Default_Initialiser");
          if Ekind (E) in Array_Kind then
             return Ireps.Empty; --  Make_Array_Default_Initialiser (E);
          elsif Ekind (E) in Record_Kind then
@@ -3573,7 +3570,11 @@ package body Tree_Walk is
 
       --  Begin processing for Do_Object_Declaration_Full
    begin
+      Put_Line ("Do_Object_Declaration_Full");
+      Print_Node_Briefly (N);
+      Print_Node_Briefly (Object_Definition (N));
       if Is_Array_Type (Defined_Type) then
+         Put_Line ("An array");
          Do_Array_Object_Declaration
            (Block       => Block,
             Dec_Node    => N,
@@ -3581,6 +3582,7 @@ package body Tree_Walk is
             Array_Name  => Obj_Name,
             Init_Expr   => Expression (N));
       else
+         Put_Line ("Not an array");
          declare
             Defn : constant Node_Id := Object_Definition (N);
             Discriminant_Constraint : constant Node_Id :=
@@ -3613,6 +3615,7 @@ package body Tree_Walk is
                  Identifier      => Obj_Name);
 
          begin
+            Put_Line ("Start Plain_Object_Declaration");
             Do_Plain_Object_Declaration
               (Block       => Block,
                Object_Sym  => Id,
@@ -4734,16 +4737,12 @@ package body Tree_Walk is
       end;
    end Do_Range_Constraint;
 
-   --------------------------
-   -- Do_Record_Definition --
-   --------------------------
+   -------------------------------
+   -- Do_Record_Type_Definition --
+   -------------------------------
 
-   function Do_Record_Definition (N : Node_Id;
-                                  Discs : List_Id) return Irep is
-
-      Components : constant Irep := Make_Struct_Union_Components;
-      Disc_Iter : Node_Id := First (Discs);
-
+   function Do_Record_Type_Definition (N : Node_Id;
+                                       Discs : List_Id) return Irep is
       --  Set up accumulators to record ASVAT.Model_Size.
       Is_Static    : Boolean := True;
       Static_Size  : Natural := 0;
@@ -4752,206 +4751,224 @@ package body Tree_Walk is
          Expr_Type       => Make_Signedbv_Type (32),
          Source_Location => Get_Source_Location (N));
 
-      procedure Add_Record_Component (Comp_Name : String;
-                                      Comp_Type_Node : Node_Id;
-                                      Comp_Node : Node_Id;
-                                      Add_To_List : Irep := Components);
-      procedure Add_Record_Component_Raw (Comp_Name : String;
-                                          Comp_Type : Irep;
-                                          Comp_Node : Node_Id;
-                                          Add_To_List : Irep := Components);
-      procedure Do_Record_Component (Comp : Node_Id);
-      procedure Do_Variant_Struct (Var : Node_Id;
-                                   Union_Components : Irep);
+      function Do_Record_Definition (N : Node_Id; Discs : List_Id) return Irep;
 
       --------------------------
-      -- Add_Record_Component --
+      -- Do_Record_Definition --
       --------------------------
 
-      procedure Add_Record_Component (Comp_Name : String;
-                                      Comp_Type_Node : Node_Id;
-                                      Comp_Node : Node_Id;
-                                      Add_To_List : Irep := Components) is
-      begin
-         Declare_Itype (Comp_Type_Node);
-         Add_Record_Component_Raw (Comp_Name,
-                                   Do_Type_Reference (Comp_Type_Node),
-                                   Comp_Node,
-                                   Add_To_List);
+      function Do_Record_Definition (N : Node_Id;
+                                     Discs : List_Id) return Irep is
 
-         ASVAT.Size_Model.Accumumulate_Size
-           (Is_Static     => Is_Static,
-            Accum_Static  => Static_Size,
-            Accum_Dynamic => Dynamic_Size,
-            Entity_To_Add => Comp_Type_Node);
+         Components : constant Irep := Make_Struct_Union_Components;
+         Disc_Iter : Node_Id := First (Discs);
 
-      end Add_Record_Component;
+         procedure Add_Record_Component (Comp_Name : String;
+                                         Comp_Type_Node : Node_Id;
+                                         Comp_Node : Node_Id;
+                                         Add_To_List : Irep := Components);
+         procedure Add_Record_Component_Raw (Comp_Name : String;
+                                             Comp_Type : Irep;
+                                             Comp_Node : Node_Id;
+                                             Add_To_List : Irep := Components);
+         procedure Do_Record_Component (Comp : Node_Id);
+         procedure Do_Variant_Struct (Var : Node_Id;
+                                      Union_Components : Irep);
 
-      ------------------------------
-      -- Add_Record_Component_Raw --
-      ------------------------------
+         --------------------------
+         -- Add_Record_Component --
+         --------------------------
 
-      procedure Add_Record_Component_Raw (Comp_Name : String;
-                                          Comp_Type : Irep;
-                                          Comp_Node : Node_Id;
-                                          Add_To_List : Irep := Components) is
-         Comp_Irep : constant Irep :=
-           Make_Struct_Component (Comp_Name, Comp_Type);
-      begin
-         Set_Source_Location (Comp_Irep, Get_Source_Location (Comp_Node));
-         Append_Component (Add_To_List, Comp_Irep);
-      end Add_Record_Component_Raw;
-
-      -------------------------
-      -- Do_Record_Component --
-      -------------------------
-
-      procedure Do_Record_Component (Comp : Node_Id) is
-         Comp_Name : Unbounded_String;
-      begin
-         if Nkind (Comp) /= N_Component_Declaration
-           and then Nkind (Comp) /= N_Defining_Program_Unit_Name
-           and then Nkind (Comp) /= N_Discriminant_Specification
-           and then Nkind (Comp) /= N_Entry_Body
-           and then Nkind (Comp) /= N_Entry_Declaration
-           and then Nkind (Comp) /= N_Entry_Index_Specification
-           and then Nkind (Comp) /= N_Exception_Declaration
-           and then Nkind (Comp) /= N_Exception_Renaming_Declaration
-           and then Nkind (Comp) /= N_Formal_Object_Declaration
-           and then Nkind (Comp) /= N_Formal_Package_Declaration
-           and then Nkind (Comp) /= N_Formal_Type_Declaration
-           and then Nkind (Comp) /= N_Full_Type_Declaration
-           and then Nkind (Comp) /= N_Implicit_Label_Declaration
-           and then Nkind (Comp) /= N_Incomplete_Type_Declaration
-           and then Nkind (Comp) /= N_Iterated_Component_Association
-           and then Nkind (Comp) /= N_Iterator_Specification
-           and then Nkind (Comp) /= N_Loop_Parameter_Specification
-           and then Nkind (Comp) /= N_Number_Declaration
-           and then Nkind (Comp) /= N_Object_Declaration
-           and then Nkind (Comp) /= N_Object_Renaming_Declaration
-           and then Nkind (Comp) /= N_Package_Body_Stub
-           and then Nkind (Comp) /= N_Parameter_Specification
-           and then Nkind (Comp) /= N_Private_Extension_Declaration
-           and then Nkind (Comp) /= N_Private_Type_Declaration
-           and then Nkind (Comp) /= N_Protected_Body
-           and then Nkind (Comp) /= N_Protected_Body_Stub
-           and then Nkind (Comp) /= N_Protected_Type_Declaration
-           and then Nkind (Comp) /= N_Single_Protected_Declaration
-           and then Nkind (Comp) /= N_Single_Task_Declaration
-           and then Nkind (Comp) /= N_Subtype_Declaration
-           and then Nkind (Comp) /= N_Task_Body
-           and then Nkind (Comp) /= N_Task_Body_Stub
-           and then Nkind (Comp) /= N_Task_Type_Declaration
-         then
-            Report_Unhandled_Node_Empty (Comp, "Do_Record_Component",
-                                         "Wrong component nkind");
-            return;
-         end if;
-         Comp_Name := To_Unbounded_String (Unique_Name (Defining_Identifier
-                                           (Comp)));
-         Add_Record_Component (To_String (Comp_Name),
-                               Etype (Defining_Identifier (Comp)),
-                               Comp);
-      end Do_Record_Component;
-
-      -----------------------
-      -- Do_Variant_Struct --
-      -----------------------
-
-      procedure Do_Variant_Struct (Var : Node_Id;
-                                   Union_Components : Irep) is
-         Struct_Type : constant Irep :=
-           Do_Record_Definition (Var, List_Id (Types.Empty));
-         Type_Symbol : constant Irep := Get_Fresh_Type_Name (Struct_Type, Var);
-         Choice_Iter : constant Node_Id := First (Discrete_Choices (Var));
-         Variant_Name : constant String :=
-           Get_Variant_Union_Member_Name (Choice_Iter);
-      begin
-         Set_Tag (Struct_Type, Get_Identifier (Type_Symbol));
-         Add_Record_Component_Raw (Variant_Name,
-                                   Type_Symbol,
-                                   Var,
-                                   Union_Components);
-      end Do_Variant_Struct;
-
-      --  Local variables
-      Comp_List      : constant Node_Id := Component_List (N);
-      Component_Iter : Node_Id :=
-        (if Present (Comp_List) then
-              First (Component_Items (Comp_List))
-         else
-            Types.Empty);
-      Variants_Node  : constant Node_Id :=
-        (if Present (Comp_List) then
-              Variant_Part (Comp_List)
-         else
-            Types.Empty);
-
-   --  Start of processing for Do_Record_Definition
-
-   begin
-      --  Create fields for any discriminants:
-      --  This order (discriminant, common fields, variant fields)
-      --  seems to match GNAT's record-literal ordering (apparently
-      --  regardless of source ordering).
-      while Present (Disc_Iter) loop
-         Add_Record_Component (Unique_Name (Defining_Identifier (Disc_Iter)),
-                               Etype (Discriminant_Type (Disc_Iter)),
-                               Disc_Iter);
-         Next (Disc_Iter);
-      end loop;
-
-      --  Add regular fields
-      while Present (Component_Iter) loop
-         Do_Record_Component (Component_Iter);
-         Next (Component_Iter);
-      end loop;
-
-      --  Add union of variants if applicable
-      if Present (Variants_Node) then
-         --  Create a field for the discriminant,
-         --  plus a union of variant alternatives.
-         declare
-            Variant_Iter : Node_Id := First (Variants (Variants_Node));
-            Union_Components : constant Irep :=
-              Make_Struct_Union_Components;
-            Union_Irep : constant Irep := Make_Union_Type
-              (Tag => "Filled out further down with get_fresh_type_name",
-               Components => Union_Components);
+         procedure Add_Record_Component (Comp_Name : String;
+                                         Comp_Type_Node : Node_Id;
+                                         Comp_Node : Node_Id;
+                                         Add_To_List : Irep := Components) is
          begin
-            while Present (Variant_Iter) loop
-               Do_Variant_Struct (Variant_Iter, Union_Components);
-               Next (Variant_Iter);
-            end loop;
-            Set_Components (Union_Irep, Union_Components);
+            Declare_Itype (Comp_Type_Node);
+            Add_Record_Component_Raw (Comp_Name,
+                                      Do_Type_Reference (Comp_Type_Node),
+                                      Comp_Node,
+                                      Add_To_List);
+
+            ASVAT.Size_Model.Accumumulate_Size
+              (Is_Static     => Is_Static,
+               Accum_Static  => Static_Size,
+               Accum_Dynamic => Dynamic_Size,
+               Entity_To_Add => Comp_Type_Node);
+
+         end Add_Record_Component;
+
+         ------------------------------
+         -- Add_Record_Component_Raw --
+         ------------------------------
+
+         procedure Add_Record_Component_Raw (Comp_Name : String;
+                                             Comp_Type : Irep;
+                                             Comp_Node : Node_Id;
+                                             Add_To_List : Irep := Components)
+         is
+            Comp_Irep : constant Irep :=
+              Make_Struct_Component (Comp_Name, Comp_Type);
+         begin
+            Set_Source_Location (Comp_Irep, Get_Source_Location (Comp_Node));
+            Append_Component (Add_To_List, Comp_Irep);
+         end Add_Record_Component_Raw;
+
+         -------------------------
+         -- Do_Record_Component --
+         -------------------------
+
+         procedure Do_Record_Component (Comp : Node_Id) is
+            Comp_Name : Unbounded_String;
+         begin
+            if Nkind (Comp) /= N_Component_Declaration
+              and then Nkind (Comp) /= N_Defining_Program_Unit_Name
+              and then Nkind (Comp) /= N_Discriminant_Specification
+              and then Nkind (Comp) /= N_Entry_Body
+              and then Nkind (Comp) /= N_Entry_Declaration
+              and then Nkind (Comp) /= N_Entry_Index_Specification
+              and then Nkind (Comp) /= N_Exception_Declaration
+              and then Nkind (Comp) /= N_Exception_Renaming_Declaration
+              and then Nkind (Comp) /= N_Formal_Object_Declaration
+              and then Nkind (Comp) /= N_Formal_Package_Declaration
+              and then Nkind (Comp) /= N_Formal_Type_Declaration
+              and then Nkind (Comp) /= N_Full_Type_Declaration
+              and then Nkind (Comp) /= N_Implicit_Label_Declaration
+              and then Nkind (Comp) /= N_Incomplete_Type_Declaration
+              and then Nkind (Comp) /= N_Iterated_Component_Association
+              and then Nkind (Comp) /= N_Iterator_Specification
+              and then Nkind (Comp) /= N_Loop_Parameter_Specification
+              and then Nkind (Comp) /= N_Number_Declaration
+              and then Nkind (Comp) /= N_Object_Declaration
+              and then Nkind (Comp) /= N_Object_Renaming_Declaration
+              and then Nkind (Comp) /= N_Package_Body_Stub
+              and then Nkind (Comp) /= N_Parameter_Specification
+              and then Nkind (Comp) /= N_Private_Extension_Declaration
+              and then Nkind (Comp) /= N_Private_Type_Declaration
+              and then Nkind (Comp) /= N_Protected_Body
+              and then Nkind (Comp) /= N_Protected_Body_Stub
+              and then Nkind (Comp) /= N_Protected_Type_Declaration
+              and then Nkind (Comp) /= N_Single_Protected_Declaration
+              and then Nkind (Comp) /= N_Single_Task_Declaration
+              and then Nkind (Comp) /= N_Subtype_Declaration
+              and then Nkind (Comp) /= N_Task_Body
+              and then Nkind (Comp) /= N_Task_Body_Stub
+              and then Nkind (Comp) /= N_Task_Type_Declaration
+            then
+               Report_Unhandled_Node_Empty (Comp, "Do_Record_Component",
+                                            "Wrong component nkind");
+               return;
+            end if;
+            Comp_Name := To_Unbounded_String (Unique_Name (Defining_Identifier
+                                              (Comp)));
+            Add_Record_Component (To_String (Comp_Name),
+                                  Etype (Defining_Identifier (Comp)),
+                                  Comp);
+         end Do_Record_Component;
+
+         -----------------------
+         -- Do_Variant_Struct --
+         -----------------------
+
+         procedure Do_Variant_Struct (Var : Node_Id;
+                                      Union_Components : Irep) is
+            Struct_Type : constant Irep :=
+              Do_Record_Definition (Var, List_Id (Types.Empty));
+            Type_Symbol : constant Irep :=
+              Get_Fresh_Type_Name (Struct_Type, Var);
+            Choice_Iter : constant Node_Id := First (Discrete_Choices (Var));
+            Variant_Name : constant String :=
+              Get_Variant_Union_Member_Name (Choice_Iter);
+         begin
+            Set_Tag (Struct_Type, Get_Identifier (Type_Symbol));
+            Add_Record_Component_Raw (Variant_Name,
+                                      Type_Symbol,
+                                      Var,
+                                      Union_Components);
+         end Do_Variant_Struct;
+
+         --  Local variables
+         Comp_List      : constant Node_Id := Component_List (N);
+         Component_Iter : Node_Id :=
+           (if Present (Comp_List) then
+                 First (Component_Items (Comp_List))
+            else
+               Types.Empty);
+         Variants_Node  : constant Node_Id :=
+           (if Present (Comp_List) then
+                 Variant_Part (Comp_List)
+            else
+               Types.Empty);
+
+         --  Start of processing for Do_Record_Definition
+
+      begin
+         --  Create fields for any discriminants:
+         --  This order (discriminant, common fields, variant fields)
+         --  seems to match GNAT's record-literal ordering (apparently
+         --  regardless of source ordering).
+         while Present (Disc_Iter) loop
+            Add_Record_Component
+              (Unique_Name (Defining_Identifier (Disc_Iter)),
+               Etype (Discriminant_Type (Disc_Iter)),
+               Disc_Iter);
+            Next (Disc_Iter);
+         end loop;
+
+         --  Add regular fields
+         while Present (Component_Iter) loop
+            Do_Record_Component (Component_Iter);
+            Next (Component_Iter);
+         end loop;
+
+         --  Add union of variants if applicable
+         if Present (Variants_Node) then
+            --  Create a field for the discriminant,
+            --  plus a union of variant alternatives.
             declare
-               Union_Symbol : constant Irep :=
-                 Get_Fresh_Type_Name (Union_Irep, Variants_Node);
+               Variant_Iter : Node_Id := First (Variants (Variants_Node));
+               Union_Components : constant Irep :=
+                 Make_Struct_Union_Components;
+               Union_Irep : constant Irep := Make_Union_Type
+                 (Tag => "Filled out further down with get_fresh_type_name",
+                  Components => Union_Components);
             begin
-               Set_Tag (Union_Irep, Get_Identifier (Union_Symbol));
-               Add_Record_Component_Raw (
-                 "_variants", Union_Symbol, Variants_Node);
+               while Present (Variant_Iter) loop
+                  Do_Variant_Struct (Variant_Iter, Union_Components);
+                  Next (Variant_Iter);
+               end loop;
+               Set_Components (Union_Irep, Union_Components);
+               declare
+                  Union_Symbol : constant Irep :=
+                    Get_Fresh_Type_Name (Union_Irep, Variants_Node);
+               begin
+                  Set_Tag (Union_Irep, Get_Identifier (Union_Symbol));
+                  Add_Record_Component_Raw
+                    ("_variants", Union_Symbol, Variants_Node);
+               end;
             end;
-         end;
-      end if;
-
-      --  Only add the size of complete records, not its variants.
-      if Nkind (Parent (N)) /= N_Variant_Part then
-         if Is_Static then
-            ASVAT.Size_Model.Set_Static_Size
-              (E          => Defining_Identifier (Parent (N)),
-               Model_Size => Static_Size);
-         else
-            ASVAT.Size_Model.Set_Computed_Size
-              (E         =>  Defining_Identifier (Parent (N)),
-               Size_Expr => Dynamic_Size);
          end if;
-      end if;
 
-      return Make_Struct_Type
-        (Tag => "This will be filled in later by Do_Type_Declaration",
-         Components => Components);
-   end Do_Record_Definition;
+         return Make_Struct_Type
+           (Tag => "This will be filled in later by Do_Type_Declaration",
+            Components => Components);
+      end Do_Record_Definition;
+
+      The_Record : constant Irep := Do_Record_Definition (N, Discs);
+
+   begin  --  Do_Record_Type_Definition.
+      --  Set the ASVAT model size of the record.
+      if Is_Static then
+         ASVAT.Size_Model.Set_Static_Size
+           (E          => Defining_Identifier (Parent (N)),
+            Model_Size => Static_Size);
+      else
+         ASVAT.Size_Model.Set_Computed_Size
+           (E         =>  Defining_Identifier (Parent (N)),
+            Size_Expr => Dynamic_Size);
+      end if;
+      return The_Record;
+   end Do_Record_Type_Definition;
 
    ---------------------------
    -- Do_Selected_Component --
@@ -5849,7 +5866,7 @@ package body Tree_Walk is
       end if;
       case Nkind (N) is
          when N_Record_Definition =>
-            return Do_Record_Definition (N, Discs);
+            return Do_Record_Type_Definition (N, Discs);
          when N_Signed_Integer_Type_Definition =>
             return Do_Signed_Integer_Definition (N);
          when N_Derived_Type_Definition =>

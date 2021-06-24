@@ -90,6 +90,11 @@ package Tree_Walk is
                                           Init_Expr_Irep : Irep)
      with Pre => Get_Identifier (Object_Sym) = Object_Name;
 
+   function Do_Record_Type_Definition (N : Node_Id; Discs : List_Id)
+                                       return Irep
+   with Pre  => Nkind (N) in N_Record_Definition | N_Variant,
+        Post => Kind (Do_Record_Type_Definition'Result) = I_Struct_Type;
+
    function Do_Type_Reference (E : Entity_Id) return Irep
      with Pre  => Is_Type (E),
      Post => Kind (Do_Type_Reference'Result) in Class_Type;

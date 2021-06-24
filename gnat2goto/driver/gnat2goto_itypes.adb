@@ -230,9 +230,22 @@ package body Gnat2goto_Itypes is
 
    --  Don't need to record discriminant constraints in the irep
    --  representation (yet), so just an alias for its supertype.
+   --  But, ASVAT size of the Itype needs to be recorded as the
+   --  same as its supertype.
    function Do_Itype_Record_Subtype (N : Entity_Id) return Irep is
+      Supertype : constant Entity_Id := Etype (N);
    begin
-      return Do_Type_Reference (Etype (N));
+      if ASVAT.Size_Model.Has_Size (Supertype) then
+         ASVAT.Size_Model.Set_Computed_Size
+           (N, ASVAT.Size_Model.Computed_Size (Supertype));
+      else
+         Report_Unhandled_Node_Empty
+           (N        => N,
+            Fun_Name => "Do_Itype_Record_Subtype",
+            Message  =>
+              "Supertype of Itype_Record_Subtype has no ASVAT size");
+      end if;
+      return Do_Type_Reference (Supertype);
    end Do_Itype_Record_Subtype;
 
    function Do_Modular_Integer_Subtype (N : Entity_Id) return Irep is

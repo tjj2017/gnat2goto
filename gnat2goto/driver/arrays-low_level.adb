@@ -5,7 +5,44 @@ with ASVAT.Size_Model;        use ASVAT.Size_Model;
 with Symbol_Table_Info;       use Symbol_Table_Info;
 with Range_Check;             use Range_Check;
 with Ada.Text_IO; use Ada.Text_IO;
+with Follow; use Follow;
 package body Arrays.Low_Level is
+
+   --  A Irep of an array could be of one of the following sorts:
+   --  (1) an I_Array_Type,
+   --  (2) a Pointer to an array element,
+   --  (3) a Bounded array structure, or,
+   --  (4) a pointer to a bounded array structure.
+   --  (5) an I_String_Type
+   --  Any other entity is not expected.
+   type Array_Sort is (An_I_Array, A_Pointer_To_Elem,
+                       A_Bounded, A_Pointer_To_Bounded,
+                       An_I_String, Unexpected);
+   function Get_Array_Sort (The_Array : Irep) return Array_Sort;
+   function Get_Array_Sort (The_Array : Irep) return Array_Sort is
+      Array_I_Type     : constant Irep := Get_Type (The_Array);
+      Is_Pointer       : constant Boolean :=
+        Kind (Array_I_Type) = I_Pointer_Type;
+      Is_Bounded_Arr  : constant Boolean :=
+        Is_Unconstrained_Array_Result (Array_I_Type);
+
+      Arr_Sort         : constant Array_Sort :=
+        (if Kind (Array_I_Type) = I_Array_Type then
+              An_I_Array
+         elsif Kind (Array_I_Type) = I_String_Type then
+              An_I_String
+         elsif Is_Pointer and not Is_Bounded_Arr then
+            A_Pointer_To_Elem
+         elsif not Is_Pointer and Is_Bounded_Arr then
+            A_Bounded
+         elsif Is_Pointer and Is_Bounded_Arr then
+            A_Pointer_To_Bounded
+         else
+            Unexpected);
+   begin
+      pragma Assert (Arr_Sort /= Unexpected);
+      return Arr_Sort;
+   end Get_Array_Sort;
 
    function Add_One_To_Index (Index : Static_And_Dynamic_Index)
                               return Static_And_Dynamic_Index is
@@ -76,7 +113,20 @@ package body Arrays.Low_Level is
    end Add_To_Index;
 
    function Is_Unconstrained_Array_Result (Expr : Irep) return Boolean is
-      (Kind (Get_Type (Expr)) = I_Struct_Type);
+      Expr_Type : constant Irep :=
+        (if Kind (Expr) in Class_Expr then
+              Get_Type (Expr)
+         elsif Kind (Expr) in Class_Type then
+              Expr
+         else
+            Ireps.Empty);
+   begin
+      pragma Assert (Expr_Type /= Ireps.Empty);
+      return
+        (Kind (Expr_Type) = I_Pointer_Type and then
+         Kind (Get_Subtype (Expr_Type)) = I_Struct_Type) or else
+        Kind (Expr_Type) = I_Struct_Type;
+   end Is_Unconstrained_Array_Result;
 
    procedure Assign_Array
      (Block         : Irep;
@@ -136,7 +186,7 @@ package body Arrays.Low_Level is
       end if;
    end Assign_Array;
 
-      function Get_Dynamic_Index (Index : Static_And_Dynamic_Index) return Irep
+   function Get_Dynamic_Index (Index : Static_And_Dynamic_Index) return Irep
    is
      (if Index.Is_Static then
          Integer_Constant_To_Expr
@@ -1132,11 +1182,10 @@ package body Arrays.Low_Level is
                                   return Irep
    is
       Source_Location : constant Irep := Get_Source_Location (The_Array);
-      Array_I_Type    : constant Irep := Get_Type (The_Array);
-      Array_I_Kind    : constant Irep_Kind := Kind (Array_I_Type);
    begin
       return
-        (if Array_I_Kind  = I_Array_Type then
+        (case Get_Array_Sort (The_Array) is
+            when An_I_Array =>
                Make_Address_Of_Expr
            (Object          => Make_Index_Expr
                 (I_Array         => The_Array,
@@ -1144,21 +1193,32 @@ package body Arrays.Low_Level is
                  Source_Location => Source_Location,
                  I_Type          => Comp_I_Type,
                  Range_Check     => False),
-                   Source_Location => Source_Location,
-                   I_Type          => Make_Pointer_Type (Comp_I_Type),
-            Range_Check     => False)
-         elsif Array_I_Kind in I_String_Type then
-            Make_Address_Of_Expr
+            Source_Location => Source_Location,
+            I_Type          => Make_Pointer_Type (Comp_I_Type),
+            Range_Check     => False),
+            when A_Pointer_To_Elem =>
+            --  The_Array is already a pointer - nothing to be done.
+            The_Array,
+            when A_Bounded =>
+               Get_Array_From_Struc (The_Array, Comp_I_Type),
+            when A_Pointer_To_Bounded =>
+               Get_Array_From_Struc
+           (Make_Dereference_Expr
+                (Object          => The_Array,
+                 Source_Location => Source_Location,
+                 I_Type          => Make_Pointer_Type (Make_Void_Type)),
+            Comp_I_Type),
+            when An_I_String =>
+               Make_Address_Of_Expr
            (Object          => The_Array,
             Source_Location => Source_Location,
-            I_Type          => Make_Pointer_Type (Make_String_Type))
-         elsif Array_I_Kind = I_Pointer_Type then
-         --  The_Array is already a pointer - nothing to be done.
-            The_Array
-         else
-         --  The array must be an array_struc type.
-         --  This is checked by the subprogram's precondition.
-            Get_Array_From_Struc (The_Array, Comp_I_Type));
+            I_Type          => Make_Pointer_Type (Make_String_Type)),
+            when Unexpected =>
+               Report_Unhandled_Node_Irep
+           (N        => Types.Empty,
+            Fun_Name => "Get_Pointer_To_Array",
+            Message  =>
+           "Attempting to get a pointer to an unexpected array sort"));
    end Get_Pointer_To_Array;
 
    ---------------
@@ -1225,12 +1285,21 @@ package body Arrays.Low_Level is
 
    function Get_Array_From_Struc (Array_Struc : Irep;
                                   Comp_Type    : Irep) return Irep is
+      Actual_Type : constant Irep :=
+        (if Kind (Follow_Symbol_Type (Comp_Type, Global_Symbol_Table)) =
+           I_C_Enum_Type
+         then
+         --  The actual type will be a unsignedbv but the size is unknown.
+         --  Use the maximium for an enumeration.
+            Make_Unsignedbv_Type (32)
+         else
+            Comp_Type);
    begin
       return
         (Make_Member_Expr
         (Compound         => Array_Struc,
          Source_Location  => Get_Source_Location (Array_Struc),
-         I_Type           => Make_Pointer_Type (Comp_Type),
+         I_Type           => Make_Pointer_Type (Actual_Type),
          Component_Name   => Array_Struc_Data,
          Range_Check      => False));
    end Get_Array_From_Struc;
@@ -1354,32 +1423,84 @@ package body Arrays.Low_Level is
                                       I_Type     : Irep;
                                       Location   : Irep) return Irep
    is
-      Array_I_Type : constant Irep := Get_Type (The_Array);
-      Indexed_Data : constant Irep :=
-        (if Kind (Array_I_Type) = I_Array_Type then
-              Make_Index_Expr
+      Arr_Sort : constant Array_Sort := Get_Array_Sort (The_Array);
+      --  If the array components represent an enumeration they are
+      --  modelled as an unsigned bit vector within the array.  An element
+      --  has to be extracted from the array as an unsignedbv component and
+      --  then type converted to the correct enumeration type.
+      Is_An_Enum       : constant Boolean :=
+        Kind (Follow_Symbol_Type
+              (I_Type, Global_Symbol_Table)) = I_C_Enum_Type;
+      --  The number of bits used by the enumertion type is not known here
+      --  for the purposes of accessing a bounded array,
+      --  so the maximum of 32 is assumed.
+      Max_Enum         : constant Irep := Make_Unsignedbv_Type (32);
+
+      Raw_Elem_I_Type  : constant Irep :=
+        (if not Is_An_Enum then
+            I_Type
+         else
+           (case Arr_Sort is
+               when An_I_String =>
+                  I_Type,
+               when An_I_Array =>
+                  Get_Subtype (Get_Type (The_Array)),
+               when A_Pointer_To_Elem =>
+                  Get_Subtype (The_Array),
+               when A_Bounded | A_Pointer_To_Bounded =>
+                  Get_Subtype (Get_Pointer_To_Array (The_Array, Max_Enum)),
+               when Unexpected =>
+                  I_Type));
+
+      function Make_Array_Pointer_Index (Arr_Pointer : Irep;
+                                         Zero_Index  : Irep) return Irep;
+      function Make_Array_Pointer_Index (Arr_Pointer : Irep;
+                                         Zero_Index  : Irep) return Irep is
+      begin
+         return (Make_Dereference_Expr
+                 (Object          => Typecast_If_Necessary
+                  (Expr           => Make_Op_Add
+                   (Rhs             => Zero_Index,
+                    Lhs             => Arr_Pointer,
+                    Source_Location => Location,
+                    I_Type          => Make_Pointer_Type (Raw_Elem_I_Type)),
+                   New_Type       => Make_Pointer_Type (Raw_Elem_I_Type),
+                   A_Symbol_Table => Global_Symbol_Table),
+                  Source_Location => Location,
+                  I_Type          => Make_Pointer_Type (Raw_Elem_I_Type)));
+      end Make_Array_Pointer_Index;
+
+      Indexed_Data_Pre : constant Irep :=
+        (case Arr_Sort is
+            when An_I_Array =>
+               Make_Index_Expr
            (I_Array         => The_Array,
             Index           => Zero_Index,
             Source_Location => Location,
-            I_Type          => I_Type,
-            Range_Check     => False)
-         else
-         --  It must be an array represented as a pointer
-            Make_Dereference_Expr
-           (Object          => Typecast_If_Necessary
-                (Make_Op_Add
-                     (Rhs             => Zero_Index,
-                      Lhs             =>
-                        Get_Pointer_To_Array (The_Array, I_Type),
-                      Source_Location => Location,
-                      Overflow_Check  => False,
-                      I_Type          => Make_Pointer_Type (I_Type),
-                      Range_Check     => False),
-                 Make_Pointer_Type (I_Type),
-                 Global_Symbol_Table),
+            I_Type          => Raw_Elem_I_Type,
+            Range_Check     => False),
+            when A_Pointer_To_Elem | A_Bounded | A_Pointer_To_Bounded =>
+               Make_Array_Pointer_Index
+           (Get_Pointer_To_Array (The_Array, Raw_Elem_I_Type), Zero_Index),
+            when An_I_String =>
+               Report_Unhandled_Node_Irep
+           (N        => Types.Empty,
+            Fun_Name => "Make_Resolved_Index_Expr",
+            Message  => "Attempting to index into an I_String_Type"),
+            when Unexpected =>
+               Report_Unhandled_Node_Irep
+           (N        => Types.Empty,
+            Fun_Name => "Make_Resolved_Index_Expr",
+            Message  => "Attempting to index an unexpected array sort"));
+
+      Indexed_Data     : constant Irep :=
+        (if Is_An_Enum then
+            Make_Op_Typecast
+           (Op0             => Indexed_Data_Pre,
             Source_Location => Location,
-            I_Type          => I_Type,
-            Range_Check     => False));
+            I_Type          => I_Type)
+         else
+            Indexed_Data_Pre);
    begin
       return Indexed_Data;
    end Make_Resolved_Index_Expr;
