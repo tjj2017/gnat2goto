@@ -90,11 +90,6 @@ package Tree_Walk is
                                           Init_Expr_Irep : Irep)
      with Pre => Get_Identifier (Object_Sym) = Object_Name;
 
-   function Do_Record_Type_Definition (N : Node_Id; Discs : List_Id)
-                                       return Irep
-   with Pre  => Nkind (N) in N_Record_Definition | N_Variant,
-        Post => Kind (Do_Record_Type_Definition'Result) = I_Struct_Type;
-
    function Do_Type_Reference (E : Entity_Id) return Irep
      with Pre  => Is_Type (E),
      Post => Kind (Do_Type_Reference'Result) in Class_Type;
@@ -173,11 +168,6 @@ package Tree_Walk is
    function Do_Identifier (N : Node_Id) return Irep
      with Pre  => Nkind (N) in N_Identifier | N_Expanded_Name;
 
-   function Do_Selected_Component (N : Node_Id) return Irep
-   with Pre  => Nkind (N) = N_Selected_Component,
-        Post => Kind (Do_Selected_Component'Result) in
-                I_Member_Expr | I_Op_Comma;
-
    --  Required by Gnat2goto.Itpes.Declare_Itype
    function Do_Enumeration_Definition (N : Node_Id) return Irep
    with Pre  => Nkind (N) = N_Enumeration_Type_Definition,
@@ -196,5 +186,10 @@ package Tree_Walk is
    --  If a type is an enumeration it needs to be converted to an unsignedbv.
    function Make_Resolved_I_Type (E : Entity_Id) return Irep
    with Pre  => Is_Type (E);
+
+   function Make_Runtime_Check (Condition : Irep) return Irep
+   with Pre  => Kind (Get_Type (Condition)) = I_Bool_Type,
+        Post => Kind (Make_Runtime_Check'Result) =
+                I_Side_Effect_Expr_Function_Call;
 
 end Tree_Walk;
