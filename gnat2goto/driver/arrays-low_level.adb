@@ -1182,61 +1182,88 @@ package body Arrays.Low_Level is
                                   return Irep
    is
       Source_Location : constant Irep := Get_Source_Location (The_Array);
+      Res : Irep;
    begin
-      return
-        (case Get_Array_Sort (The_Array) is
-            when An_I_Array =>
-               Make_Address_Of_Expr
-           (Object          => Make_Index_Expr
-                (I_Array         => The_Array,
-                 Index           => Index_T_Zero,
-                 Source_Location => Source_Location,
-                 I_Type          => Comp_I_Type,
-                 Range_Check     => False),
-            Source_Location => Source_Location,
-            I_Type          => Make_Pointer_Type (Comp_I_Type),
-            Range_Check     => False),
-            when A_Pointer_To_Elem =>
-            --  The_Array is already a pointer - nothing to be done.
-            The_Array,
-            when A_Bounded =>
-               (if Kind (Get_Type (The_Array)) /= I_Struct_Type then
-                     Report_Unhandled_Node_Irep
-                  (N        => Types.Empty,
-                   Fun_Name => "Get_Pointer_To_Array",
-                   Message  => "A_Bounded is not a struc type")
-                else
-                   Get_Array_From_Struc (The_Array, Comp_I_Type)),
-            when A_Pointer_To_Bounded =>
-           (if Kind (Get_Type
-            (Make_Dereference_Expr
-                 (Object          => The_Array,
+      case Get_Array_Sort (The_Array) is
+         when An_I_Array =>
+            Res := Make_Address_Of_Expr
+              (Object          => Make_Index_Expr
+                 (I_Array         => The_Array,
+                  Index           => Index_T_Zero,
                   Source_Location => Source_Location,
-                  I_Type          => Make_Pointer_Type (Make_Void_Type))))
-            /= I_Struct_Type
+                  I_Type          => Comp_I_Type,
+                  Range_Check     => False),
+               Source_Location => Source_Location,
+               I_Type          => Make_Pointer_Type (Comp_I_Type),
+               Range_Check     => False);
+            if Kind (Get_Type (Res)) /= I_Pointer_Type then
+               Report_Unhandled_Node_Empty
+                 (N        => Types.Empty,
+                  Fun_Name => "Get_Pointer_To_Array",
+                  Message  => "Not getting ponter from An_I_Array");
+            end if;
+         when A_Pointer_To_Elem =>
+            --  The_Array is already a pointer - nothing to be done.
+            Res := The_Array;
+            if Kind (Get_Type (Res)) /= I_Pointer_Type then
+               Report_Unhandled_Node_Empty
+                 (N        => Types.Empty,
+                  Fun_Name => "Get_Pointer_To_Array",
+                  Message  => "Not getting ponter from A_Pointer_To_Elem");
+            end if;
+         when A_Bounded =>
+            if Kind (Get_Type (The_Array)) /= I_Struct_Type then
+               Report_Unhandled_Node_Empty
+                 (N        => Types.Empty,
+                  Fun_Name => "Get_Pointer_To_Array",
+                  Message  => "A_Bounded is not a struc type");
+            end if;
+            Res := Get_Array_From_Struc (The_Array, Comp_I_Type);
+            if Kind (Get_Type (Res)) /= I_Pointer_Type then
+               Report_Unhandled_Node_Empty
+                 (N        => Types.Empty,
+                  Fun_Name => "Get_Pointer_To_Array",
+                  Message  => "Not getting ponter from A_Bounded");
+            end if;
+         when A_Pointer_To_Bounded =>
+            if Kind (Get_Type
+                     (Make_Dereference_Expr
+                        (Object          => The_Array,
+                         Source_Location => Source_Location,
+                         I_Type          =>
+                           Make_Pointer_Type (Make_Void_Type))))
+              /= I_Struct_Type
             then
-               Report_Unhandled_Node_Irep
+               Report_Unhandled_Node_Empty
               (N        => Types.Empty,
                Fun_Name => "Get_Pointer_To_Array",
-               Message  => "A_Pointer_To_Bounded is not a struc type")
-            else
-               Get_Array_From_Struc
+               Message  => "A_Pointer_To_Bounded is not a struc type");
+            end if;
+            Res := Get_Array_From_Struc
               (Make_Dereference_Expr
-                   (Object          => The_Array,
-                    Source_Location => Source_Location,
-                    I_Type          => Make_Pointer_Type (Make_Void_Type)),
-               Comp_I_Type)),
-            when An_I_String =>
-               Make_Address_Of_Expr
-           (Object          => The_Array,
-            Source_Location => Source_Location,
-            I_Type          => Make_Pointer_Type (Make_String_Type)),
-            when Unexpected =>
-               Report_Unhandled_Node_Irep
-           (N        => Types.Empty,
-            Fun_Name => "Get_Pointer_To_Array",
-            Message  =>
-           "Attempting to get a pointer to an unexpected array sort"));
+                 (Object          => The_Array,
+                  Source_Location => Source_Location,
+                  I_Type          => Make_Pointer_Type (Make_Void_Type)),
+               Comp_I_Type);
+            if Kind (Get_Type (Res)) /= I_Pointer_Type then
+               Report_Unhandled_Node_Empty
+                 (N        => Types.Empty,
+                  Fun_Name => "Get_Pointer_To_Array",
+                  Message  => "Not getting ponter from A_Pointer_To_Bounded");
+            end if;
+         when An_I_String =>
+            Res := Make_Address_Of_Expr
+              (Object          => The_Array,
+               Source_Location => Source_Location,
+               I_Type          => Make_Pointer_Type (Make_String_Type));
+         when Unexpected =>
+            Res := Report_Unhandled_Node_Irep
+              (N        => Types.Empty,
+               Fun_Name => "Get_Pointer_To_Array",
+               Message  =>
+                  "Attempting to get a pointer to an unexpected array sort");
+      end case;
+      return Res;
    end Get_Pointer_To_Array;
 
    ---------------
