@@ -35,6 +35,7 @@ with Ireps;                 use Ireps;
 with Symbol_Table_Info;     use Symbol_Table_Info;
 
 with Tree_Walk;             use Tree_Walk;
+with Arrays;                use Arrays;
 with Gather_Irep_Symbols;
 
 with GNATCOLL.JSON;         use GNATCOLL.JSON;
@@ -567,23 +568,15 @@ package body Driver is
       procedure Add_Standard_String;
       procedure Add_Standard_String is
          function Make_Ada_String_Type return Irep is
-           (Make_Array_Type
-              (I_Subtype => Make_Char_Type,
-               Size      =>
-                  Integer_Constant_To_Expr
-                 (Value           => Uint_0,
-                  Expr_Type       => Make_Signedbv_Type (64),
-                  Source_Location => Internal_Source_Location)));
+           (Make_Bounded_Array_Type
+              (Dimensions => 1,
+               Comp_Type  => Make_Char_Type));
          Builtin   : Symbol;
          Builtin_Node : constant Node_Id := Standard_String;
          Type_Irep : constant Irep := Make_Ada_String_Type;
 
          Str_Name       : constant String := Unique_Name (Builtin_Node);
 
-         --  The variabes representing String'First and String'Last
-         --  should be declared here.  Their value will be nondet.
---           Str_First_Name : constant String := Str_Name & "___first_1";
---           Str_Last_Name  : constant String := Str_Name & "___last_1");
       begin
          Builtin.Name       := Intern (Str_Name);
          Builtin.PrettyName := Builtin.Name;

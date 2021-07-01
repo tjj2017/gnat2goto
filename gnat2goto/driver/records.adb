@@ -8,11 +8,13 @@ with GOTO_Utils;            use GOTO_Utils;
 with Symbol_Table_Info;     use Symbol_Table_Info;
 with Gnat2goto_Itypes;      use Gnat2goto_Itypes;
 with Tree_Walk;             use Tree_Walk;
+with Arrays;                use Arrays;
 with ASVAT.Size_Model;      use ASVAT.Size_Model;
 with Ada.Strings.Unbounded; use Ada.Strings.Unbounded;
-with Ada.Text_IO; use Ada.Text_IO;
-with Treepr; use Treepr;
 package body Records is
+
+   --   Used for error recovery when a component is an unsupported array type.
+   Dummy_Array_Size : constant Pos := 16;
 
    procedure Add_Entity_Substitution (E : Entity_Id; Subst : Irep);
 
@@ -337,16 +339,25 @@ package body Records is
                   New_Expr := Do_Expression (Expression (Component_Iter));
                else
                   declare
-                     Component_Type : constant Entity_Id :=
+                     Component_Type  : constant Entity_Id :=
                        Etype (Defining_Identifier (Component_Iter));
+                     Is_Non_Static_Array : constant Boolean :=
+                       Is_Array_Type (Component_Type) and then
+                       not All_Dimensions_Static (Component_Type);
+                     Comp_I_Type : constant Irep :=
+                       (if Is_Non_Static_Array then
+                           Make_Static_Array
+                          (Dummy_Array_Size, Component_Type)
+                        else
+                           Do_Type_Reference (Component_Type));
                   begin
-                     if Ekind (Component_Type) in Aggregate_Kind then
+                     if Is_Record_Type (Component_Type) then
                         New_Expr :=
                           Make_Default_Initialiser (Component_Type,
                                                     Types.Empty);
                      else
                         New_Expr := Make_Side_Effect_Expr_Nondet
-                          (I_Type => Do_Type_Reference (Component_Type),
+                          (I_Type => Comp_I_Type,
                            Source_Location => Get_Source_Location (E));
                      end if;
                   end;
@@ -479,10 +490,6 @@ package body Records is
                                          DCs : Node_Id) return Irep
       is
       begin
-         Put_Line ("Make_Default_Initialiser");
-         Print_Node_Briefly (E);
-         Put_Line ("Ekind " &
-                     Entity_Kind'Image (Ekind (E)));
          if Ekind (E) in Array_Kind then
             return Ireps.Empty; --  Make_Array_Default_Initialiser (E);
          elsif Ekind (E) in Record_Kind then
@@ -499,11 +506,11 @@ package body Records is
       end Make_Default_Initialiser;
 
       Defn : constant Node_Id := Object_Definition (Dec_Node);
+
       Discriminant_Constraint : constant Node_Id :=
         (if Nkind (Defn) = N_Subtype_Indication then
               Constraint (Defn)
          else Types.Empty);
-
       --  Check for if initialization is required.
       Init_Expr_Irep : constant Irep :=
         (if Present (Init_Expr) then
@@ -594,19 +601,49 @@ package body Records is
                                          Comp_Type_Node : Node_Id;
                                          Comp_Node : Node_Id;
                                          Add_To_List : Irep := Components) is
+            Is_Non_Static_Array : constant Boolean :=
+              Is_Array_Type (Comp_Type_Node) and then
+              not (All_Dimensions_Static (Comp_Type_Node));
          begin
+            if Is_Non_Static_Array then
+               if Is_Constrained (Etype (Comp_Type_Node)) then
+                  Report_Unhandled_Node_Empty
+                    (N        => Comp_Node,
+                     Fun_Name => "Add_Record_Component",
+                     Message  =>
+                       "Array components with non-static bounds " &
+                       "are unsupported");
+               else
+                  Report_Unhandled_Node_Empty
+                    (N        => Comp_Node,
+                     Fun_Name => "Add_Record_Component",
+                     Message  =>
+                       "Unconstrained array (sub)type components " &
+                       "are unsupported");
+               end if;
+            end if;
+
             Declare_Itype (Comp_Type_Node);
-            Add_Record_Component_Raw (Comp_Name,
-                                      Do_Type_Reference (Comp_Type_Node),
-                                      Comp_Node,
-                                      Add_To_List);
 
-            ASVAT.Size_Model.Accumumulate_Size
-              (Is_Static     => Is_Static,
-               Accum_Static  => Static_Size,
-               Accum_Dynamic => Dynamic_Size,
-               Entity_To_Add => Comp_Type_Node);
+            declare
+               Comp_Type_Irep      : constant Irep :=
+                 (if Is_Non_Static_Array then
+                  --  Use a dummy static array type to improve error recovery.
+                     Make_Static_Array (Dummy_Array_Size, Comp_Type_Node)
+                  else
+                     Do_Type_Reference (Comp_Type_Node));
+            begin
+               Add_Record_Component_Raw (Comp_Name,
+                                         Comp_Type_Irep,
+                                         Comp_Node,
+                                         Add_To_List);
 
+               ASVAT.Size_Model.Accumumulate_Size
+                 (Is_Static     => Is_Static,
+                  Accum_Static  => Static_Size,
+                  Accum_Dynamic => Dynamic_Size,
+                  Entity_To_Add => Comp_Type_Node);
+            end;
          end Add_Record_Component;
 
          ------------------------------
@@ -819,11 +856,12 @@ package body Records is
       --  thus it's unique-name is bar__a: which is not present in Foo. That's
       --  why we have to use the component of the original-record to get the
       --  right name.
-      Orig_Component : constant Entity_Id :=
+      Orig_Component      : constant Entity_Id :=
         Original_Record_Component (Component);
-      Component_Type : constant Irep := Do_Type_Reference (Etype (Component));
-      Component_Name : constant String := Unique_Name (Orig_Component);
-      Source_Location : constant Irep := Get_Source_Location (N);
+      Comp_Etype          : constant Entity_Id := Etype (Component);
+      Component_Type      : constant Irep := Do_Type_Reference (Comp_Etype);
+      Component_Name      : constant String := Unique_Name (Orig_Component);
+      Source_Location     : constant Irep := Get_Source_Location (N);
    begin
       if Do_Discriminant_Check (N) then
          --  ??? Can this even happen

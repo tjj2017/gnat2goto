@@ -2034,6 +2034,28 @@ package body Arrays is
       end;
    end Build_Unconstrained_Array_Result;
 
+   function Make_Bounded_Array_Type (Dimensions : Pos; Comp_Type : Irep)
+                                     return Irep is
+     (Low_Level.Make_Array_Struc_Type
+        (Comp_Type  => Comp_Type,
+         Location   => Internal_Source_Location,
+         Dimensions => Dimensions));
+
+   function Make_Static_Array (Size : Pos; Array_Type : Node_Id) return Irep
+   is
+      Comp_I_Type : constant Irep :=
+        Do_Type_Reference (Component_Type (Array_Type));
+      Size_Irep   : constant Irep :=
+        Integer_Constant_To_Expr
+          (Value           => UI_From_Int (Size),
+           Expr_Type       => Index_T,
+           Source_Location => Get_Source_Location (Array_Type));
+   begin
+      return Make_Array_Type
+        (I_Subtype => Comp_I_Type,
+         Size      => Size_Irep);
+   end Make_Static_Array;
+
    function Make_Unconstrained_Array_Result (Result_Expr : Node_Id)
                                              return Irep
    is

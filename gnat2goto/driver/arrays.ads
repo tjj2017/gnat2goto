@@ -114,8 +114,16 @@ package Arrays is
    procedure Build_Unconstrained_Array_Result (Block       : Irep;
                                                Result_Var  : Irep;
                                                Return_Expr : Node_Id);
+
+   function Make_Bounded_Array_Type (Dimensions : Pos; Comp_Type : Irep)
+                                     return Irep;
+
    function Make_Unconstrained_Array_Result (Result_Expr : Node_Id)
                                              return Irep;
+
+   function Make_Static_Array (Size : Pos; Array_Type : Node_Id) return Irep
+     with Pre => Is_Array_Type (Array_Type);
+
 private
 
    function Do_RHS_Array_Assign (N : Node_Id) return Irep_Array
