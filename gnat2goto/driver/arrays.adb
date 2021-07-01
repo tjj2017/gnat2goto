@@ -13,6 +13,8 @@ with Sem_Eval;              use Sem_Eval;
 with Gnat2goto_Itypes;      use Gnat2goto_Itypes;
 with Arrays.Low_Level;      use Arrays.Low_Level;
 with Symbol_Table_Info;     use Symbol_Table_Info;
+with Ada.Text_IO; use Ada.Text_IO;
+with Treepr; use Treepr;
 package body Arrays is
 
    function Is_Unconstrained_Array_Result (Expr : Irep) return Boolean
@@ -168,6 +170,10 @@ package body Arrays is
          else
             Do_Type_Reference (Source_Type));
    begin
+      Put_Line ("Array_Assignment_Op");
+      Print_Irep (Source_I_Type);
+      Print_Irep (Get_Subtype (Source_I_Type));
+      Print_Node_Briefly (Source_Type);
       if RHS_Node_Kind = N_Aggregate then
          Update_Array_From_Aggregate
            (Block        => Block,

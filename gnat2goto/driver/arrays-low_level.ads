@@ -38,6 +38,7 @@ package Arrays.Low_Level is
    Array_Struc_Data   : constant String := "data";
    Array_Bounds_No    : constant := 0;
    Array_Data_No      : constant := 1;
+   Array_Struc_Tag    : constant String := "unconstr_array";
    Bounds_Component   : constant Irep := Int32_T;
    function Bounds_First (Dimension : Pos) return Uint is
      (UI_From_Int (Dimension * 2 - 2));

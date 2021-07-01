@@ -120,12 +120,27 @@ package body Arrays.Low_Level is
               Expr
          else
             Ireps.Empty);
+
+      function Is_Bounded (Arr_Type : Irep) return Boolean;
+      function Is_Bounded (Arr_Type : Irep) return Boolean is
+         Arr_Type_Kind : constant Irep_Kind := Kind (Arr_Type);
+      begin
+         return
+           Arr_Type_Kind = I_Struct_Type and then
+           Get_Tag (Arr_Type) = Array_Struc_Tag;
+      end Is_Bounded;
+
    begin
+      Put_Line ("Is_Unconstrained_Array_Result");
+      Print_Irep (Expr_Type);
+      if Kind (Expr_Type) = I_Pointer_Type then
+         Print_Irep (Get_Subtype (Expr_Type));
+      end if;
       pragma Assert (Expr_Type /= Ireps.Empty);
       return
         (Kind (Expr_Type) = I_Pointer_Type and then
-         Kind (Get_Subtype (Expr_Type)) = I_Struct_Type) or else
-        Kind (Expr_Type) = I_Struct_Type;
+         Is_Bounded (Get_Subtype (Expr_Type))) or else
+           (Is_Bounded (Expr_Type));
    end Is_Unconstrained_Array_Result;
 
    procedure Assign_Array
@@ -139,6 +154,7 @@ package body Arrays.Low_Level is
       Target_I_Type    : constant Irep := Get_Type (Destination);
       Component_I_Type : constant Irep := Get_Subtype (Target_I_Type);
    begin
+      Put_Line ("Assign_Array");
       if not Dest_Bounds.Is_Unconstrained then
          if Dest_Bounds.Has_Static_Bounds and
            Source_Bounds.Is_Unconstrained and
@@ -1440,7 +1456,7 @@ package body Arrays.Low_Level is
       Array_Struc_Comps : constant Irep := Make_Struct_Union_Components;
 
       Array_Struc : constant Irep :=
-        Make_Struct_Type (Tag        => "unconstr_array",
+        Make_Struct_Type (Tag        => Array_Struc_Tag,
                           Components => Array_Struc_Comps);
 
       Bounds_Comp    : constant Irep :=
