@@ -1644,6 +1644,34 @@ package body Arrays.Low_Level is
    function Multi_Dimension_Flat_Bounds (Array_Node : Node_Id)
                                          return Static_And_Dynamic_Bounds
    is
+      Source_Location : constant Irep := Get_Source_Location (Array_Node);
+      --  The front-end ensures that the array has at least one dimension.
+      Array_Node_Kind : constant Node_Kind := Nkind (Array_Node);
+      Array_Is_Object : constant Boolean :=
+        (Array_Node_Kind in N_Entity and then Is_Object (Array_Node))
+        or else
+          (Array_Node_Kind in N_Has_Entity and then
+             (Nkind (Entity (Array_Node)) in N_Entity and then
+              Is_Object (Entity (Array_Node))));
+      Array_Type   : constant Entity_Id :=
+        (case Array_Node_Kind is
+            when N_Full_Type_Declaration | N_Subtype_Declaration =>
+               Underlying_Type (Defining_Identifier (Array_Node)),
+            when N_Object_Declaration | N_Object_Renaming_Declaration =>
+               Underlying_Type (Etype (Defining_Identifier (Array_Node))),
+            when N_Identifier | N_Expanded_Name =>
+               Underlying_Type (Etype (Entity (Array_Node))),
+            when N_Attribute_Reference =>
+           (if Get_Attribute_Id (Attribute_Name (N)) = Attribute_Image
+            then
+               Standard.String
+            else
+               Types.Empty),
+            when others =>
+           (if Array_Node_Kind in N_Has_Etype then
+                 Etype (Array_Node
+              else
+                 Types.Empty)));
    begin
       if not ((Nkind (Array_Node) in N_Full_Type_Declaration |
                                       N_Subtype_Declaration and then
@@ -1654,7 +1682,9 @@ package body Arrays.Low_Level is
                       (Etype (Defining_Identifier (Array_Node)))))
                or else (Nkind (Array_Node) in N_Has_Etype and then
                       Is_Array_Type (Underlying_Type
-                                     (Etype (Array_Node)))))
+                                     (Etype (Array_Node))))
+              or else (Nkind (Array_Node) in N_Entity and then
+                      Ekind (Array_Node) = E_String_Literal_Subtype))
       then
          Report_Unhandled_Node_Empty
            (N        => Array_Node,
@@ -1663,30 +1693,6 @@ package body Arrays.Low_Level is
          pragma Assert (False);
       end if;
       declare
-         Source_Location : constant Irep := Get_Source_Location (Array_Node);
-         --  The front-end ensures that the array has at least one dimension.
-         Array_Node_Kind   : constant Node_Kind := Nkind (Array_Node);
-         Array_Is_Object   : constant Boolean :=
-           (Array_Node_Kind in N_Entity and then Is_Object (Array_Node))
-           or else
-           (Array_Node_Kind in N_Has_Entity and then
-              (Nkind (Entity (Array_Node)) in N_Entity and then
-               Is_Object (Entity (Array_Node))));
-         Array_Type        : constant Entity_Id := Underlying_Type
-           (if Array_Node_Kind = N_Defining_Identifier and then
-            Is_Type (Array_Node)
-            then
-               Array_Node
-            else
-              (case Array_Node_Kind is
-                  when N_Full_Type_Declaration | N_Subtype_Declaration =>
-                     Defining_Identifier (Array_Node),
-                  when N_Object_Declaration | N_Object_Renaming_Declaration =>
-                     Etype (Defining_Identifier (Array_Node)),
-                  when N_Identifier | N_Expanded_Name =>
-                     Etype (Entity (Array_Node)),
-                  when others =>
-                     Etype (Array_Node)));
       begin
          --  Check to see if the array is  string literal
          --  Process and return if it is.

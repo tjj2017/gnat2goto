@@ -336,6 +336,8 @@ package Arrays.Low_Level is
 
    function Multi_Dimension_Flat_Bounds (Array_Node : Node_Id)
                                          return Static_And_Dynamic_Bounds;
+   --  Pre-conditopn is complex and is placed as a check in the body to assist
+   --  with error recovery, but it has the form:
 --       with Pre => ((Nkind (Array_Node) in N_Full_Type_Declaration |
 --                                        N_Subtype_Declaration and then
 --                        Is_Array_Type (Defining_Identifier (Array_Node)))
@@ -345,7 +347,9 @@ package Arrays.Low_Level is
 --                        (Etype (Defining_Identifier (Array_Node)))))
 --                 or else (Nkind (Array_Node) in N_Has_Etype and then
 --                        Is_Array_Type (Underlying_Type
---                          (Etype (Array_Node)))));
+--                          (Etype (Array_Node))))
+--                 or else (Nkind (Array_Node) = N_Attribute_Reference and then
+--                   Get_Attribute_Id (Attribute_Name (N)) = Attribute_Image));
    --  In goto Ada multidimensional arrays are flattenned into one dimensional
    --  arrays. This function calculates the zero based bounds of a flattened
    --  multi-dimentional array

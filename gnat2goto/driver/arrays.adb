@@ -2260,7 +2260,7 @@ package body Arrays is
                   elsif Nkind (N) in N_Has_Etype then
                        Etype (N)
                   else
-                     Types.Empty);
+                    Types.Empty);
                Array_Bounds    : constant Static_And_Dynamic_Bounds :=
                  Multi_Dimension_Flat_Bounds (Array_Entity);
                Next_Length    : constant Static_And_Dynamic_Index :=

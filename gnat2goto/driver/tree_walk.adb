@@ -1447,6 +1447,14 @@ package body Tree_Walk is
                   return Report_Unhandled_Node_Irep
                     (N, "Do_Expression",
                      "Component_Size unsupported");
+               when Attribute_Image =>
+                  Report_Unhandled_Node_Empty
+                    (N        => N,
+                     Fun_Name => "Do_Expression",
+                     Message  => "Attribute Image is unsupported");
+                  return Make_String_Constant_Expr
+                    (Text       => "Unsupported'Image",
+                     Source_Loc => Get_Source_Location (N));
                when others           =>
                   return Report_Unhandled_Node_Irep
                     (N, "Do_Expression",
