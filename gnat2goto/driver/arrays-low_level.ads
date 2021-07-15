@@ -335,17 +335,17 @@ package Arrays.Low_Level is
    --  and the lower bound given as an Int constant.
 
    function Multi_Dimension_Flat_Bounds (Array_Node : Node_Id)
-                                         return Static_And_Dynamic_Bounds
-     with Pre => ((Nkind (Array_Node) in N_Full_Type_Declaration |
-                                      N_Subtype_Declaration and then
-                      Is_Array_Type (Defining_Identifier (Array_Node)))
-               or else (Nkind (Array_Node) in N_Object_Declaration |
-                      N_Object_Renaming_Declaration and then
-                        Is_Array_Type (Underlying_Type
-                      (Etype (Defining_Identifier (Array_Node)))))
-               or else (Nkind (Array_Node) in N_Has_Etype and then
-                      Is_Array_Type (Underlying_Type
-                        (Etype (Array_Node)))));
+                                         return Static_And_Dynamic_Bounds;
+--       with Pre => ((Nkind (Array_Node) in N_Full_Type_Declaration |
+--                                        N_Subtype_Declaration and then
+--                        Is_Array_Type (Defining_Identifier (Array_Node)))
+--                 or else (Nkind (Array_Node) in N_Object_Declaration |
+--                        N_Object_Renaming_Declaration and then
+--                          Is_Array_Type (Underlying_Type
+--                        (Etype (Defining_Identifier (Array_Node)))))
+--                 or else (Nkind (Array_Node) in N_Has_Etype and then
+--                        Is_Array_Type (Underlying_Type
+--                          (Etype (Array_Node)))));
    --  In goto Ada multidimensional arrays are flattenned into one dimensional
    --  arrays. This function calculates the zero based bounds of a flattened
    --  multi-dimentional array
