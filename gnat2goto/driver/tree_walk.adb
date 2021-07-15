@@ -678,7 +678,11 @@ package body Tree_Walk is
       begin
          if Is_Array_Type (Formal_Ada_Type) then
             declare
-               Actual_Array : constant Entity_Id := Entity (Actual);
+               Actual_Array : constant Entity_Id :=
+                 (if Nkind (Actual) in N_Has_Entity then
+                       Entity (Actual)
+                  else
+                     Etype (Actual));
                Component_Subtype : constant Entity_Id :=
                  Component_Type (Formal_Ada_Type);
                Component_Irep : constant Irep :=
@@ -4341,7 +4345,7 @@ package body Tree_Walk is
             --  specification is processed
             if Is_Array_Type (Return_Type) and then
               Kind (Return_I_Type) = I_Struct_Type and then
-              not Is_Unconstrained_Array_Result (Do_Expression (Return_Expr))
+              not Is_Bounded_Array (Do_Expression (Return_Expr))
             then
                --  It is an unconstrained array result type
                Build_Unconstrained_Array_Result
@@ -4526,6 +4530,7 @@ package body Tree_Walk is
       ASVAT_Model : constant ASVAT.Modelling.Model_Sorts :=
         ASVAT.Modelling.Get_Model_Sort (E);
    begin
+      pragma Assert (Nkind (E) in N_Entity);
       pragma Assert (Ekind (E) in Subprogram_Kind);
       Register_Subprogram_Specification (Specification (N));
 
@@ -4972,7 +4977,10 @@ package body Tree_Walk is
                              (I_Subtype => Make_Unsignedbv_Type (8),
                               Width     => Pointer_Type_Width)));
    begin
-      if Kind (New_Type) = I_Struct_Type then
+      if Kind (New_Type) = I_Struct_Type and then
+        --  A Bounded_Array already has a tag set
+        not Is_Bounded_Array (New_Type)
+      then
          Set_Tag (New_Type, New_Type_Name);
       end if;
       if not Symbol_Maps.Contains (Global_Symbol_Table, New_Type_Name_Id) then
@@ -5031,6 +5039,7 @@ package body Tree_Walk is
       --  The type might be private or incomplete.
       --  The underlying type is required.
       Type_Entity : constant Entity_Id := Underlying_Type (E);
+      pragma Assert (Nkind (Type_Entity) in N_Entity);
       Type_Name   : constant String := Unique_Name
         (if Ekind (Type_Entity) = E_Access_Subtype then
               Etype (Type_Entity) else Type_Entity);

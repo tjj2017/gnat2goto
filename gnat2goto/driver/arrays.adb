@@ -13,11 +13,9 @@ with Sem_Eval;              use Sem_Eval;
 with Gnat2goto_Itypes;      use Gnat2goto_Itypes;
 with Arrays.Low_Level;      use Arrays.Low_Level;
 with Symbol_Table_Info;     use Symbol_Table_Info;
-with Ada.Text_IO; use Ada.Text_IO;
-with Treepr; use Treepr;
 package body Arrays is
 
-   function Is_Unconstrained_Array_Result (Expr : Irep) return Boolean
+   function Is_Bounded_Array (Expr : Irep) return Boolean
      renames Arrays.Low_Level.Is_Unconstrained_Array_Result;
 
    procedure Array_Object_And_Friends
@@ -170,10 +168,6 @@ package body Arrays is
          else
             Do_Type_Reference (Source_Type));
    begin
-      Put_Line ("Array_Assignment_Op");
-      Print_Irep (Source_I_Type);
-      Print_Irep (Get_Subtype (Source_I_Type));
-      Print_Node_Briefly (Source_Type);
       if RHS_Node_Kind = N_Aggregate then
          Update_Array_From_Aggregate
            (Block        => Block,
@@ -623,11 +617,14 @@ package body Arrays is
       Src_Is_Object   : constant Boolean :=
         (if Src_Node_Kind in N_Entity then
             Is_Object (Src_Array)
-         elsif Src_Node_Kind in N_Has_Entity then
+         elsif Src_Node_Kind in N_Has_Entity and then
+         Nkind (Entity (Src_Array)) in N_Entity
+         then
             Is_Object (Entity (Src_Array))
          else
             False);
    begin
+      pragma Assert (Nkind (Array_Type) in N_Entity);
       if Ekind (Array_Type) = E_String_Literal_Subtype then
          --  A string literal can only have 1 dimension but
          --  gnat does not give a first index in the atree for string literals.
@@ -2090,10 +2087,10 @@ package body Arrays is
       --  For instance, Do_Type_Reference requires the Irep type information
       --  for the Array type to be in the global symbol table.
       declare
-         Comp_I_Type  : constant Irep :=
+         Comp_I_Type      : constant Irep :=
            Make_Resolved_I_Type (Comp_Type);
 
-         Array_I_Type : constant Irep :=
+         Array_I_Type     : constant Irep :=
            Do_Type_Reference (Array_Type);
 
          --  This array of the first and last of each dimension

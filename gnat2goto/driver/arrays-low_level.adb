@@ -6,6 +6,7 @@ with Symbol_Table_Info;       use Symbol_Table_Info;
 with Range_Check;             use Range_Check;
 with Ada.Text_IO; use Ada.Text_IO;
 with Follow; use Follow;
+
 package body Arrays.Low_Level is
 
    --  A Irep of an array could be of one of the following sorts:
@@ -131,11 +132,6 @@ package body Arrays.Low_Level is
       end Is_Bounded;
 
    begin
-      Put_Line ("Is_Unconstrained_Array_Result");
-      Print_Irep (Expr_Type);
-      if Kind (Expr_Type) = I_Pointer_Type then
-         Print_Irep (Get_Subtype (Expr_Type));
-      end if;
       pragma Assert (Expr_Type /= Ireps.Empty);
       return
         (Kind (Expr_Type) = I_Pointer_Type and then
@@ -154,7 +150,6 @@ package body Arrays.Low_Level is
       Target_I_Type    : constant Irep := Get_Type (Destination);
       Component_I_Type : constant Irep := Get_Subtype (Target_I_Type);
    begin
-      Put_Line ("Assign_Array");
       if not Dest_Bounds.Is_Unconstrained then
          if Dest_Bounds.Has_Static_Bounds and
            Source_Bounds.Is_Unconstrained and
@@ -198,7 +193,7 @@ package body Arrays.Low_Level is
             Fun_Name => "Assign_Array",
             Message  => "Assignment to an unconstrained array object " &
               Get_Identifier (Destination) &
-              "is unsupported");
+              " is unsupported");
       end if;
    end Assign_Array;
 
@@ -1655,7 +1650,8 @@ package body Arrays.Low_Level is
       Array_Is_Object   : constant Boolean :=
         (Array_Node_Kind in N_Entity and then Is_Object (Array_Node)) or else
         (Array_Node_Kind in N_Has_Entity and then
-         Is_Object (Entity (Array_Node)));
+         (Nkind (Entity (Array_Node)) in N_Entity and then
+          Is_Object (Entity (Array_Node))));
       Array_Type        : constant Entity_Id := Underlying_Type
         (if Array_Node_Kind = N_Defining_Identifier and then
          Is_Type (Array_Node)

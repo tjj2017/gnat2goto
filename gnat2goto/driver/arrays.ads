@@ -10,7 +10,7 @@ with GOTO_Utils;        use GOTO_Utils;
 
 package Arrays is
 
-   function Is_Unconstrained_Array_Result (Expr : Irep) return Boolean;
+   function Is_Bounded_Array (Expr : Irep) return Boolean;
 
    procedure Add_Array_Friends (Array_Name : String;
                                 Array_Type : Entity_Id;
