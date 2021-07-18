@@ -2220,9 +2220,10 @@ package body Arrays is
       procedure Process_Catenation (N : Node_Id);
 
       procedure Process_Catenation (N : Node_Id) is
+         N_Kind : constant Node_Kind := Nkind (N);
       begin
 
-         if Nkind (N) = N_Op_Concat then
+         if N_Kind = N_Op_Concat then
             if Is_Component_Left_Opnd (N) then
                Assign_To_Array_Component
                  (Block      => Block,
@@ -2253,14 +2254,14 @@ package body Arrays is
             declare
                --  In a concatenation the array can only have one dimension.
                Array_Entity : constant Node_Id :=
-                 (if Nkind (N) in N_Entity then
+                 (if N_Kind in N_Entity then
                        N
-                  elsif Nkind (N) in N_Has_Entity then
+                  elsif N_Kind in N_Has_Entity then
                        Entity (N)
-                  elsif Nkind (N) in N_Has_Etype then
+                  elsif N_Kind in N_Has_Etype then
                        Etype (N)
                   else
-                    Types.Empty);
+                    N);
                Array_Bounds    : constant Static_And_Dynamic_Bounds :=
                  Multi_Dimension_Flat_Bounds (Array_Entity);
                Next_Length    : constant Static_And_Dynamic_Index :=

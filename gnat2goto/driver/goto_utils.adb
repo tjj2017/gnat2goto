@@ -310,8 +310,10 @@ package body GOTO_Utils is
          IsLValue => True,
          others => <>);
    begin
-      pragma Assert (not A_Symbol_Table.Contains (Object_Name));
-      A_Symbol_Table.Insert (Object_Name, Object_Symbol);
+      --  The symbol may be in the table if it is a derived type declaration.
+      if not A_Symbol_Table.Contains (Object_Name) then
+         A_Symbol_Table.Insert (Object_Name, Object_Symbol);
+      end if;
    end New_Object_Symbol_Entry;
 
    procedure New_Subprogram_Symbol_Entry (Subprog_Name : Symbol_Id;
