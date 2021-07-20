@@ -32,8 +32,7 @@ package body Arrays is
                                   Dest_Bounds  : Static_And_Dynamic_Bounds;
                                   Target_Array : Irep;
                                   Block        : Irep)
-   with Pre => Is_Array_Type (Underlying_Type (Etype (Source_Expr))) and
-               Kind (Get_Type (Target_Array)) = I_Array_Type;
+   with Pre => Is_Array_Type (Underlying_Type (Etype (Source_Expr)));
 
    procedure Declare_Array_Friends (Array_Name  : String;
                                     Src_Array   : Node_Id;

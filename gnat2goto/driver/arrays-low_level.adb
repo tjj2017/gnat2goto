@@ -1052,7 +1052,14 @@ package body Arrays.Low_Level is
             N);
       N_Kind           : constant Node_Kind := Nkind (Array_Node);
       N_Entity         : constant Entity_Id :=
-        (if N_Kind = N_Defining_Identifier then
+        (if N_Kind = N_Attribute_Reference then
+            (if Get_Attribute_Id (Attribute_Name (Array_Node)) =
+                Attribute_Image
+            then
+               Standard_String
+            else
+               Types.Empty)
+         elsif N_Kind = N_Defining_Identifier then
               Array_Node
          elsif N_Kind in N_Has_Entity then
             Entity (Array_Node)
@@ -1060,6 +1067,7 @@ package body Arrays.Low_Level is
             Etype (Array_Node)
          else
             Defining_Identifier (Array_Node));
+      pragma Assert (Present (N_Entity));
 
       Pre_1_Array_Type : constant Entity_Id :=
         (if Is_Type (N_Entity) then
@@ -1097,10 +1105,19 @@ package body Arrays.Low_Level is
    begin
       --  In lieu of pre-condition
       pragma Assert (Is_Array_Type (Array_Type));
-      pragma Assert (Is_Object (N_Entity) or else Nkind (Index) = N_Range
+      if not (Is_Object (N_Entity) or else Nkind (Index) = N_Range
                      or else Is_Constrained (Array_Type)
                      or else N_Kind = N_Function_Call
-                     or else Is_Access_Type (Pre_1_Array_Type));
+              or else Is_Access_Type (Pre_1_Array_Type))
+      then
+         Report_Unhandled_Node_Empty
+           (N        => N,
+            Fun_Name => "Get_Dimension_Bounds",
+            Message  => "Unhandled node sort");
+         return Dimension_Bounds'
+           (Low  => Index_T_Zero,
+            High => Index_T_One);
+      end if;
       if Is_Constrained (Array_Type) then
          return Get_Bounds_From_Index (Index);
       elsif N_Kind = N_Function_Call or else
