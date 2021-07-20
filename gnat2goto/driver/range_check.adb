@@ -462,12 +462,32 @@ package body Range_Check is
         Get_Bound (N, Followed_Bound_Type, Bound_Low);
       Upper_Bound : constant Irep :=
         Get_Bound (N, Followed_Bound_Type, Bound_High);
+      Value_Ok    : constant Boolean :=
+        Kind (Value) in Class_Expr and then
+        Kind (Get_Type (Value)) in Class_Type;
+      Value_May_Fail : constant Irep :=
+        (if Value_Ok then
+            Value
+         else
+         --  We need a value for gnat2goto error recovery but the
+         --  value given below may be type incorrect and fail in cbmc.
+            Integer_Constant_To_Expr
+           (Value           => Uint_0,
+            Expr_Type       => Int32_T,
+            Source_Location => Get_Source_Location (N)));
    begin
-      pragma Assert (Kind (Value) in Class_Expr and then
-                     Kind (Get_Type (Value)) in Class_Type);
+      if not (Kind (Value) in Class_Expr and then
+              Kind (Get_Type (Value)) in Class_Type)
+      then
+         Report_Unhandled_Node_Empty
+           (N        => N,
+            Fun_Name => "Make_Range_Assert_Expr",
+            Message  => "Unrecognised Value kind " &
+              Irep_Kind'Image (Kind (Value)));
+      end if;
 
       return Make_Range_Assert_Expr (N           => N,
-                 Value       => Value,
+                 Value       => Value_May_Fail,
                  Lower_Bound => Lower_Bound,
                  Upper_Bound => Upper_Bound,
                  Expected_Return_Type => Get_Type (Value),

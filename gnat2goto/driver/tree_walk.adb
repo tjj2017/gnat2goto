@@ -1465,6 +1465,13 @@ package body Tree_Walk is
                   return Make_String_Constant_Expr
                     (Text       => "Unsupported'Image",
                      Source_Loc => Get_Source_Location (N));
+               when Attribute_Value =>
+                  Report_Unhandled_Node_Empty
+                    (N        => N,
+                     Fun_Name => "Do_Expression",
+                     Message  => "Attribute_Value is unsupported");
+                  --  return a dummy value
+                  return Do_Expression (Type_Low_Bound (Etype (N)));
                when others           =>
                   return Report_Unhandled_Node_Irep
                     (N, "Do_Expression",
@@ -4958,8 +4965,9 @@ package body Tree_Walk is
       declare
          To_Convert : constant Irep := Do_Expression (Convert_Expr);
          New_Type   : constant Irep := Do_Type_Reference (Etype (N));
+         --  Presently onl scalar types are range checked.
          Maybe_Checked_Op : constant Irep :=
-           (if Do_Range_Check (Expression (N))
+           (if Is_Scalar_Type (Etype (N)) and Do_Range_Check (Expression (N))
             then Make_Range_Assert_Expr
               (N => N,
                Value => To_Convert,
