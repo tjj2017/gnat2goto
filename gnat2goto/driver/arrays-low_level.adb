@@ -1672,9 +1672,9 @@ package body Arrays.Low_Level is
            (if Array_Node_Kind in N_Entity and then
             Is_Type (Array_Node)
             then
-               Array_Node
+               Underlying_Type (Array_Node)
             elsif Array_Node_Kind in N_Has_Etype then
-               Etype (Array_Node)
+               Underlying_Type (Etype (Array_Node))
             else
                  Types.Empty));
    begin
