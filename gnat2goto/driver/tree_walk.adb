@@ -13,6 +13,7 @@ with GNAT_Utils;            use GNAT_Utils;
 with GOTO_Utils;            use GOTO_Utils;
 with Uint_To_Binary;        use Uint_To_Binary;
 with Stand;
+use Stand;
 with Binary_To_Hex;         use Binary_To_Hex;
 with Ada.Text_IO;           use Ada.Text_IO;
 with Ada.Exceptions;
@@ -679,10 +680,19 @@ package body Tree_Walk is
          if Is_Array_Type (Formal_Ada_Type) then
             declare
                Actual_Array : constant Entity_Id :=
-                 (if Nkind (Actual) in N_Has_Entity then
+                 (if Nkind (Actual) = N_Attribute_Reference then
+                      (if Get_Attribute_Id (Attribute_Name (Actual)) =
+                           Attribute_Image
+                       then
+                          Standard_String
+                       else
+                          Types.Empty)
+                  elsif Nkind (Actual) in N_Has_Entity then
                        Entity (Actual)
                   else
                      Etype (Actual));
+               pragma Assert (Present (Actual_Array));
+
                Component_Subtype : constant Entity_Id :=
                  Component_Type (Formal_Ada_Type);
                Component_Irep : constant Irep :=
