@@ -133,7 +133,6 @@ package body Arrays.Low_Level is
       end Is_Bounded;
 
    begin
-      pragma Assert (Expr_Type /= Ireps.Empty);
       return
         (Kind (Expr_Type) = I_Pointer_Type and then
          Is_Bounded (Get_Subtype (Expr_Type))) or else
