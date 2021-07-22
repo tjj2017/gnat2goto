@@ -4410,9 +4410,14 @@ package body Tree_Walk is
       Function_Name : constant String := "__CPROVER_Ada_Raise_Exception";
 
       Exception_Id_String : constant Irep :=
-        Make_String_Constant_Expr
-          (Text       => Unique_Name (Entity (Name (N))),
-           Source_Loc => Source_Loc);
+        (if Present (Name (N)) then
+            Make_String_Constant_Expr
+           (Text       => Unique_Name (Entity (Name (N))),
+            Source_Loc => Source_Loc)
+         else
+            Make_String_Constant_Expr
+           (Text       => "_no_name__",
+            Source_Loc => Source_Loc));
       Exception_Comment : constant Irep :=
         (if Present (Expression (N)) then Do_String_Constant (Expression (N))
          else Make_String_Constant_Expr (Text       => "",
