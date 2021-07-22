@@ -4419,7 +4419,13 @@ package body Tree_Walk is
            (Text       => "_no_name__",
             Source_Loc => Source_Loc));
       Exception_Comment : constant Irep :=
-        (if Present (Expression (N)) then Do_String_Constant (Expression (N))
+        (if Present (Expression (N)) then
+           (if Nkind (Expression (N)) = N_String_Literal then
+                 Do_String_Constant (Expression (N))
+            else
+               Make_String_Constant_Expr
+              (Text       => "_unsupported_text_expression__",
+               Source_Loc => Source_Loc))
          else Make_String_Constant_Expr (Text       => "",
                                          Source_Loc => Source_Loc));
       Exception_Call_Arguments : constant Irep := Make_Argument_List;
