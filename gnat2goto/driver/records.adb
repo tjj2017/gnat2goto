@@ -67,7 +67,10 @@ package body Records is
       --  However, let's check.
       declare
          Components   : constant Node_Id :=
-           Component_List (Type_Definition (Parent (N_Underlying_Type)));
+           Component_List (Type_Definition
+                           (Parent
+                              (Underlying_Type
+                                   (Base_Type (N_Underlying_Type)))));
          Variant_Node : constant Node_Id := Variant_Part (Components);
 
          Component_Iter : Node_Id :=
@@ -1031,9 +1034,20 @@ package body Records is
       Variant_Name : Unbounded_String;
    begin
       while Present (Constraint_Iter) loop
-         pragma Assert (Nkind (Constraint_Iter) in N_Has_Chars);
-         Append (Variant_Name,
-                 "_" & Get_Name_String (Chars (Constraint_Iter)));
+         if Nkind (Constraint_Iter) in N_Has_Chars then
+            Append (Variant_Name,
+                    "_" & Get_Name_String (Chars (Constraint_Iter)));
+         elsif Nkind (Constraint_Iter) = N_Others_Choice then
+            Append (Variant_Name,
+                    "_others");
+         else
+            Report_Unhandled_Node_Empty
+              (N        => Constraint_Iter,
+               Fun_Name => "Get_Variant_Union_Member_Name",
+               Message  => "Unexpected constraint node");
+            Append (Variant_Name,
+                    "_$unknown_constraint");
+         end if;
          Next (Constraint_Iter);
       end loop;
       return To_String (Variant_Name);
